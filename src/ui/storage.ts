@@ -1,5 +1,12 @@
 import { isLang, type Lang } from '../i18n';
-import { clampMaxSpeed, clampSpeed, DEFAULT_MAX_SPEED, DEFAULT_SPEED } from './speed';
+import {
+  clampMaxSpeed,
+  clampMinSpeed,
+  clampSpeed,
+  DEFAULT_MAX_SPEED,
+  DEFAULT_MIN_SPEED,
+  DEFAULT_SPEED,
+} from './speed';
 
 const PREFIX = 'jstu4:';
 const KEYS = {
@@ -20,6 +27,7 @@ export interface AppSettings {
   readonly theme: Theme;
   readonly sound: boolean;
   readonly speed: number;
+  readonly minSpeed: number;
   readonly maxSpeed: number;
 }
 
@@ -34,6 +42,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'auto',
   sound: false,
   speed: DEFAULT_SPEED,
+  minSpeed: DEFAULT_MIN_SPEED,
   maxSpeed: DEFAULT_MAX_SPEED,
 };
 
@@ -70,20 +79,25 @@ export function loadSettings(): AppSettings {
       const parsed: unknown = JSON.parse(raw);
       if (typeof parsed === 'object' && parsed !== null) {
         const record = parsed as Record<string, unknown>;
+        const minSpeed =
+          typeof record['minSpeed'] === 'number'
+            ? clampMinSpeed(record['minSpeed'])
+            : DEFAULT_SETTINGS.minSpeed;
         const maxSpeed =
           typeof record['maxSpeed'] === 'number'
             ? clampMaxSpeed(record['maxSpeed'])
             : DEFAULT_SETTINGS.maxSpeed;
         const speed =
           typeof record['speed'] === 'number'
-            ? clampSpeed(record['speed'], maxSpeed)
-            : Math.min(DEFAULT_SETTINGS.speed, maxSpeed);
+            ? clampSpeed(record['speed'], minSpeed, maxSpeed)
+            : clampSpeed(DEFAULT_SETTINGS.speed, minSpeed, maxSpeed);
         return {
           lang:
             typeof record['lang'] === 'string' && isLang(record['lang']) ? record['lang'] : null,
           theme: isTheme(record['theme']) ? record['theme'] : DEFAULT_SETTINGS.theme,
           sound: typeof record['sound'] === 'boolean' ? record['sound'] : DEFAULT_SETTINGS.sound,
           speed,
+          minSpeed,
           maxSpeed,
         };
       }
@@ -99,6 +113,7 @@ export function loadSettings(): AppSettings {
     theme: isTheme(legacyTheme) ? legacyTheme : DEFAULT_SETTINGS.theme,
     sound: read(KEYS.legacySound) === '1',
     speed: DEFAULT_SETTINGS.speed,
+    minSpeed: DEFAULT_SETTINGS.minSpeed,
     maxSpeed: DEFAULT_SETTINGS.maxSpeed,
   };
 }

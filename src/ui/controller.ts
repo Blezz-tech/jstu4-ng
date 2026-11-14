@@ -23,8 +23,10 @@ import {
 import {
   BASE_STEPS_PER_SECOND,
   clampMaxSpeed,
+  clampMinSpeed,
   clampSpeed,
   DEFAULT_MAX_SPEED,
+  DEFAULT_MIN_SPEED,
   DEFAULT_SPEED,
   stepIntervalMs,
 } from './speed';
@@ -44,20 +46,34 @@ export interface AppElements {
 
 export type LogKind = 'info' | 'warning' | 'error';
 
+/** Snapshot of run-mode control availability emitted whenever execution state changes. */
+export interface RunControlState {
+  readonly isRunning: boolean;
+  readonly isAutoRunning: boolean;
+  readonly canStepForward: boolean;
+  readonly canStepBack: boolean;
+  readonly canAutoRun: boolean;
+  readonly canRestart: boolean;
+  readonly speed: number;
+}
+
 export interface ControllerOptions {
   readonly i18n: I18n;
   readonly elements: AppElements;
   /** Initial auto-run speed multiplier (defaults to 1×). */
   readonly initialSpeed?: number;
-  /** Initial maximum auto-run speed multiplier (defaults to 10×). */
+  /** Initial minimum (reverse) speed multiplier (defaults to -15×). */
+  readonly initialMinSpeed?: number;
+  /** Initial maximum (forward) speed multiplier (defaults to 25×). */
   readonly initialMaxSpeed?: number;
   /** Called after every mode or auto-run state change so the shell can sync UI. */
   readonly onModeChange: (mode: UIMode) => void;
   /**
-   * Called whenever the machine halts or starts running again, so the toolbar
-   * can disable "Step"/"Run" instead of leaving them looking usable.
+   * Called whenever the machine halts or starts running again.
    */
   readonly onRunningChange?: (isRunning: boolean) => void;
+  /** Called whenever run-mode button availability changes (step back/forward, run, restart). */
+  readonly onRunStateChange?: (state: RunControlState) => void;
   /** Persist the program draft. */
   readonly onProgramChange: (text: string) => void;
   readonly onTapeChange: (text: string) => void;
@@ -74,6 +90,8 @@ type LogDescriptor =
   | { readonly type: 'ready' }
   | { readonly type: 'restoredDraft' }
   | { readonly type: 'finished' }
+  | { readonly type: 'reachedInitialState' }
+  | { readonly type: 'restarted' }
   | { readonly type: 'sourceAltered' }
   | { readonly type: 'misplaced' }
   | { readonly type: 'convertedToTu4' }
@@ -117,13 +135,17 @@ export class AppController {
   private mode: UIMode = 'edit';
   private run: MachineRun | null = null;
   private compiled: CompiledProgram | null = null;
+  private readonly visitCounts = new Map<number, number>();
 
   private autoTimer: ReturnType<typeof setTimeout> | null = null;
   private autoRaf: number | null = null;
   private autoGeneration = 0;
   private lastStepAt = 0;
+  private minSpeed: number;
   private maxSpeed: number;
   private speed: number;
+  private draggingSpeed = false;
+  private resumeAfterZeroDrag = false;
 
   private returnCursorOffset: number | null = null;
   private lastLog: LogDescriptor = { type: 'none' };
@@ -134,8 +156,9 @@ export class AppController {
     this.options = options;
     this.i18n = options.i18n;
     this.el = options.elements;
+    this.minSpeed = clampMinSpeed(options.initialMinSpeed ?? DEFAULT_MIN_SPEED);
     this.maxSpeed = clampMaxSpeed(options.initialMaxSpeed ?? DEFAULT_MAX_SPEED);
-    this.speed = clampSpeed(options.initialSpeed ?? DEFAULT_SPEED, this.maxSpeed);
+    this.speed = clampSpeed(options.initialSpeed ?? DEFAULT_SPEED, this.minSpeed, this.maxSpeed);
     this.unsubscribeI18n = this.i18n.subscribe(() => this.refreshLocalized());
   }
 
@@ -151,6 +174,10 @@ export class AppController {
     return this.speed;
   }
 
+  get currentMinSpeed(): number {
+    return this.minSpeed;
+  }
+
   get currentMaxSpeed(): number {
     return this.maxSpeed;
   }
@@ -159,27 +186,100 @@ export class AppController {
     return this.run?.isRunning ?? false;
   }
 
-  /** Change auto-run speed multiplier (`0.5×` .. `currentMaxSpeed`). */
+  get canStepForward(): boolean {
+    return this.mode === 'run' && (this.run?.isRunning ?? false);
+  }
+
+  get canStepBack(): boolean {
+    return this.mode === 'run' && (this.run?.canStepBack ?? false);
+  }
+
+  get canRestart(): boolean {
+    return (
+      this.mode === 'run' && this.run !== null && (this.run.stepsCount > 0 || !this.run.isRunning)
+    );
+  }
+
+  get canAutoRun(): boolean {
+    if (this.mode !== 'run' || this.run === null) return false;
+    if (this.isAutoRunning) return true;
+    return this.canStepInDirection(this.speed);
+  }
+
+  /** Notify controller that the user started dragging the speed slider thumb. */
+  beginSpeedDrag(): void {
+    this.draggingSpeed = true;
+    this.resumeAfterZeroDrag = this.isAutoRunning;
+  }
+
+  /** Notify controller that the user finished dragging the speed slider thumb. */
+  endSpeedDrag(): void {
+    this.draggingSpeed = false;
+    this.resumeAfterZeroDrag = false;
+  }
+
+  /**
+   * Change auto-run speed multiplier (`currentMinSpeed` .. `currentMaxSpeed`).
+   * Moving to `0` stops automatic execution immediately; negative values run
+   * the machine in reverse.
+   */
   setSpeed(value: number): number {
-    const next = clampSpeed(value, this.maxSpeed);
+    const next = clampSpeed(value, this.minSpeed, this.maxSpeed);
     if (next === this.speed) return next;
     this.speed = next;
 
-    if (this.isAutoRunning) {
-      this.clearAutoHandles();
-      const remaining = Math.max(
-        0,
-        Math.round(stepIntervalMs(this.speed) - (performance.now() - this.lastStepAt)),
-      );
-      this.scheduleAutoTick(remaining);
+    if (next === 0) {
+      if (this.isAutoRunning) {
+        if (this.draggingSpeed) this.resumeAfterZeroDrag = true;
+        this.clearAutoHandles();
+        this.options.onModeChange(this.mode);
+      }
+      this.notifyRunState();
+      return next;
     }
+
+    if (this.isAutoRunning) {
+      if (!this.canStepInDirection(next)) {
+        this.clearAutoHandles();
+        if (next < 0 && this.run !== null && !this.run.canStepBack) {
+          this.setLog({ type: 'reachedInitialState' });
+        }
+        this.options.onModeChange(this.mode);
+      } else {
+        this.clearAutoHandles();
+        const remaining = Math.max(
+          0,
+          Math.round(stepIntervalMs(this.speed) - (performance.now() - this.lastStepAt)),
+        );
+        this.scheduleAutoTick(remaining);
+      }
+    } else if (this.draggingSpeed && this.resumeAfterZeroDrag) {
+      if (this.canStepInDirection(next)) {
+        this.lastStepAt = performance.now();
+        this.scheduleAutoTick(0);
+      } else if (next < 0 && this.run !== null && !this.run.canStepBack) {
+        this.setLog({ type: 'reachedInitialState' });
+      }
+    }
+
+    this.notifyRunState();
     return next;
   }
 
-  /** Change the upper bound for the speed slider and clamp current speed if needed. */
+  /** Change the lower (negative) bound for the speed slider and clamp current speed if needed. */
+  setMinSpeed(value: number): { readonly minSpeed: number; readonly speed: number } {
+    this.minSpeed = clampMinSpeed(value);
+    const clampedSpeed = clampSpeed(this.speed, this.minSpeed, this.maxSpeed);
+    if (clampedSpeed !== this.speed) {
+      this.setSpeed(clampedSpeed);
+    }
+    return { minSpeed: this.minSpeed, speed: this.speed };
+  }
+
+  /** Change the upper (positive) bound for the speed slider and clamp current speed if needed. */
   setMaxSpeed(value: number): { readonly maxSpeed: number; readonly speed: number } {
     this.maxSpeed = clampMaxSpeed(value);
-    const clampedSpeed = clampSpeed(this.speed, this.maxSpeed);
+    const clampedSpeed = clampSpeed(this.speed, this.minSpeed, this.maxSpeed);
     if (clampedSpeed !== this.speed) {
       this.setSpeed(clampedSpeed);
     }
@@ -215,6 +315,7 @@ export class AppController {
     this.stopAutoRun();
     this.compiled = parsed;
     this.run = new MachineRun(parsed.program, tape);
+    this.visitCounts.clear();
     this.returnCursorOffset = null;
     this.options.onProgramChange(this.el.programInput.value);
     this.options.onTapeChange(tape);
@@ -233,34 +334,73 @@ export class AppController {
 
     this.setMode('run');
     this.el.programView.scrollTop = scrollTop;
-    this.markCommand(this.run.nextCommand);
+    this.highlightCurrentCommand(this.run.nextCommand);
     this.setLog({ type: 'none' });
-    this.options.onRunningChange?.(this.run.isRunning);
+    this.notifyRunState();
     // Move focus out of any previously active input (e.g. `#input-tape` after
     // pressing Enter) so Space/Enter/Esc hotkeys work immediately in run mode.
     this.el.programView.focus({ preventScroll: true });
   }
 
   /**
-   * "Step": pause auto-run (if active) and execute one command.
+   * "Restart": reset the active run back to step 0 with the initial tape,
+   * initial state, and cleared marks without leaving run mode.
+   */
+  restart(): void {
+    if (this.mode !== 'run' || this.run === null || this.compiled === null) return;
+
+    this.stopAutoRun();
+    this.run.reset();
+    this.visitCounts.clear();
+    this.el.programView.querySelectorAll('.cmd.visited, .cmd.current, .cmd.error').forEach((n) => {
+      n.classList.remove('visited', 'current', 'error');
+    });
+
+    this.stats.operationsCount = 0;
+    this.stats.maxDataLength = this.run.cellsUsed;
+    this.renderStats();
+    this.renderTapeView();
+    this.highlightCurrentCommand(this.run.nextCommand);
+    this.setLog({ type: 'restarted' });
+    this.notifyRunState();
+  }
+
+  /**
+   * "Step": pause auto-run (if active) and execute one command forward.
    * Returns whether the machine keeps running.
    */
   step(): boolean {
     this.stopAutoRun();
-    return this.stepOnce(true);
+    return this.stepForwardOnce(true);
   }
 
   /**
-   * "Run / Stop": toggle automatic execution at the current speed.
-   * Stopping pauses the run in place (without resetting or leaving run mode),
-   * just like pressing Step does before advancing.
+   * "Step back": pause auto-run (if active) and undo the last executed command.
+   * Returns whether further backward steps remain (i.e. not yet at step 0).
+   */
+  stepBack(): boolean {
+    this.stopAutoRun();
+    return this.stepBackOnce(true);
+  }
+
+  /**
+   * "Run / Stop": toggle automatic execution in the current speed direction
+   * (forward if speed > 0, backward if speed < 0; no-op when speed is 0).
    */
   toggleAutoRun(): void {
-    if (!this.isMachineRunning) return;
     if (this.isAutoRunning) {
       this.stopAutoRun();
       return;
     }
+    if (this.mode !== 'run' || this.run === null || this.speed === 0) return;
+
+    if (this.speed < 0 && !this.run.canStepBack) {
+      this.setLog({ type: 'reachedInitialState' });
+      this.notifyRunState();
+      return;
+    }
+    if (this.speed > 0 && !this.run.isRunning) return;
+
     this.lastStepAt = performance.now();
     this.scheduleAutoTick();
   }
@@ -271,6 +411,7 @@ export class AppController {
     this.clearAutoHandles();
     if (wasRunning) {
       this.options.onModeChange(this.mode);
+      this.notifyRunState();
     }
   }
 
@@ -283,10 +424,11 @@ export class AppController {
     this.stopAutoRun();
     this.run = null;
     this.compiled = null;
+    this.visitCounts.clear();
     this.returnCursorOffset = null;
-    this.options.onRunningChange?.(false);
     this.setMode('edit');
     this.setLog({ type: 'none' });
+    this.notifyRunState();
 
     const target =
       focus ?? (previousMode === 'error' || cursorOffset !== null ? 'program' : 'tape');
@@ -306,6 +448,7 @@ export class AppController {
   /** "Unmark": pause auto-run (if active) and clear visited command marks. */
   unmark(): void {
     this.stopAutoRun();
+    this.visitCounts.clear();
     this.el.programView.querySelectorAll('.cmd.visited').forEach((node) => {
       node.classList.remove('visited');
     });
@@ -358,8 +501,8 @@ export class AppController {
         if (withModifier) this.start();
         break;
       case 'run':
-        if (this.isMachineRunning) this.toggleAutoRun();
-        else this.backToEdit('tape');
+        if (this.canAutoRun) this.toggleAutoRun();
+        else if (!this.isMachineRunning && this.speed >= 0) this.backToEdit('tape');
         break;
       case 'error':
         this.backToEdit('program');
@@ -370,6 +513,11 @@ export class AppController {
   handleSpace(): void {
     if (this.mode !== 'run') return;
     this.step();
+  }
+
+  handleShiftSpace(): void {
+    if (this.mode !== 'run') return;
+    this.stepBack();
   }
 
   handleEscape(): void {
@@ -392,10 +540,29 @@ export class AppController {
 
   // ——— internals ——————————————————————————————————————————————————
 
-  private stepOnce(playSound: boolean): boolean {
+  private canStepInDirection(speed: number): boolean {
+    if (this.run === null || speed === 0) return false;
+    return speed > 0 ? this.run.isRunning : this.run.canStepBack;
+  }
+
+  private notifyRunState(): void {
+    this.options.onRunningChange?.(this.isMachineRunning);
+    this.options.onRunStateChange?.({
+      isRunning: this.isMachineRunning,
+      isAutoRunning: this.isAutoRunning,
+      canStepForward: this.canStepForward,
+      canStepBack: this.canStepBack,
+      canAutoRun: this.canAutoRun,
+      canRestart: this.canRestart,
+      speed: this.speed,
+    });
+  }
+
+  private stepForwardOnce(playSound: boolean): boolean {
     const run = this.run;
     if (run === null || !run.isRunning) return false;
 
+    const executed = run.nextCommand;
     try {
       run.step();
     } catch (error) {
@@ -404,20 +571,63 @@ export class AppController {
       return false;
     }
 
-    this.stats.operationsCount += 1;
-    this.stats.maxDataLength = Math.max(this.stats.maxDataLength, run.cellsUsed);
+    if (executed !== undefined) this.recordVisited(executed, 1);
+
+    this.stats.operationsCount = run.stepsCount;
+    this.stats.maxDataLength = run.cellsUsed;
     this.renderStats();
     this.renderTapeView();
-    this.markCommand(run.nextCommand);
+    this.highlightCurrentCommand(run.nextCommand);
     if (playSound) this.options.onStepSound?.();
 
     if (run.isRunning) {
       this.setLog({ type: 'none' });
+      this.notifyRunState();
       return true;
     }
 
     this.reportFinish(run);
     return false;
+  }
+
+  private stepBackOnce(playSound: boolean): boolean {
+    const run = this.run;
+    if (run === null) return false;
+
+    if (!run.canStepBack) {
+      this.clearAutoHandles();
+      this.setLog({ type: 'reachedInitialState' });
+      this.options.onModeChange(this.mode);
+      this.notifyRunState();
+      return false;
+    }
+
+    const undone = run.stepBack();
+    if (undone === null) return false;
+
+    this.recordVisited(undone, -1);
+    this.el.programView.querySelectorAll('.cmd.error').forEach((node) => {
+      node.classList.remove('error');
+    });
+
+    this.stats.operationsCount = run.stepsCount;
+    this.stats.maxDataLength = run.cellsUsed;
+    this.renderStats();
+    this.renderTapeView();
+    this.highlightCurrentCommand(run.nextCommand);
+    if (playSound) this.options.onStepSound?.();
+
+    if (run.isAtStart) {
+      this.clearAutoHandles();
+      this.setLog({ type: 'reachedInitialState' });
+      this.options.onModeChange(this.mode);
+      this.notifyRunState();
+      return false;
+    }
+
+    this.setLog({ type: 'none' });
+    this.notifyRunState();
+    return true;
   }
 
   private parseInput(): CompiledProgram | null {
@@ -511,15 +721,32 @@ export class AppController {
     return this.el.programView.querySelector<HTMLElement>(`.cmd[data-command-id="${index}"]`);
   }
 
-  private markCommand(next: Command | undefined): void {
+  /** Maintain O(1) execution counts per command so stepping backward restores `.visited` exactly. */
+  private recordVisited(command: Command, delta: 1 | -1): void {
+    const compiled = this.compiled;
+    if (compiled === null) return;
+    const index = compiled.commands.indexOf(command);
+    if (index < 0) return;
+
+    const prev = this.visitCounts.get(index) ?? 0;
+    const next = Math.max(0, prev + delta);
+    const node = this.commandNode(index);
+
+    if (next === 0) {
+      this.visitCounts.delete(index);
+      node?.classList.remove('visited');
+    } else {
+      this.visitCounts.set(index, next);
+      node?.classList.add('visited');
+    }
+  }
+
+  private highlightCurrentCommand(next: Command | undefined): void {
     const compiled = this.compiled;
     if (compiled === null) return;
 
-    // Transition the previously active command into the visited state before
-    // highlighting the next one (mirrors original jstu4 `selectCommand`).
     this.el.programView.querySelectorAll('.cmd.current').forEach((node) => {
       node.classList.remove('current');
-      node.classList.add('visited');
     });
 
     if (next === undefined) return;
@@ -534,14 +761,15 @@ export class AppController {
   }
 
   private reportRuntimeError(error: unknown): void {
-    this.stopAutoRun();
-    this.options.onRunningChange?.(false);
+    this.clearAutoHandles();
     if (error instanceof NoSuchCommandError) {
       this.setLog({
         type: 'noSuchCommand',
         q: String(error.data.state),
         a: error.data.symbol,
       });
+      this.options.onModeChange(this.mode);
+      this.notifyRunState();
       return;
     }
     if (error instanceof OutOfTapeError) {
@@ -551,14 +779,15 @@ export class AppController {
         node.classList.add('error');
       });
       this.setLog({ type: 'headIsOutOfTape' });
+      this.options.onModeChange(this.mode);
+      this.notifyRunState();
       return;
     }
     throw error;
   }
 
   private reportFinish(run: MachineRun): void {
-    this.stopAutoRun();
-    this.options.onRunningChange?.(false);
+    this.clearAutoHandles();
     switch (run.checkNormality()) {
       case 'sourceAltered':
         this.setLog({ type: 'sourceAltered' });
@@ -570,26 +799,34 @@ export class AppController {
         this.setLog({ type: 'finished' });
         break;
     }
+    this.options.onModeChange(this.mode);
+    this.notifyRunState();
   }
 
   private scheduleAutoTick(initialDelayMs?: number): void {
+    if (this.speed === 0) return;
+
     const generation = ++this.autoGeneration;
     const interval = stepIntervalMs(this.speed);
 
     if (interval < RAF_THRESHOLD_MS) {
-      // High-speed mode (> 10×): run a rate-accurate, time-budgeted batch per
-      // animation frame so speeds beyond browser timer resolution scale smoothly
-      // without freezing repaints or piling up timers in background tabs.
+      // High-speed mode (|speed| > 10×): run a rate-accurate, time-budgeted
+      // batch per animation frame in either direction without freezing repaints.
       let lastFrameAt = performance.now();
       let stepBudget = 0;
 
       const frame = (now: number): void => {
         if (generation !== this.autoGeneration) return;
         this.autoRaf = null;
+        if (this.speed === 0) {
+          this.options.onModeChange(this.mode);
+          this.notifyRunState();
+          return;
+        }
 
         const elapsedMs = Math.max(0, Math.min(100, now - lastFrameAt));
         lastFrameAt = now;
-        stepBudget += (elapsedMs * BASE_STEPS_PER_SECOND * this.speed) / 1000;
+        stepBudget += (elapsedMs * BASE_STEPS_PER_SECOND * Math.abs(this.speed)) / 1000;
 
         const targetSteps = Math.min(
           MAX_BATCH_STEPS_PER_FRAME,
@@ -605,12 +842,12 @@ export class AppController {
           stepped < targetSteps &&
           (stepped === 0 || performance.now() < deadline)
         ) {
-          keepGoing = this.stepOnce(false);
+          keepGoing = this.speed > 0 ? this.stepForwardOnce(false) : this.stepBackOnce(false);
           stepped += 1;
         }
         stepBudget = Math.max(0, stepBudget - stepped);
         this.lastStepAt = performance.now();
-        if (this.stats.operationsCount > opsBefore) this.options.onStepSound?.();
+        if (this.stats.operationsCount !== opsBefore) this.options.onStepSound?.();
 
         if (!keepGoing || generation !== this.autoGeneration) {
           this.options.onModeChange(this.mode);
@@ -622,6 +859,7 @@ export class AppController {
 
       this.autoRaf = requestAnimationFrame(frame);
       this.options.onModeChange(this.mode);
+      this.notifyRunState();
       return;
     }
 
@@ -630,7 +868,14 @@ export class AppController {
       this.autoTimer = null;
       this.lastStepAt = performance.now();
 
-      if (!this.stepOnce(true) || generation !== this.autoGeneration) {
+      if (this.speed === 0) {
+        this.options.onModeChange(this.mode);
+        this.notifyRunState();
+        return;
+      }
+
+      const keepGoing = this.speed > 0 ? this.stepForwardOnce(true) : this.stepBackOnce(true);
+      if (!keepGoing || generation !== this.autoGeneration) {
         this.options.onModeChange(this.mode);
         return;
       }
@@ -641,6 +886,7 @@ export class AppController {
     const delay = initialDelayMs ?? Math.round(interval);
     this.autoTimer = setTimeout(tick, delay);
     this.options.onModeChange(this.mode);
+    this.notifyRunState();
   }
 
   private clearAutoHandles(): void {
@@ -683,6 +929,14 @@ export class AppController {
         break;
       case 'finished':
         text = this.i18n.t('log.finished');
+        kind = 'info';
+        break;
+      case 'reachedInitialState':
+        text = this.i18n.t('log.reachedInitialState');
+        kind = 'info';
+        break;
+      case 'restarted':
+        text = this.i18n.t('log.restarted');
         kind = 'info';
         break;
       case 'sourceAltered':

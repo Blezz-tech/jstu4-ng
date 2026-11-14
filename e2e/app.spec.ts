@@ -44,7 +44,7 @@ test('runs the swap example step by step', async ({ page }) => {
   await expect(page.locator('#log')).toContainText('Внимание');
 });
 
-test('auto-run (Запуск/Стоп) finishes the program and supports pausing + speed slider', async ({
+test('auto-run (Запуск/Стоп) finishes, supports reverse speed & restart from end', async ({
   page,
 }) => {
   await page.goto('/');
@@ -53,11 +53,12 @@ test('auto-run (Запуск/Стоп) finishes the program and supports pausing
   await page.locator('#input-tape').fill('111');
   await page.locator('#btn-start').click();
 
-  // Default speed is 1× (range 0.5× to 10×), button says "Запуск".
+  // Default speed is 1× (range -15× to 25×), button says "Запуск".
   await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
   await expect(page.locator('#speed-value')).toHaveText('1×');
-  await expect(page.locator('#input-speed')).toHaveAttribute('min', '0.5');
-  await expect(page.locator('#input-speed')).toHaveAttribute('max', '10');
+  await expect(page.locator('#input-speed')).toHaveAttribute('min', '-15');
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
+  await expect(page.locator('#btn-step-back')).toBeDisabled();
 
   // Raise speed to 10× via the slider.
   await page.locator('#input-speed').fill('10');
@@ -68,13 +69,21 @@ test('auto-run (Запуск/Стоп) finishes the program and supports pausing
   // run really stops (the log is only written when the machine halts).
   await expect(page.locator('#log')).toContainText('Внимание', { timeout: 5_000 });
   await expect(page.locator('#btn-run-toggle')).toBeDisabled();
-  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
+  await expect(page.locator('#btn-step-back')).toBeEnabled();
+  await expect(page.locator('#btn-restart')).toBeEnabled();
   await expect(page.locator('#display-tape')).toContainText('110');
-  await expect(page.locator('#stats')).toContainText('Выполнено операций');
+
+  // Switch slider to negative speed and run in reverse back to step 0!
+  await page.locator('#input-speed').fill('-15');
+  await expect(page.locator('#speed-value')).toHaveText('-15×');
+  await expect(page.locator('#btn-run-toggle')).toBeEnabled();
+  await page.locator('#btn-run-toggle').click();
+  await expect(page.locator('#log')).toContainText('начального состояния', { timeout: 5_000 });
+  await expect(page.locator('#display-tape')).toContainText('111');
+  await expect(page.locator('#btn-step-back')).toBeDisabled();
 });
 
-test('Запуск turns into Стоп to pause execution and max speed can be overridden in settings', async ({
+test('Запуск/Стоп, zero stop, and configurable min/max speed bounds in settings', async ({
   page,
 }) => {
   await page.goto('/');
@@ -87,27 +96,31 @@ test('Запуск turns into Стоп to pause execution and max speed can be o
   await expect(page.locator('#btn-run-toggle')).toContainText('Стоп');
   await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'true');
 
-  // Clicking Стоп pauses execution without leaving run mode.
-  await page.locator('#btn-run-toggle').click();
+  // Moving slider to 0 stops execution immediately.
+  await page.locator('#input-speed').fill('0');
+  await expect(page.locator('#speed-value')).toHaveText('0×');
   await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
-  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#btn-run-toggle')).toBeDisabled();
   await expect(page.locator('#btn-step')).toBeEnabled();
 
-  // Change max speed in settings and verify the slider range & persistence.
+  // Change min & max speed in settings and verify the slider range & persistence.
   await page.locator('#btn-settings').click();
-  await page.locator('#input-max-speed').fill('25');
+  await page.locator('#input-min-speed').fill('-30');
+  await page.locator('#input-max-speed').fill('50');
   await page.locator('#input-max-speed').press('Tab');
   await page.keyboard.press('Escape');
-  await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
+  await expect(page.locator('#input-speed')).toHaveAttribute('min', '-30');
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '50');
 
-  await page.locator('#input-speed').fill('20');
-  await expect(page.locator('#speed-value')).toHaveText('20×');
+  await page.locator('#input-speed').fill('-20');
+  await expect(page.locator('#speed-value')).toHaveText('-20×');
 
   await page.reload();
   await page.locator('#input-program').fill('0, ,>,0');
   await page.locator('#btn-start').click();
-  await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
-  await expect(page.locator('#speed-value')).toHaveText('20×');
+  await expect(page.locator('#input-speed')).toHaveAttribute('min', '-30');
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '50');
+  await expect(page.locator('#speed-value')).toHaveText('-20×');
 });
 
 test('reports parse errors and highlights the offender', async ({ page }) => {
