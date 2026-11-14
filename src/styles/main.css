@@ -1,0 +1,712 @@
+/* ==========================================================================
+   jstu4 — modern vanilla rebuild
+   Single stylesheet: design tokens, light/dark themes, layout, components.
+   No CSS frameworks, no resets from npm: 40 lines of a modern reset + custom
+   properties do the job.
+   ========================================================================== */
+
+/* ——— design tokens ——————————————————————————————————————————————— */
+
+:root {
+  color-scheme: light;
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #eef0f4;
+  --border: #d4d9e0;
+  --border-strong: #b6bdc7;
+  --text: #1c2129;
+  --text-muted: #5d6673;
+  --text-faint: #8b939f;
+
+  --accent: #1f6feb;
+  --accent-text: #ffffff;
+  --accent-soft: #dbe8fd;
+
+  --ok: #147d3b;
+  --ok-soft: #d7f4e0;
+  --warn: #8a5a00;
+  --warn-soft: #fdf0cf;
+  --err: #b3261e;
+  --err-soft: #fce4e2;
+
+  --cell-current: #b9f3c4;
+  --cell-current-text: #0b3d18;
+
+  --radius: 10px;
+  --radius-sm: 7px;
+  --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 4px 16px rgb(16 24 40 / 6%);
+  --ring: 0 0 0 3px rgb(31 111 235 / 35%);
+
+  --space: clamp(10px, 2vmin, 18px);
+  --toolbar-h: auto;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #14161a;
+  --surface: #1b1e24;
+  --surface-2: #22262e;
+  --border: #333a45;
+  --border-strong: #464f5d;
+  --text: #e6e9ee;
+  --text-muted: #a4adba;
+  --text-faint: #737d8b;
+
+  --accent: #6ea8ff;
+  --accent-text: #0b1220;
+  --accent-soft: #1d2b45;
+
+  --ok: #6ee7a0;
+  --ok-soft: #12351f;
+  --warn: #f2c25b;
+  --warn-soft: #3a2c0a;
+  --err: #ff8c82;
+  --err-soft: #3d1714;
+
+  --cell-current: #2f7a44;
+  --cell-current-text: #eafff0;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 20px rgb(0 0 0 / 35%);
+  --ring: 0 0 0 3px rgb(110 168 255 / 45%);
+}
+
+/* ——— reset ——————————————————————————————————————————————————————— */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ——— skip link ————————————————————————————————————————————————————— */
+
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 100;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-text);
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+
+.skip-link:focus-visible {
+  top: 8px;
+  box-shadow: var(--ring);
+}
+
+/* ——— app shell ————————————————————————————————————————————————————— */
+
+.app {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--space);
+  gap: var(--space);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: clamp(1rem, 0.8rem + 1.1vw, 1.35rem);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  min-width: 0;
+}
+
+.title__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title__version {
+  flex: none;
+  font-size: 0.72em;
+  font-weight: 500;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ——— buttons ————————————————————————————————————————————————————— */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 550;
+  white-space: nowrap;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.06s ease;
+}
+
+.btn:hover {
+  background: var(--surface-2);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.btn--primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, black);
+}
+
+.btn[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.icon-btn[data-on='true'] {
+  color: var(--accent);
+}
+
+#btn-help {
+  font-size: 1.05rem;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* ——— workspace ————————————————————————————————————————————————————— */
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space) * 0.7);
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.pane--program {
+  flex: 1 1 auto;
+}
+
+.pane__label {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.field {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  padding: 10px 12px;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.field:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.field::placeholder {
+  color: var(--text-faint);
+}
+
+/* Tape: the editable input and the read-only view share one grid cell. */
+.pane--tape .pane__slot {
+  display: grid;
+  flex: none;
+}
+
+.pane--tape .pane__slot > * {
+  grid-area: 1 / 1;
+}
+
+.field--tape {
+  min-height: 42px;
+}
+
+/* The program pane stacks the textarea and the highlighted view in exactly
+   the same space: switching between edit and run modes must not reflow the
+   page, so both children share one grid cell. */
+
+.pane__stack {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pane__stack > * {
+  grid-area: 1 / 1;
+  min-height: 0;
+}
+
+.field--program {
+  resize: none;
+}
+
+/* Mode switching: only one of the twins is visible at a time.
+
+   `.display: none` would collapse the grid/stack and reflow the page; keeping
+   the hidden twin in place and only toggling visibility would leave a blank
+   row for the tape field, so the tape uses a shared slot instead. */
+
+body[data-mode='edit'] #display-tape,
+body[data-mode='edit'] #display-program,
+body[data-mode='run'] #input-program,
+body[data-mode='error'] #input-program {
+  display: none;
+}
+
+/* ——— tape view ————————————————————————————————————————————————————— */
+
+.tape {
+  display: block;
+  min-height: 42px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.98rem;
+  line-height: 1.7;
+  cursor: text;
+}
+
+.tape-view {
+  display: inline-flex;
+}
+
+.tape-view .cell {
+  display: inline-block;
+  min-width: 1.1ch;
+  padding: 0 2px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.tape-view .cell.current {
+  background: var(--cell-current);
+  border-radius: 4px;
+  color: var(--cell-current-text);
+  font-weight: 700;
+  box-shadow: 0 0 0 1px var(--cell-current);
+}
+
+/* ——— program view ————————————————————————————————————————————————————— */
+
+.program {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  cursor: text;
+  tab-size: 4;
+}
+
+.program .cmd {
+  color: var(--text);
+  border-radius: 4px;
+}
+
+.program .cmd.visited {
+  color: var(--ok);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.program .cmd.current {
+  background: var(--cell-current);
+  color: var(--cell-current-text);
+  font-weight: 700;
+  box-shadow: 0 0 0 2px var(--cell-current);
+}
+
+.program mark.error {
+  background: var(--err-soft);
+  color: var(--err);
+  font-weight: 700;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px var(--err);
+}
+
+.program .cmd.error {
+  background: var(--err-soft);
+  color: var(--err);
+  text-decoration: underline wavy var(--err);
+  text-underline-offset: 3px;
+}
+
+/* ——— hint ————————————————————————————————————————————————————————— */
+
+.hint {
+  min-height: 1.2em;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+
+/* ——— toolbar ————————————————————————————————————————————————————— */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: calc(var(--space) * 0.7);
+}
+
+.toolbar__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Mode visibility: each button declares which mode it belongs to. */
+
+#controls[data-mode='edit'] .btn:not([data-mode='edit']),
+#controls[data-mode='run'] .btn:not([data-mode='run']),
+#controls[data-mode='error'] .btn:not([data-mode='error']) {
+  display: none;
+}
+
+.toolbar__status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: min(100%, 320px);
+  flex: 1 1 320px;
+}
+
+.log {
+  min-height: 1.4em;
+  font-size: 0.88rem;
+  font-weight: 550;
+  text-wrap: pretty;
+}
+
+.log[data-kind='info'] {
+  color: var(--ok);
+}
+
+.log[data-kind='warning'] {
+  color: var(--warn);
+}
+
+.log[data-kind='error'] {
+  color: var(--err);
+}
+
+.stats {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ——— help dialog ————————————————————————————————————————————————————— */
+
+.help {
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(84vh, 900px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 35%);
+}
+
+.help:focus-visible {
+  /* The dialog itself receives focus when opened; the page behind it is
+     already dimmed, so a focus ring on the dialog box is just noise. */
+  box-shadow: 0 24px 64px rgb(0 0 0 / 35%);
+}
+
+.help::backdrop {
+  background: rgb(10 14 20 / 45%);
+  backdrop-filter: blur(2px);
+}
+
+.help__inner {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
+.help__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 8px;
+}
+
+.help__header h2 {
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+}
+
+.help__body {
+  padding: 0 20px 16px;
+  overflow: auto;
+}
+
+.help__body h3 {
+  margin: 18px 0 6px;
+  font-size: 0.95rem;
+  color: var(--accent);
+}
+
+.help__body p {
+  margin: 6px 0;
+  color: var(--text-muted);
+}
+
+.help__body ul {
+  margin: 6px 0;
+  padding-left: 1.2em;
+  color: var(--text-muted);
+}
+
+.help__body li {
+  margin: 2px 0;
+}
+
+.help__code {
+  margin: 8px 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.help__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 20px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.noscript {
+  position: fixed;
+  inset: auto 16px 16px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--err-soft);
+  color: var(--err);
+  text-align: center;
+}
+
+/* ——— small screens ————————————————————————————————————————————————— */
+
+@media (max-width: 640px) {
+  body {
+    font-size: 14px;
+  }
+
+  .app {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .title {
+    font-size: 1rem;
+  }
+
+  .title__version {
+    display: none;
+  }
+
+  .toolbar {
+    flex-direction: column;
+  }
+
+  .toolbar__buttons {
+    width: 100%;
+  }
+
+  .toolbar__buttons .btn {
+    flex: 1 1 auto;
+  }
+
+  .hint {
+    display: none;
+  }
+
+  .toolbar__status {
+    min-width: 100%;
+  }
+}
+
+/* ——— print ————————————————————————————————————————————————————————— */
+
+@media print {
+  body {
+    overflow: visible;
+    background: #fff;
+    color: #000;
+  }
+
+  .topbar__actions,
+  .toolbar,
+  .hint,
+  .skip-link {
+    display: none !important;
+  }
+
+  .app {
+    height: auto;
+    max-width: none;
+  }
+
+  .program,
+  .tape {
+    box-shadow: none;
+  }
+}

@@ -1,0 +1,75 @@
+/**
+ * Core data model of the Turing machine.
+ *
+ * A program is a set of 4-tuple commands `q,a,v,q'`:
+ *  - `q` — current state;
+ *  - `a` — symbol read from the tape;
+ *  - `v` — what to do: `<` move left, `>` move right, `=` stay, `#` halt,
+ *           or any other symbol to write into the current cell;
+ *  - `w` — next state.
+ *
+ * State names made of digits only are numeric states (so `01` and `1` are the
+ * same state, exactly as in the original jstu4 v2.3).
+ */
+
+/** A parsed command together with its position in the source text. */
+export interface CommandSource {
+  /** Full source slice of the command, e.g. `rep,0,1,mov`. */
+  readonly text: string;
+  /** Offset of the command in the program text (UTF-16 code units). */
+  readonly offset: number;
+}
+
+export type MoveKind = 'left' | 'right' | 'stay' | 'halt';
+
+export class Command {
+  constructor(
+    readonly q: StateId,
+    readonly a: string,
+    readonly v: string,
+    readonly w: StateId,
+    readonly source: CommandSource,
+  ) {}
+
+  /**
+   * What this command does. Note that `rep,0,0,rep` is a no-op rather than a
+   * "write" — writing the same symbol has no observable effect, so it is
+   * classified as `stay` (same as the original implementation).
+   */
+  get kind(): MoveKind | 'write' {
+    if (this.v === '<') return 'left';
+    if (this.v === '>') return 'right';
+    if (this.v === '#') return 'halt';
+    if (this.a === this.v) return this.q === this.w ? 'halt' : 'stay';
+    if (this.v === '=') return 'stay';
+    return 'write';
+  }
+
+  /** `true` when the machine stops after this command. */
+  get isHalt(): boolean {
+    return this.kind === 'halt';
+  }
+
+  toString(): string {
+    return `${this.q},${this.a},${this.v},${this.w}`;
+  }
+}
+
+/** Numeric states are stored as numbers, named states as strings. */
+export type StateId = number | string;
+
+/** A command indexed by its next state number (used by the TU4 export). */
+export type CommandList = readonly Command[];
+
+/** Parse a state name: digit-only names become numbers. */
+export function parseStateName(name: string): StateId {
+  return /^\d+$/.test(name) ? Number.parseInt(name, 10) : name;
+}
+
+/**
+ * Normalised comparison key for a state. `1` and `'01'` must be the same
+ * state, but `'1'` and `'a'` must not collide with each other.
+ */
+export function stateKey(id: StateId): string {
+  return typeof id === 'number' ? `#${id}` : `$${id}`;
+}
