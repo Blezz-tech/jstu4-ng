@@ -22,23 +22,11 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-/** Replace all children of `parent` with the given nodes. */
-export function replaceChildren(parent: Element, ...children: readonly (Node | string)[]): void {
-  parent.replaceChildren(...children);
-}
-
 /** Query an element that the app requires; fails loudly on broken markup. */
 export function mustFind<T extends Element = HTMLElement>(root: ParentNode, selector: string): T {
   const found = root.querySelector<T>(selector);
   if (found === null) throw new Error(`Required element not found: ${selector}`);
   return found;
-}
-
-/** `requestAnimationFrame` as a promise (one frame). */
-export function nextFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
 }
 
 /** A debounced version of a function (trailing edge only). */

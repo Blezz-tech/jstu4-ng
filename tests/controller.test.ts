@@ -1,0 +1,240 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { messages } from '../src/i18n';
+import { AppController, type AppElements, type UIMode } from '../src/ui/controller';
+
+function setupDom(): AppElements {
+  document.body.innerHTML = `
+    <input id="input-tape" />
+    <div id="display-tape"></div>
+    <textarea id="input-program"></textarea>
+    <div id="display-program" tabindex="0"></div>
+    <div id="controls"></div>
+    <p id="log"></p>
+    <p id="stats"></p>
+  `;
+  return {
+    tapeInput: document.querySelector<HTMLInputElement>('#input-tape')!,
+    tapeView: document.querySelector<HTMLElement>('#display-tape')!,
+    programInput: document.querySelector<HTMLTextAreaElement>('#input-program')!,
+    programView: document.querySelector<HTMLElement>('#display-program')!,
+    controls: document.querySelector<HTMLElement>('#controls')!,
+    log: document.querySelector<HTMLElement>('#log')!,
+    stats: document.querySelector<HTMLElement>('#stats')!,
+  };
+}
+
+function makeController(
+  elements: AppElements,
+  overrides: {
+    lang?: 'ru' | 'en';
+    onModeChange?: (mode: UIMode) => void;
+    onRunningChange?: (isRunning: boolean) => void;
+    onProgramChange?: (text: string) => void;
+    onStepSound?: () => void;
+  } = {},
+): AppController {
+  return new AppController({
+    messages: messages(overrides.lang ?? 'ru'),
+    elements,
+    onModeChange: overrides.onModeChange ?? (() => undefined),
+    ...(overrides.onRunningChange ? { onRunningChange: overrides.onRunningChange } : {}),
+    onProgramChange: overrides.onProgramChange ?? (() => undefined),
+    onTapeChange: () => undefined,
+    ...(overrides.onStepSound ? { onStepSound: overrides.onStepSound } : {}),
+  });
+}
+
+describe('AppController', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  it('keeps state 0 as 00 in toTu4 even when state 0 is not on the first line and preserves the log', () => {
+    const el = setupDom();
+    const saved: string[] = [];
+    const controller = makeController(el, { onProgramChange: (t) => saved.push(t) });
+
+    el.programInput.value = 'fin, ,#,fin\n0, ,>,fin';
+    controller.toTu4();
+
+    expect(el.programInput.value).toBe('01, ,#,01\n00, ,>,01');
+    expect(saved).toEqual(['01, ,#,01\n00, ,>,01']);
+    expect(el.log.textContent).toBe(messages('ru').log.convertedToTu4);
+    expect(el.log.dataset.kind).toBe('info');
+    expect(controller.currentMode).toBe('edit');
+  });
+
+  it('reports tooManyStates when toTu4 is called on a program with > 256 states', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+
+    const lines = [
+      '0, ,>,s1',
+      ...Array.from({ length: 256 }, (_, i) => `s${i + 1}, ,>,${i === 255 ? '0' : `s${i + 2}`}`),
+    ];
+    el.programInput.value = lines.join('\n');
+    controller.toTu4();
+
+    expect(el.log.textContent).toBe(messages('ru').error.tooManyStates);
+    expect(el.log.dataset.kind).toBe('error');
+  });
+
+  it('does not leave duplicate .current highlights after unmark() followed by step()', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,>,1\n1, ,>,2\n2, ,>,3\n3, ,#,3';
+    el.tapeInput.value = '';
+
+    controller.start();
+    controller.step(); // now at state 1
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(1);
+    expect(el.programView.querySelectorAll('.cmd.current')).toHaveLength(1);
+
+    controller.unmark();
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(0);
+    expect(el.programView.querySelectorAll('.cmd.current')).toHaveLength(1);
+
+    controller.step(); // moves to state 2; command 1 must lose .current and become .visited
+    expect(el.programView.querySelectorAll('.cmd.current')).toHaveLength(1);
+    expect(el.programView.querySelector('.cmd.current')?.textContent).toBe('2, ,>,3');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(1);
+    expect(el.programView.querySelector('.cmd.visited')?.textContent).toBe('1, ,>,2');
+
+    // Step to halt: final command becomes visited and can be cleared with unmark().
+    controller.step(); // moves to state 3
+    controller.step(); // halts
+    expect(el.programView.querySelectorAll('.cmd.current')).toHaveLength(0);
+    expect(el.programView.querySelectorAll('.cmd.visited').length).toBeGreaterThan(0);
+
+    controller.unmark();
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(0);
+  });
+
+  it('stops quick mode when step() or Escape is called, and cycles speeds properly', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,>,0';
+    el.tapeInput.value = '';
+
+    controller.start();
+    expect(controller.isQuickRunning).toBe(false);
+
+    controller.quick(); // speed 0 (70 ms)
+    expect(controller.isQuickRunning).toBe(true);
+    expect(controller.isQuickAtMaxSpeed).toBe(false);
+
+    controller.quick(); // speed 1 (30 ms)
+    controller.quick(); // speed 2 (10 ms)
+    controller.quick(); // speed 3 (max rAF batch)
+    expect(controller.isQuickAtMaxSpeed).toBe(true);
+
+    controller.quick(); // wraps back to speed 0
+    expect(controller.isQuickRunning).toBe(true);
+    expect(controller.isQuickAtMaxSpeed).toBe(false);
+
+    // First Escape stops quick mode without leaving run mode.
+    controller.handleEscape();
+    expect(controller.isQuickRunning).toBe(false);
+    expect(controller.currentMode).toBe('run');
+
+    // Restart quick, then step() must cancel quick mode.
+    controller.quick();
+    expect(controller.isQuickRunning).toBe(true);
+    controller.step();
+    expect(controller.isQuickRunning).toBe(false);
+
+    // Second Escape (now not in quick mode) returns to edit.
+    controller.handleEscape();
+    expect(controller.currentMode).toBe('edit');
+  });
+
+  it('updates language in place via setMessages() without losing input or active run', () => {
+    const el = setupDom();
+    const controller = makeController(el, { lang: 'ru' });
+
+    el.programInput.value = '0, ,=,1\n1, ,#,1';
+    el.tapeInput.value = '101';
+    controller.start();
+    controller.step(); // 1 step done, still running in state 1
+
+    expect(el.stats.textContent).toContain('Команд в программе: 2');
+    controller.setMessages(messages('en'));
+
+    expect(controller.currentMode).toBe('run');
+    expect(controller.isMachineRunning).toBe(true);
+    expect(el.programInput.value).toBe('0, ,=,1\n1, ,#,1');
+    expect(el.stats.textContent).toContain('Transitions: 2');
+    expect(el.stats.textContent).toContain('Steps performed: 1');
+
+    // Finish in English, then switch back to Russian — log message translates too.
+    controller.step();
+    expect(el.log.textContent).toBe(messages('en').log.finished);
+    controller.setMessages(messages('ru'));
+    expect(el.log.textContent).toBe(messages('ru').log.finished);
+  });
+
+  it('restores cursor offset in #input-program when returning from a compile error', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0,1,>,1\nBAD';
+
+    controller.start();
+    expect(controller.currentMode).toBe('error');
+    expect(el.programView.querySelector('mark.error')?.textContent).toBe('B');
+
+    controller.handleEscape();
+    expect(controller.currentMode).toBe('edit');
+    expect(document.activeElement).toBe(el.programInput);
+    expect(el.programInput.selectionStart).toBe(8);
+    expect(el.programInput.selectionEnd).toBe(8);
+  });
+
+  it('marks the offending command with .error on OutOfTapeError instead of leaving it .current', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,<,0';
+    el.tapeInput.value = '';
+
+    controller.start();
+    expect(el.programView.querySelectorAll('.cmd.current')).toHaveLength(1);
+
+    expect(controller.step()).toBe(false);
+    expect(el.programView.querySelectorAll('.cmd.current')).toHaveLength(0);
+    expect(el.programView.querySelectorAll('.cmd.error')).toHaveLength(1);
+    expect(el.log.dataset.kind).toBe('error');
+  });
+
+  it('renders syntax-highlighted commands on NonexistentInitialStateError', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '1, ,#,1 // no state 0';
+
+    controller.start();
+    expect(controller.currentMode).toBe('error');
+    expect(el.programView.querySelectorAll('.cmd')).toHaveLength(1);
+    expect(el.log.dataset.kind).toBe('error');
+  });
+
+  it('updates stats cellsUsed when moving right without writing and does not beep on start()', () => {
+    const el = setupDom();
+    const sounds = vi.fn();
+    const controller = makeController(el, { lang: 'en', onStepSound: sounds });
+    el.programInput.value = '0, ,>,0';
+    el.tapeInput.value = '1';
+
+    controller.start();
+    expect(sounds).not.toHaveBeenCalled();
+    expect(el.stats.textContent).toContain('Cells used: 2');
+
+    controller.step();
+    controller.step();
+    expect(sounds).toHaveBeenCalledTimes(2);
+    expect(el.stats.textContent).toContain('Cells used: 4');
+  });
+});

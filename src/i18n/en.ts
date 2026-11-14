@@ -37,36 +37,34 @@ export const en: Messages = {
     start: 'Start',
     step: 'Step',
     quick: 'Quick',
+    faster: 'Faster',
     slow: 'Slower',
     backToEdit: 'Back to edit',
     toTu4: 'To TU4',
     unmark: 'Unmark',
     copy: 'Copy',
     theme: 'Toggle theme',
+    sound: 'Toggle step sound',
     language: 'Switch language',
+    close: 'Close',
   },
 
   hints: {
     start: 'Parse the program and run it (Ctrl+Enter)',
-    step: 'Perform the next step (Space)',
-    quick: 'Quick run; press again to speed up (Enter)',
-    slow: 'Slow the quick run down',
+    step: 'Perform the next step, leaving quick mode if active (Space)',
+    quick: 'Start quick execution (Enter)',
+    faster: 'Speed up quick execution',
+    slow: 'Reset quick execution to the initial speed',
     backToEdit: 'Stop the machine and return to editing (Esc)',
-    toTu4: 'Replace state names with hexadecimal numbers 00–FF',
+    toTu4: 'Replace state names with TU4 numbers (00–98 decimal, or 00–ff hex)',
     unmark: 'Clear the marks from executed commands',
     copy: 'Copy the program to the clipboard',
     editProgram: 'Program: q,a,v,q′. Ctrl+Enter — run',
     editTape: 'Tape: source data. Enter — run',
   },
 
-  shortcuts: {
-    run: 'Ctrl+Enter — run the program',
-    quickToggle: 'Enter or Ctrl+Enter — toggle quick run',
-    step: 'Space — perform one step',
-    backToEdit: 'Esc — return to editing',
-  },
-
   a11y: {
+    skipToProgram: 'Skip to program',
     tapeLabel: 'Source data on the tape',
     programLabel: 'Program text',
     programViewLabel: 'Executing program',
@@ -89,10 +87,12 @@ export const en: Messages = {
               'algorithms. The application is an interpreter for 4-tuple Turing machine programs.',
           },
           {
-            kind: 'p',
-            text:
-              '© Alexey Dubinin. The application is available on GitHub: github.com/lxyd/jstu4. ' +
-              'It is distributed under the terms of the MIT License.',
+            kind: 'rich',
+            parts: [
+              '© Alexey Dubinin. Original application on GitHub: ',
+              { label: 'github.com/lxyd/jstu4', href: 'https://github.com/lxyd/jstu4' },
+              '. Distributed under the terms of the MIT License.',
+            ],
           },
         ],
       },
@@ -142,16 +142,16 @@ export const en: Messages = {
             kind: 'list',
             items: [
               '“Start” — parse and run the program (Ctrl+Enter, or Enter in the tape field);',
-              '“Step” — perform the next step (Space);',
-              '“Quick” — automatic execution; press again to speed up (Enter);',
-              '“Back to edit” — stop the machine and return to editing (Esc);',
-              '“To TU4” — replace state names with hexadecimal numbers 00–FF.',
+              '“Step” — perform the next step, cancelling quick mode if active (Space);',
+              '“Quick” — automatic execution; click again to speed up (Enter toggles quick run);',
+              '“Back to edit” — stop the machine and return to editing (Esc stops quick mode first);',
+              '“To TU4” — replace state names with numbers 00–98 (or hexadecimal 00–ff for 100–256 states).',
             ],
           },
         ],
       },
       {
-        title: 'Example: swap 0 and 1',
+        title: 'Example: swap 0 and 1 in place',
         blocks: [
           {
             kind: 'code',

@@ -1,4 +1,4 @@
-import type { Command } from '../core/machine';
+import { parseStateName, type Command } from '../core/machine';
 import { parseProgram } from '../core/parser';
 import { createProgram, type Program } from '../core/program';
 import { el } from './dom';
@@ -33,7 +33,9 @@ export interface CompiledProgram extends ProgramListing {
  */
 export function compileProgram(text: string, initialState: number | string = 0): CompiledProgram {
   const listing = listProgram(text);
-  return { ...listing, program: createProgram(listing.commands, initialState) };
+  const normalisedInitial =
+    typeof initialState === 'string' ? parseStateName(initialState) : initialState;
+  return { ...listing, program: createProgram(listing.commands, normalisedInitial) };
 }
 
 /**

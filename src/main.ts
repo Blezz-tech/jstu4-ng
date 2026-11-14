@@ -2,9 +2,10 @@ import './styles/main.css';
 
 import { TM_VERSION } from './core/version';
 import { detectLang, messages, type Lang, type Messages } from './i18n';
-import { mustFind, debounce, el } from './ui/dom';
-import { AppController, type UIMode } from './ui/controller';
+import type { HelpContent } from './i18n/types';
 import { StepSound } from './ui/audio';
+import { AppController, type UIMode } from './ui/controller';
+import { debounce, el, mustFind } from './ui/dom';
 import {
   loadState,
   saveLang,
@@ -14,7 +15,6 @@ import {
   saveTheme,
   type Theme,
 } from './ui/storage';
-import type { HelpContent } from './i18n/types';
 
 /* ——— language & theme ————————————————————————————————————————————— */
 
@@ -54,11 +54,13 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 /* ——— DOM references —————————————————————————————————————————————— */
 
 const dom = {
+  skipLink: mustFind<HTMLAnchorElement>(document, '.skip-link'),
   title: mustFind(document, '#app-title'),
   version: mustFind(document, '#app-version'),
   programInput: mustFind<HTMLTextAreaElement>(document, '#input-program'),
   tapeInput: mustFind<HTMLInputElement>(document, '#input-tape'),
   programView: mustFind(document, '#display-program'),
+  programStack: mustFind(document, '.pane__stack'),
   tapeView: mustFind(document, '#display-tape'),
   log: mustFind(document, '#log'),
   stats: mustFind(document, '#stats'),
@@ -69,6 +71,7 @@ const dom = {
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
   helpBody: mustFind(document, '#help-body'),
+  helpClose: mustFind<HTMLButtonElement>(document, '#btn-help-close'),
   helpBack: mustFind<HTMLButtonElement>(document, '#btn-help-back'),
   langLabel: mustFind(document, '#lang-label'),
 };
@@ -80,14 +83,12 @@ const sound = new StepSound(saved.sound);
 /* ——— i18n bootstrap ————————————————————————————————————————————— */
 
 let m: Messages = messages(lang);
-let controller: AppController | null = null;
-let restoredDraft = false;
 
-const placeholders = new WeakMap<HTMLInputElement | HTMLTextAreaElement, string>();
-
-function setPlaceholder(field: HTMLInputElement | HTMLTextAreaElement, text: string): void {
-  placeholders.set(field, text);
-  field.placeholder = text;
+/** Show the bottom scroll fade only when the listing actually overflows below. */
+function syncProgramOverflow(): void {
+  const view = dom.programView;
+  const hasMoreBelow = view.scrollHeight - view.scrollTop - view.clientHeight > 4;
+  dom.programStack.dataset.overflowBottom = String(hasMoreBelow);
 }
 
 /** Apply all localized strings to the static markup. */
@@ -96,11 +97,12 @@ function localize(): void {
   document.title = m.appTitle;
   dom.title.textContent = m.appTitle;
   dom.version.textContent = `v${TM_VERSION}`;
+  dom.skipLink.textContent = m.a11y.skipToProgram;
 
   dom.labelTape.textContent = m.tape;
   dom.labelProgram.textContent = m.program;
-  setPlaceholder(dom.tapeInput, m.hints.editTape);
-  setPlaceholder(dom.programInput, m.hints.editProgram);
+  dom.tapeInput.placeholder = m.hints.editTape;
+  dom.programInput.placeholder = m.hints.editProgram;
 
   dom.tapeInput.setAttribute('aria-label', m.a11y.tapeLabel);
   dom.programInput.setAttribute('aria-label', m.a11y.programLabel);
@@ -139,18 +141,23 @@ function localize(): void {
   title('#btn-help', m.controls.help);
 
   hint('#btn-start', m.hints.start);
+  hint('#btn-totu4', m.hints.toTu4);
+  hint('#btn-copy', m.hints.copy);
   hint('#btn-step', m.hints.step);
   hint('#btn-quick', m.hints.quick);
   hint('#btn-unmark', m.hints.unmark);
   hint('#btn-edit', m.hints.backToEdit);
+  hint('#btn-edit-err', m.hints.backToEdit);
 
   mustFind(document, '#btn-theme').setAttribute('title', m.controls.theme);
   mustFind(document, '#btn-theme').setAttribute('aria-label', m.controls.theme);
-  mustFind(document, '#btn-sound').setAttribute('title', m.controls.theme);
-  mustFind(document, '#btn-sound').setAttribute('aria-label', m.controls.theme);
+  mustFind(document, '#btn-sound').setAttribute('title', m.controls.sound);
+  mustFind(document, '#btn-sound').setAttribute('aria-label', m.controls.sound);
   mustFind(document, '#btn-help').setAttribute('aria-label', m.controls.help);
   mustFind(document, '#btn-lang').setAttribute('title', m.controls.language);
   mustFind(document, '#btn-lang').setAttribute('aria-label', m.controls.language);
+  dom.helpClose.setAttribute('aria-label', m.controls.close);
+  dom.helpClose.setAttribute('title', m.controls.close);
   dom.langLabel.textContent = lang === 'ru' ? 'EN' : 'RU';
 
   renderHelp(m.help);
@@ -171,6 +178,24 @@ function renderHelp(content: HelpContent): void {
         case 'p':
           fragment.append(el('p', {}, block.text));
           break;
+        case 'rich': {
+          const p = el('p');
+          for (const part of block.parts) {
+            if (typeof part === 'string') {
+              p.append(document.createTextNode(part));
+            } else {
+              p.append(
+                el(
+                  'a',
+                  { href: part.href, target: '_blank', rel: 'noopener noreferrer' },
+                  part.label,
+                ),
+              );
+            }
+          }
+          fragment.append(p);
+          break;
+        }
         case 'list': {
           const list = el('ul');
           for (const item of block.items) list.append(el('li', {}, item));
@@ -206,7 +231,9 @@ function closeHelp(): void {
 function applyMode(mode: UIMode): void {
   dom.controls.dataset.mode = mode;
   document.body.dataset.mode = mode;
+  dom.skipLink.href = mode === 'edit' ? '#input-program' : '#display-program';
   syncQuickLabel();
+  requestAnimationFrame(syncProgramOverflow);
 }
 
 /**
@@ -220,48 +247,43 @@ function syncRunState(isRunning: boolean): void {
   step.disabled = !isRunning;
   quick.disabled = !isRunning;
   step.setAttribute('aria-disabled', String(!isRunning));
+  quick.setAttribute('aria-disabled', String(!isRunning));
   document.body.dataset.running = String(isRunning);
 }
 
 function syncQuickLabel(): void {
   const quick = mustFind<HTMLButtonElement>(document, '#btn-quick');
-  const running = controller?.isQuickRunning ?? false;
-  quick.querySelector('.btn__text')!.textContent = running ? m.controls.slow : m.controls.quick;
+  const running = controller.isQuickRunning;
+  const atMax = controller.isQuickAtMaxSpeed;
+  const label = !running ? m.controls.quick : atMax ? m.controls.slow : m.controls.faster;
+  const hint = !running ? m.hints.quick : atMax ? m.hints.slow : m.hints.faster;
+  quick.querySelector('.btn__text')!.textContent = label;
+  quick.setAttribute('title', hint);
+  quick.setAttribute('data-hint', hint);
   quick.setAttribute('aria-pressed', String(running));
 }
 
 /* ——— wiring ————————————————————————————————————————————————————— */
 
-function buildController(): AppController {
-  controller?.dispose();
-
-  const next = new AppController({
-    messages: m,
-    elements: {
-      programInput: dom.programInput,
-      tapeInput: dom.tapeInput,
-      programView: dom.programView,
-      tapeView: dom.tapeView,
-      log: dom.log,
-      stats: dom.stats,
-      controls: dom.controls,
-    },
-    onModeChange: (mode) => {
-      applyMode(mode);
-      syncQuickLabel();
-    },
-    onRunningChange: syncRunState,
-    onProgramChange: saveProgram,
-    onTapeChange: saveTape,
-    onStepSound: () => sound.tick(),
-  });
-
-  next.hydrate(saved.program, saved.tape);
-  restoredDraft = saved.program !== null;
-  return next;
-}
-
-controller = buildController();
+const controller = new AppController({
+  messages: m,
+  elements: {
+    programInput: dom.programInput,
+    tapeInput: dom.tapeInput,
+    programView: dom.programView,
+    tapeView: dom.tapeView,
+    log: dom.log,
+    stats: dom.stats,
+    controls: dom.controls,
+  },
+  onModeChange: (mode) => {
+    applyMode(mode);
+  },
+  onRunningChange: syncRunState,
+  onProgramChange: saveProgram,
+  onTapeChange: saveTape,
+  onStepSound: () => sound.tick(),
+});
 
 /* ——— events ————————————————————————————————————————————————————— */
 
@@ -271,25 +293,31 @@ const on = <K extends keyof HTMLElementEventMap>(
   handler: (event: HTMLElementEventMap[K]) => void,
 ): void => target.addEventListener(type, handler as EventListener);
 
-on(mustFind(document, '#btn-start'), 'click', () => controller?.start());
+on(mustFind(document, '#btn-start'), 'click', () => {
+  sound.unlock();
+  controller.start();
+});
 on(mustFind(document, '#btn-step'), 'click', () => {
   sound.unlock();
-  controller?.step();
+  controller.step();
   syncQuickLabel();
 });
 on(mustFind(document, '#btn-quick'), 'click', () => {
   sound.unlock();
-  controller?.quick();
+  controller.quick();
   syncQuickLabel();
 });
-on(mustFind(document, '#btn-unmark'), 'click', () => controller?.unmark());
-on(mustFind(document, '#btn-edit'), 'click', () => controller?.backToEdit());
-on(mustFind(document, '#btn-edit-err'), 'click', () => controller?.backToEdit());
-on(mustFind(document, '#btn-copy'), 'click', () => void controller?.copyProgram());
-on(mustFind(document, '#btn-totu4'), 'click', () => controller?.toTu4());
+on(mustFind(document, '#btn-unmark'), 'click', () => {
+  controller.unmark();
+  syncQuickLabel();
+});
+on(mustFind(document, '#btn-edit'), 'click', () => controller.backToEdit('program'));
+on(mustFind(document, '#btn-edit-err'), 'click', () => controller.backToEdit('program'));
+on(mustFind(document, '#btn-copy'), 'click', () => void controller.copyProgram());
+on(mustFind(document, '#btn-totu4'), 'click', () => controller.toTu4());
 on(mustFind(document, '#btn-help'), 'click', () => openHelp());
 on(dom.helpBack, 'click', () => closeHelp());
-on(mustFind(document, '#btn-help-close'), 'click', () => closeHelp());
+on(dom.helpClose, 'click', () => closeHelp());
 on(dom.helpDialog, 'click', (event) => {
   // A click on the backdrop (outside the inner card) closes the dialog.
   if (event.target === dom.helpDialog) closeHelp();
@@ -299,8 +327,8 @@ on(mustFind(document, '#btn-lang'), 'click', () => {
   lang = lang === 'ru' ? 'en' : 'ru';
   saveLang(lang);
   m = messages(lang);
+  controller.setMessages(m);
   localize();
-  controller = buildController();
 });
 
 on(mustFind(document, '#btn-theme'), 'click', () => {
@@ -316,11 +344,11 @@ on(mustFind(document, '#btn-sound'), 'click', () => {
   saveSound(next);
   const button = mustFind(document, '#btn-sound');
   button.setAttribute('aria-pressed', String(next));
-  mustFind(document, '#btn-sound').dataset.on = String(next);
+  button.dataset.on = String(next);
   if (next) sound.tick();
 });
 
-// Persist the draft as the user types (debounced), and keep the counter fresh.
+// Persist the draft as the user types (debounced).
 const persistProgram = debounce((text: string) => saveProgram(text), 400);
 const persistTape = debounce((text: string) => saveTape(text), 400);
 
@@ -331,7 +359,14 @@ on(dom.tapeInput, 'keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
     sound.unlock();
-    controller?.start();
+    controller.start();
+  }
+});
+
+// Clicking the tape field in error mode leaves error mode (matching v2.3).
+on(dom.tapeInput, 'click', () => {
+  if (controller.currentMode !== 'edit') {
+    controller.backToEdit('tape');
   }
 });
 
@@ -340,13 +375,16 @@ on(dom.programInput, 'keydown', (event) => {
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
     sound.unlock();
-    controller?.start();
+    controller.start();
   }
 });
 
 // Clicks on the read-only panes behave like "Back to edit".
-on(dom.programView, 'click', () => controller?.backToEdit());
-on(dom.tapeView, 'click', () => controller?.backToEdit());
+on(dom.programView, 'click', () => controller.backToEdit('program'));
+on(dom.tapeView, 'click', () => controller.backToEdit('tape'));
+
+on(dom.programView, 'scroll', syncProgramOverflow);
+window.addEventListener('resize', syncProgramOverflow);
 
 on(document, 'keydown', (event) => {
   if (event.defaultPrevented) return;
@@ -374,24 +412,26 @@ on(document, 'keydown', (event) => {
 
   if (event.key === 'Enter' && !inEditable && !inControl) {
     event.preventDefault();
-    controller?.handleEnter();
+    sound.unlock();
+    controller.handleEnter();
     syncQuickLabel();
     return;
   }
   if (event.key === ' ' && !inEditable && !inControl) {
     event.preventDefault();
-    controller?.handleSpace();
+    sound.unlock();
+    controller.handleSpace();
     syncQuickLabel();
     return;
   }
   if (event.key === 'Escape' && !inEditable) {
-    controller?.handleEscape();
+    controller.handleEscape();
     syncQuickLabel();
   }
 });
 
 // Hint bar: show the hint of the hovered/focused button.
-const hintTargets = Array.from(dom.controls.querySelectorAll<HTMLButtonElement>('.btn[data-hint]'));
+const hintTargets = Array.from(dom.controls.querySelectorAll<HTMLButtonElement>('.btn'));
 for (const button of hintTargets) {
   const show = (): void => {
     dom.hint.textContent = button.dataset.hint ?? '';
@@ -406,21 +446,15 @@ for (const button of hintTargets) {
 }
 
 // Reflect the sound preference in the markup on load.
-mustFind(document, '#btn-sound').setAttribute('aria-pressed', String(sound.isEnabled));
-mustFind(document, '#btn-sound').dataset.on = String(sound.isEnabled);
+const soundBtn = mustFind(document, '#btn-sound');
+soundBtn.setAttribute('aria-pressed', String(sound.isEnabled));
+soundBtn.dataset.on = String(sound.isEnabled);
 
-// Localize once the DOM is wired; the controller already restored the draft.
+// Hydrate saved draft, localize static DOM, and initialize toolbar state.
+controller.hydrate(saved.program, saved.tape);
 localize();
-applyMode('edit');
 syncRunState(false);
 
 // Legacy help links (`help-ru.html`, bookmarks) land on `#help`: open the
 // in-app help instead of a separate page.
 if (location.hash === '#help') openHelp();
-
-// A restored draft is worth a quiet notice — but only after `localize()` has
-// run, otherwise onModeChange would overwrite it with an empty log.
-if (restoredDraft) {
-  dom.log.textContent = m.log.restoredDraft;
-  dom.log.dataset.kind = 'info';
-}
