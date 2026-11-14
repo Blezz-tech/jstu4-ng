@@ -232,17 +232,17 @@ export class AppController {
     this.setMode('edit');
     this.setLog({ type: 'none' });
 
-    this.el.programInput.scrollTop = scrollTop;
-
     const target =
       focus ?? (previousMode === 'error' || cursorOffset !== null ? 'program' : 'tape');
 
     if (target === 'program') {
-      this.el.programInput.focus();
+      this.el.programInput.focus({ preventScroll: true });
       if (cursorOffset !== null) {
         this.el.programInput.setSelectionRange(cursorOffset, cursorOffset);
       }
+      this.el.programInput.scrollTop = scrollTop;
     } else {
+      this.el.programInput.scrollTop = scrollTop;
       this.el.tapeInput.focus();
     }
   }
@@ -502,6 +502,7 @@ export class AppController {
   }
 
   private reportFinish(run: MachineRun): void {
+    this.stopQuick();
     this.options.onRunningChange?.(false);
     switch (run.checkNormality()) {
       case 'sourceAltered':

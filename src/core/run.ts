@@ -21,7 +21,6 @@ export class MachineRun {
   private next: Command | undefined;
   private steps = 0;
   private readonly initialTapeText: string;
-  private cellsHighWaterMark: number;
 
   constructor(
     private readonly program: Program,
@@ -35,9 +34,9 @@ export class MachineRun {
     this.state = program.initialState;
     // The head starts *after* the last symbol, on an empty (space) cell.
     this.position = this.tape.length;
-    // Include the initial blank cell under the head, matching `tapeText.length`
-    // and original jstu4 v2.3's `tmRun.tape().length`.
-    this.cellsHighWaterMark = this.position + 1;
+    // Materialise the initial cell under the head so `tapeText` and `cellsUsed`
+    // stay monotonically non-shrinking when the head moves left (matches v2.3).
+    this.tape.push(' ');
     this.next = this.lookup();
   }
 
@@ -74,16 +73,14 @@ export class MachineRun {
     return this.initialTapeText;
   }
 
-  /** Current tape as a string; the cell under the head is always present. */
+  /** Current tape as a string; every cell visited by the head is kept. */
   get tapeText(): string {
-    const cells = [...this.tape];
-    while (cells.length <= this.position) cells.push(' ');
-    return cells.join('');
+    return this.tape.join('');
   }
 
   /** Highest number of cells the run has ever occupied. */
   get cellsUsed(): number {
-    return this.cellsHighWaterMark;
+    return this.tape.length;
   }
 
   /**
@@ -112,12 +109,11 @@ export class MachineRun {
         break;
       case 'right':
         this.position += 1;
-        this.cellsHighWaterMark = Math.max(this.cellsHighWaterMark, this.position + 1);
+        while (this.tape.length <= this.position) this.tape.push(' ');
         break;
       case 'write':
         while (this.tape.length <= this.position) this.tape.push(' ');
         this.tape[this.position] = command.v;
-        this.cellsHighWaterMark = Math.max(this.cellsHighWaterMark, this.tape.length);
         break;
       case 'stay':
         break;

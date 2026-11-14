@@ -35,18 +35,22 @@ export class StepSound {
     const context = this.ensureContext();
     if (context === null) return;
 
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    const now = context.currentTime;
+    try {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const now = context.currentTime;
 
-    oscillator.type = 'triangle';
-    oscillator.frequency.setValueAtTime(880, now);
-    gain.gain.setValueAtTime(0.015, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+      oscillator.type = 'triangle';
+      oscillator.frequency.setValueAtTime(880, now);
+      gain.gain.setValueAtTime(0.015, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
 
-    oscillator.connect(gain).connect(context.destination);
-    oscillator.start(now);
-    oscillator.stop(now + 0.03);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.03);
+    } catch {
+      /* audio failure must never interrupt a machine step */
+    }
   }
 
   private ensureContext(): AudioContext | null {
