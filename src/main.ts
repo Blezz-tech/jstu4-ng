@@ -3,7 +3,7 @@ import './styles/main.css';
 import { TM_VERSION } from './core/version';
 import { bindDomI18n, createI18n, detectLang, type HelpContent } from './i18n';
 import { StepSound } from './ui/audio';
-import { AppController, type RunControlState, type UIMode } from './ui/controller';
+import { AppController, type LogKind, type RunControlState, type UIMode } from './ui/controller';
 import { debounce, el, mustFind } from './ui/dom';
 import {
   clampMaxSpeed,
@@ -42,9 +42,18 @@ function updateSettings(patch: Partial<AppSettings>): void {
   saveSettings(settings);
 }
 
+function safeReplaceState(url: string): void {
+  try {
+    history.replaceState(null, '', url);
+  } catch {
+    /* browsers may restrict history.replaceState on file:// origins */
+  }
+}
+
 /* ——— DOM references —————————————————————————————————————————————— */
 
 const dom = {
+  appShell: mustFind(document, '#app-shell'),
   skipLink: mustFind<HTMLAnchorElement>(document, '.skip-link'),
   version: mustFind(document, '#app-version'),
   programInput: mustFind<HTMLTextAreaElement>(document, '#input-program'),
@@ -63,6 +72,11 @@ const dom = {
   speedControl: mustFind(document, '#speed-control'),
   speedInput: mustFind<HTMLInputElement>(document, '#input-speed'),
   speedValue: mustFind(document, '#speed-value'),
+  sidepanelButton: mustFind<HTMLButtonElement>(document, '#btn-sidepanel'),
+  sidepanelClose: mustFind<HTMLButtonElement>(document, '#btn-sidepanel-close'),
+  sidepanelBadge: mustFind(document, '#sidepanel-badge'),
+  sidepanel: mustFind(document, '#sidepanel'),
+  sidepanelBackdrop: mustFind(document, '#sidepanel-backdrop'),
   settingsAnchor: mustFind(document, '#settings-anchor'),
   settingsButton: mustFind<HTMLButtonElement>(document, '#btn-settings'),
   settingsMenu: mustFind(document, '#settings-menu'),
@@ -72,9 +86,12 @@ const dom = {
     document.querySelectorAll<HTMLButtonElement>('#theme-group [data-theme-option]'),
   ),
   soundButton: mustFind<HTMLButtonElement>(document, '#btn-sound'),
-  soundLabel: mustFind(document, '#sound-label'),
   minSpeedInput: mustFind<HTMLInputElement>(document, '#input-min-speed'),
+  minSpeedDec: mustFind<HTMLButtonElement>(document, '#btn-min-speed-dec'),
+  minSpeedInc: mustFind<HTMLButtonElement>(document, '#btn-min-speed-inc'),
   maxSpeedInput: mustFind<HTMLInputElement>(document, '#input-max-speed'),
+  maxSpeedDec: mustFind<HTMLButtonElement>(document, '#btn-max-speed-dec'),
+  maxSpeedInc: mustFind<HTMLButtonElement>(document, '#btn-max-speed-inc'),
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
   helpBody: mustFind(document, '#help-body'),
@@ -106,6 +123,38 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
   if (settings.theme === 'auto') applyTheme();
 });
 
+/* ——— side panel (notifications, metrics, hover hints) ———————————— */
+
+const NARROW_VIEWPORT_PX = 900;
+
+function isNarrowViewport(): boolean {
+  return window.innerWidth < NARROW_VIEWPORT_PX;
+}
+
+let sidepanelOpen = settings.sidepanelOpen ?? !isNarrowViewport();
+let latestLogKind: LogKind | null = null;
+
+function syncSidepanelBadge(): void {
+  const showBadge = !sidepanelOpen && latestLogKind !== null;
+  dom.sidepanelBadge.dataset.kind = showBadge ? (latestLogKind ?? '') : '';
+}
+
+function applySidepanel(open: boolean, persist = false): void {
+  sidepanelOpen = open;
+  dom.appShell.dataset.sidepanel = open ? 'open' : 'closed';
+  dom.sidepanel.hidden = !open;
+  dom.sidepanelButton.setAttribute('aria-expanded', String(open));
+  dom.sidepanelBackdrop.hidden = !(open && isNarrowViewport());
+  syncSidepanelBadge();
+  if (persist) updateSettings({ sidepanelOpen: open });
+  requestAnimationFrame(syncProgramOverflow);
+}
+
+applySidepanel(sidepanelOpen, false);
+window.addEventListener('resize', () => {
+  dom.sidepanelBackdrop.hidden = !(sidepanelOpen && isNarrowViewport());
+});
+
 /* ——— sound —————————————————————————————————————————————————————— */
 
 const sound = new StepSound(settings.sound);
@@ -114,7 +163,7 @@ const sound = new StepSound(settings.sound);
 
 let activeHintTarget: HTMLElement | null = null;
 
-/** Keep the hint bar in sync with the hovered/focused visible control. */
+/** Keep the side-panel hint card in sync with the hovered/focused visible control. */
 function syncHint(): void {
   const isDisabled = activeHintTarget instanceof HTMLButtonElement && activeHintTarget.disabled;
   if (activeHintTarget === null || isDisabled || activeHintTarget.offsetParent === null) {
@@ -136,7 +185,6 @@ function syncSoundControl(): void {
   const onState = sound.isEnabled;
   dom.soundButton.setAttribute('aria-checked', String(onState));
   dom.soundButton.dataset.on = String(onState);
-  dom.soundLabel.textContent = i18n.t(onState ? 'settings.on' : 'settings.off');
 }
 
 function syncLangAria(): void {
@@ -168,12 +216,16 @@ function syncSpeedControls(): void {
   if (document.activeElement !== dom.minSpeedInput) {
     dom.minSpeedInput.value = String(minSpeed);
   }
+  setButtonDisabled(dom.minSpeedDec, minSpeed <= MIN_MIN_SPEED);
+  setButtonDisabled(dom.minSpeedInc, minSpeed >= MAX_MIN_SPEED);
 
   dom.maxSpeedInput.min = String(MIN_MAX_SPEED);
   dom.maxSpeedInput.max = String(MAX_MAX_SPEED);
   if (document.activeElement !== dom.maxSpeedInput) {
     dom.maxSpeedInput.value = String(maxSpeed);
   }
+  setButtonDisabled(dom.maxSpeedDec, maxSpeed <= MIN_MAX_SPEED);
+  setButtonDisabled(dom.maxSpeedInc, maxSpeed >= MAX_MAX_SPEED);
 }
 
 /* ——— settings menu ——————————————————————————————————————————————— */
@@ -278,8 +330,8 @@ function applyMode(mode: UIMode): void {
 /**
  * Keep every run-mode button enabled strictly when its action makes sense:
  * - `←` (Step back): enabled whenever at least 1 step was performed (including after halt/error).
- * - `Шаг` (Step): enabled while the machine has not halted.
- * - `Запуск` / `Стоп`: enabled while auto-running, or when stepping in the slider's direction is valid.
+ * - `→` (Step): enabled while the machine has not halted.
+ * - `▶` / `■` (Run / Stop): enabled while auto-running, or when stepping in the slider's direction is valid.
  * - `Сначала` (Restart): enabled after at least 1 step or after halt/error.
  */
 function syncRunState(state: RunControlState): void {
@@ -296,7 +348,8 @@ function syncRunToggleLabel(): void {
   const running = controller.isAutoRunning;
   const label = i18n.t(running ? 'controls.stop' : 'controls.run');
   const hint = i18n.t(running ? 'hints.stop' : 'hints.run');
-  toggle.querySelector('.btn__text')!.textContent = label;
+  toggle.dataset.state = running ? 'stop' : 'play';
+  toggle.setAttribute('aria-label', label);
   toggle.setAttribute('title', hint);
   toggle.setAttribute('data-hint', hint);
   toggle.setAttribute('aria-pressed', String(running));
@@ -323,6 +376,14 @@ const controller = new AppController({
     applyMode(mode);
   },
   onRunStateChange: syncRunState,
+  onLogChange: (kind) => {
+    latestLogKind = kind;
+    if (kind === 'error' && !sidepanelOpen) {
+      applySidepanel(true, false);
+    } else {
+      syncSidepanelBadge();
+    }
+  },
   onProgramChange: saveProgram,
   onTapeChange: saveTape,
   onStepSound: () => sound.tick(),
@@ -402,9 +463,16 @@ on(dom.helpDialog, 'click', (event) => {
 });
 on(dom.helpDialog, 'close', () => {
   if (location.hash === '#help') {
-    history.replaceState(null, '', location.pathname + location.search);
+    safeReplaceState(location.pathname + location.search);
   }
 });
+
+on(dom.sidepanelButton, 'click', () => applySidepanel(!sidepanelOpen, true));
+on(dom.sidepanelClose, 'click', () => {
+  applySidepanel(false, true);
+  dom.sidepanelButton.focus();
+});
+on(dom.sidepanelBackdrop, 'click', () => applySidepanel(false, false));
 
 on(dom.settingsButton, 'click', () => {
   if (isSettingsOpen()) closeSettings(false);
@@ -425,7 +493,7 @@ on(dom.langButton, 'click', () => {
   const url = new URL(location.href);
   if (url.searchParams.has('lang')) {
     url.searchParams.set('lang', next);
-    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    safeReplaceState(url.pathname + url.search + url.hash);
   }
 });
 
@@ -497,6 +565,75 @@ on(dom.minSpeedInput, 'blur', () => applyMinSpeedValue(dom.minSpeedInput.value, 
 on(dom.maxSpeedInput, 'input', () => applyMaxSpeedValue(dom.maxSpeedInput.value, false));
 on(dom.maxSpeedInput, 'change', () => applyMaxSpeedValue(dom.maxSpeedInput.value, true));
 on(dom.maxSpeedInput, 'blur', () => applyMaxSpeedValue(dom.maxSpeedInput.value, true));
+
+function stepMinSpeed(delta: number): void {
+  const result = controller.setMinSpeed(clampMinSpeed(controller.currentMinSpeed + delta));
+  updateSettings({ minSpeed: result.minSpeed, speed: result.speed });
+  dom.minSpeedInput.value = String(result.minSpeed);
+  syncSpeedControls();
+}
+
+function stepMaxSpeed(delta: number): void {
+  const result = controller.setMaxSpeed(clampMaxSpeed(controller.currentMaxSpeed + delta));
+  updateSettings({ maxSpeed: result.maxSpeed, speed: result.speed });
+  dom.maxSpeedInput.value = String(result.maxSpeed);
+  syncSpeedControls();
+}
+
+function bindStepperButton(button: HTMLButtonElement, onStep: () => void): void {
+  let delayId: number | null = null;
+  let repeatId: number | null = null;
+  let didRepeat = false;
+
+  const stop = (): void => {
+    if (delayId !== null) {
+      window.clearTimeout(delayId);
+      delayId = null;
+    }
+    if (repeatId !== null) {
+      window.clearInterval(repeatId);
+      repeatId = null;
+    }
+  };
+
+  on(button, 'pointerdown', (event) => {
+    if (event.button !== 0 || button.disabled) return;
+    didRepeat = false;
+    stop();
+    delayId = window.setTimeout(() => {
+      delayId = null;
+      if (button.disabled) return;
+      didRepeat = true;
+      onStep();
+      repeatId = window.setInterval(() => {
+        if (button.disabled) {
+          stop();
+          return;
+        }
+        onStep();
+      }, 65);
+    }, 380);
+  });
+
+  on(button, 'pointerup', stop);
+  on(button, 'pointercancel', stop);
+  on(button, 'pointerleave', stop);
+  on(button, 'blur', stop);
+
+  on(button, 'click', () => {
+    stop();
+    if (didRepeat) {
+      didRepeat = false;
+      return;
+    }
+    if (!button.disabled) onStep();
+  });
+}
+
+bindStepperButton(dom.minSpeedDec, () => stepMinSpeed(-1));
+bindStepperButton(dom.minSpeedInc, () => stepMinSpeed(1));
+bindStepperButton(dom.maxSpeedDec, () => stepMaxSpeed(-1));
+bindStepperButton(dom.maxSpeedInc, () => stepMaxSpeed(1));
 
 // Persist the draft as the user types (debounced).
 const persistProgram = debounce((text: string) => saveProgram(text), 400);
@@ -579,6 +716,12 @@ on(document, 'keydown', (event) => {
     return;
   }
 
+  if (sidepanelOpen && isNarrowViewport() && event.key === 'Escape') {
+    event.preventDefault();
+    applySidepanel(false, false);
+    return;
+  }
+
   const hasModifier = event.ctrlKey || event.metaKey;
 
   if (event.key === 'Enter' && !inEditable && (hasModifier || !inControl)) {
@@ -611,7 +754,7 @@ on(document, 'keydown', (event) => {
   }
 });
 
-// Hint bar: show the hint of the hovered/focused toolbar control.
+// Hint card in the side panel: show the hint of the hovered/focused toolbar control.
 const hintTargets = Array.from(dom.controls.querySelectorAll<HTMLElement>('.btn, .speed-control'));
 for (const control of hintTargets) {
   const show = (): void => {

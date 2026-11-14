@@ -20,375 +20,499 @@
   <body>
     <a class="skip-link" href="#input-program" data-i18n="a11y.skipToProgram"></a>
 
-    <div class="app">
-      <header class="topbar">
-        <h1 class="title">
-          <span class="title__text" id="app-title" data-i18n="app.title"></span>
-          <span class="title__version" id="app-version"></span>
-        </h1>
-        <nav class="topbar__actions" aria-label="UI">
-          <div class="settings-anchor" id="settings-anchor">
+    <div class="app-shell" id="app-shell" data-sidepanel="open">
+      <div class="app">
+        <header class="topbar">
+          <h1 class="title">
+            <span class="title__text" id="app-title" data-i18n="app.title"></span>
+            <span class="title__version" id="app-version"></span>
+          </h1>
+          <nav class="topbar__actions" aria-label="UI">
+            <div class="settings-anchor" id="settings-anchor">
+              <button
+                class="icon-btn"
+                id="btn-settings"
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="settings-menu"
+                data-i18n-attr="title:controls.settings;aria-label:controls.settings"
+              >
+                <svg
+                  class="icon-btn__gear"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    fill="currentColor"
+                    d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.49.49 0 0 0-.49-.42h-3.84a.49.49 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.55-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.04.71 1.62.94l.36 2.54c.05.24.25.42.49.42h3.84c.24 0 .44-.18.49-.42l.36-2.54c.58-.23 1.12-.55 1.62-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2Z"
+                  />
+                </svg>
+              </button>
+
+              <section
+                class="settings-menu"
+                id="settings-menu"
+                role="dialog"
+                aria-labelledby="settings-title"
+                hidden
+              >
+                <header class="settings-menu__header">
+                  <h2
+                    class="settings-menu__title"
+                    id="settings-title"
+                    data-i18n="settings.title"
+                  ></h2>
+                  <button
+                    class="icon-btn settings-menu__close"
+                    id="btn-settings-close"
+                    type="button"
+                    data-i18n-attr="title:controls.close;aria-label:controls.close"
+                  >
+                    ×
+                  </button>
+                </header>
+
+                <div class="settings-menu__body">
+                  <div class="setting-row">
+                    <span
+                      class="setting-row__label"
+                      id="label-setting-lang"
+                      data-i18n="settings.language"
+                    ></span>
+                    <button
+                      class="btn btn--sm"
+                      id="btn-lang"
+                      type="button"
+                      data-i18n-attr="title:controls.language"
+                    >
+                      <span id="lang-label" data-i18n="settings.languageName"></span>
+                    </button>
+                  </div>
+
+                  <div class="setting-row setting-row--stack">
+                    <span
+                      class="setting-row__label"
+                      id="label-setting-theme"
+                      data-i18n="settings.theme"
+                    ></span>
+                    <div
+                      class="segmented"
+                      id="theme-group"
+                      role="group"
+                      aria-labelledby="label-setting-theme"
+                    >
+                      <button
+                        class="segmented__btn"
+                        id="btn-theme-auto"
+                        type="button"
+                        data-theme-option="auto"
+                        aria-pressed="false"
+                        data-i18n="settings.themeAuto"
+                      ></button>
+                      <button
+                        class="segmented__btn"
+                        id="btn-theme-light"
+                        type="button"
+                        data-theme-option="light"
+                        aria-pressed="false"
+                        data-i18n="settings.themeLight"
+                      ></button>
+                      <button
+                        class="segmented__btn"
+                        id="btn-theme-dark"
+                        type="button"
+                        data-theme-option="dark"
+                        aria-pressed="false"
+                        data-i18n="settings.themeDark"
+                      ></button>
+                    </div>
+                  </div>
+
+                  <div class="setting-row">
+                    <span
+                      class="setting-row__label"
+                      id="label-setting-sound"
+                      data-i18n="settings.sound"
+                    ></span>
+                    <button
+                      class="switch"
+                      id="btn-sound"
+                      type="button"
+                      role="switch"
+                      aria-checked="false"
+                      aria-labelledby="label-setting-sound"
+                    >
+                      <span class="switch__track" aria-hidden="true">
+                        <span class="switch__thumb"></span>
+                      </span>
+                    </button>
+                  </div>
+
+                  <div class="setting-row">
+                    <label
+                      class="setting-row__label"
+                      id="label-setting-min-speed"
+                      for="input-min-speed"
+                      data-i18n="settings.minSpeed"
+                    ></label>
+                    <div class="setting-stepper">
+                      <button
+                        class="setting-stepper__btn"
+                        id="btn-min-speed-dec"
+                        type="button"
+                        data-i18n-attr="title:settings.minSpeedDec;aria-label:settings.minSpeedDec"
+                      >
+                        −
+                      </button>
+                      <div class="setting-number">
+                        <input
+                          class="setting-number__input"
+                          id="input-min-speed"
+                          type="number"
+                          min="-1000"
+                          max="-1"
+                          step="1"
+                          value="-15"
+                          inputmode="decimal"
+                          data-i18n-attr="aria-label:settings.minSpeed"
+                        />
+                      </div>
+                      <button
+                        class="setting-stepper__btn"
+                        id="btn-min-speed-inc"
+                        type="button"
+                        data-i18n-attr="title:settings.minSpeedInc;aria-label:settings.minSpeedInc"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="setting-row">
+                    <label
+                      class="setting-row__label"
+                      id="label-setting-max-speed"
+                      for="input-max-speed"
+                      data-i18n="settings.maxSpeed"
+                    ></label>
+                    <div class="setting-stepper">
+                      <button
+                        class="setting-stepper__btn"
+                        id="btn-max-speed-dec"
+                        type="button"
+                        data-i18n-attr="title:settings.maxSpeedDec;aria-label:settings.maxSpeedDec"
+                      >
+                        −
+                      </button>
+                      <div class="setting-number">
+                        <input
+                          class="setting-number__input"
+                          id="input-max-speed"
+                          type="number"
+                          min="1"
+                          max="1000"
+                          step="1"
+                          value="25"
+                          inputmode="decimal"
+                          data-i18n-attr="aria-label:settings.maxSpeed"
+                        />
+                      </div>
+                      <button
+                        class="setting-stepper__btn"
+                        id="btn-max-speed-inc"
+                        type="button"
+                        data-i18n-attr="title:settings.maxSpeedInc;aria-label:settings.maxSpeedInc"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
             <button
-              class="icon-btn"
-              id="btn-settings"
+              class="btn btn--ghost"
+              id="btn-help"
               type="button"
-              aria-haspopup="dialog"
-              aria-expanded="false"
-              aria-controls="settings-menu"
-              data-i18n-attr="title:controls.settings;aria-label:controls.settings"
+              data-i18n-attr="title:controls.help;aria-label:controls.help"
+            >
+              ?
+            </button>
+
+            <button
+              class="icon-btn icon-btn--sidepanel"
+              id="btn-sidepanel"
+              type="button"
+              aria-expanded="true"
+              aria-controls="sidepanel"
+              data-i18n-attr="title:controls.sidepanel;aria-label:controls.sidepanel"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                <path
+                  fill="currentColor"
+                  d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5Zm2 0v14h7V5H6Zm9 0v14h3V5h-3Z"
+                />
+              </svg>
+              <span class="icon-btn__badge" id="sidepanel-badge" aria-hidden="true"></span>
+            </button>
+          </nav>
+        </header>
+
+        <main class="workspace">
+          <section class="pane pane--tape">
+            <label
+              class="pane__label"
+              for="input-tape"
+              id="label-tape"
+              data-i18n="pane.tape"
+            ></label>
+            <div class="pane__slot">
+              <input
+                class="field field--tape"
+                id="input-tape"
+                type="text"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                enterkeyhint="go"
+                tabindex="1"
+                data-i18n-attr="placeholder:hints.editTape;aria-label:a11y.tapeLabel"
+              />
+              <div
+                class="tape"
+                id="display-tape"
+                aria-live="polite"
+                data-i18n-attr="aria-label:a11y.tapeViewLabel"
+              ></div>
+            </div>
+          </section>
+
+          <section class="pane pane--program">
+            <label
+              class="pane__label"
+              for="input-program"
+              id="label-program"
+              data-i18n="pane.program"
+            ></label>
+            <div class="pane__stack">
+              <textarea
+                class="field field--program"
+                id="input-program"
+                spellcheck="false"
+                autocapitalize="off"
+                autocomplete="off"
+                wrap="off"
+                tabindex="2"
+                data-i18n-attr="placeholder:hints.editProgram;aria-label:a11y.programLabel"
+              ></textarea>
+              <div
+                class="program"
+                id="display-program"
+                tabindex="0"
+                data-step-dir="forward"
+                data-i18n-attr="aria-label:a11y.programViewLabel"
+              ></div>
+            </div>
+          </section>
+        </main>
+
+        <footer class="toolbar">
+          <div class="toolbar__buttons" id="controls">
+            <button
+              class="btn btn--primary"
+              id="btn-start"
+              type="button"
+              data-mode="edit"
+              data-i18n-attr="title:hints.start;data-hint:hints.start"
+            >
+              <span class="btn__text" data-i18n="controls.start"></span>
+            </button>
+            <button
+              class="btn"
+              id="btn-totu4"
+              type="button"
+              data-mode="edit"
+              data-i18n-attr="title:hints.toTu4;data-hint:hints.toTu4"
+            >
+              <span class="btn__text" data-i18n="controls.toTu4"></span>
+            </button>
+            <button
+              class="btn"
+              id="btn-copy"
+              type="button"
+              data-mode="edit"
+              data-i18n-attr="title:hints.copy;data-hint:hints.copy"
+            >
+              <span class="btn__text" data-i18n="controls.copy"></span>
+            </button>
+            <button
+              class="btn btn--transport"
+              id="btn-step-back"
+              type="button"
+              data-mode="run"
+              data-i18n-attr="title:hints.stepBack;data-hint:hints.stepBack;aria-label:controls.stepBack"
+            >
+              <span class="btn__arrow" aria-hidden="true">←</span>
+            </button>
+            <button
+              class="btn btn--primary btn--transport"
+              id="btn-step"
+              type="button"
+              data-mode="run"
+              data-i18n-attr="title:hints.step;data-hint:hints.step;aria-label:controls.step"
+            >
+              <span class="btn__arrow" aria-hidden="true">→</span>
+            </button>
+            <button
+              class="btn btn--transport btn--run-toggle"
+              id="btn-run-toggle"
+              type="button"
+              data-mode="run"
+              data-state="play"
             >
               <svg
-                class="icon-btn__gear"
-                viewBox="0 0 24 24"
-                width="18"
-                height="18"
+                class="btn__media-icon btn__media-icon--play"
+                viewBox="0 0 16 16"
+                width="14"
+                height="14"
                 aria-hidden="true"
                 focusable="false"
               >
-                <path
-                  fill="currentColor"
-                  d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.49.49 0 0 0-.49-.42h-3.84a.49.49 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.55-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.04.71 1.62.94l.36 2.54c.05.24.25.42.49.42h3.84c.24 0 .44-.18.49-.42l.36-2.54c.58-.23 1.12-.55 1.62-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2Z"
-                />
+                <path fill="currentColor" d="M4 2.5v11l9-5.5-9-5.5Z" />
+              </svg>
+              <svg
+                class="btn__media-icon btn__media-icon--stop"
+                viewBox="0 0 16 16"
+                width="13"
+                height="13"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <rect fill="currentColor" x="3" y="3" width="10" height="10" rx="1.5" />
               </svg>
             </button>
-
-            <section
-              class="settings-menu"
-              id="settings-menu"
-              role="dialog"
-              aria-labelledby="settings-title"
-              hidden
+            <label
+              class="speed-control"
+              id="speed-control"
+              data-mode="run"
+              data-direction="forward"
+              for="input-speed"
+              data-i18n-attr="title:hints.speed;data-hint:hints.speed"
             >
-              <header class="settings-menu__header">
-                <h2
-                  class="settings-menu__title"
-                  id="settings-title"
-                  data-i18n="settings.title"
-                ></h2>
-                <button
-                  class="icon-btn settings-menu__close"
-                  id="btn-settings-close"
-                  type="button"
-                  data-i18n-attr="title:controls.close;aria-label:controls.close"
-                >
-                  ×
-                </button>
-              </header>
-
-              <div class="settings-menu__body">
-                <div class="setting-row">
-                  <span
-                    class="setting-row__label"
-                    id="label-setting-lang"
-                    data-i18n="settings.language"
-                  ></span>
-                  <button
-                    class="btn btn--sm"
-                    id="btn-lang"
-                    type="button"
-                    data-i18n-attr="title:controls.language"
-                  >
-                    <span id="lang-label" data-i18n="settings.languageName"></span>
-                  </button>
-                </div>
-
-                <div class="setting-row setting-row--stack">
-                  <span
-                    class="setting-row__label"
-                    id="label-setting-theme"
-                    data-i18n="settings.theme"
-                  ></span>
-                  <div
-                    class="segmented"
-                    id="theme-group"
-                    role="group"
-                    aria-labelledby="label-setting-theme"
-                  >
-                    <button
-                      class="segmented__btn"
-                      id="btn-theme-auto"
-                      type="button"
-                      data-theme-option="auto"
-                      aria-pressed="false"
-                      data-i18n="settings.themeAuto"
-                    ></button>
-                    <button
-                      class="segmented__btn"
-                      id="btn-theme-light"
-                      type="button"
-                      data-theme-option="light"
-                      aria-pressed="false"
-                      data-i18n="settings.themeLight"
-                    ></button>
-                    <button
-                      class="segmented__btn"
-                      id="btn-theme-dark"
-                      type="button"
-                      data-theme-option="dark"
-                      aria-pressed="false"
-                      data-i18n="settings.themeDark"
-                    ></button>
-                  </div>
-                </div>
-
-                <div class="setting-row">
-                  <span
-                    class="setting-row__label"
-                    id="label-setting-sound"
-                    data-i18n="settings.sound"
-                  ></span>
-                  <button
-                    class="switch"
-                    id="btn-sound"
-                    type="button"
-                    role="switch"
-                    aria-checked="false"
-                    aria-labelledby="label-setting-sound"
-                  >
-                    <span class="switch__track" aria-hidden="true">
-                      <span class="switch__thumb"></span>
-                    </span>
-                    <span class="switch__text" id="sound-label"></span>
-                  </button>
-                </div>
-
-                <div class="setting-row">
-                  <label
-                    class="setting-row__label"
-                    id="label-setting-min-speed"
-                    for="input-min-speed"
-                    data-i18n="settings.minSpeed"
-                  ></label>
-                  <div class="setting-number">
-                    <input
-                      class="setting-number__input"
-                      id="input-min-speed"
-                      type="number"
-                      min="-1000"
-                      max="-1"
-                      step="1"
-                      value="-15"
-                      inputmode="decimal"
-                      data-i18n-attr="aria-label:settings.minSpeed"
-                    />
-                    <span class="setting-number__unit" aria-hidden="true">×</span>
-                  </div>
-                </div>
-
-                <div class="setting-row">
-                  <label
-                    class="setting-row__label"
-                    id="label-setting-max-speed"
-                    for="input-max-speed"
-                    data-i18n="settings.maxSpeed"
-                  ></label>
-                  <div class="setting-number">
-                    <input
-                      class="setting-number__input"
-                      id="input-max-speed"
-                      type="number"
-                      min="1"
-                      max="1000"
-                      step="1"
-                      value="25"
-                      inputmode="decimal"
-                      data-i18n-attr="aria-label:settings.maxSpeed"
-                    />
-                    <span class="setting-number__unit" aria-hidden="true">×</span>
-                  </div>
-                </div>
-              </div>
-            </section>
+              <span class="speed-control__label" id="label-speed" data-i18n="controls.speed"></span>
+              <span class="speed-control__track-wrap" id="speed-track-wrap">
+                <span class="speed-control__zero" id="speed-zero" aria-hidden="true"></span>
+                <input
+                  class="speed-control__slider"
+                  id="input-speed"
+                  type="range"
+                  min="-15"
+                  max="25"
+                  step="0.5"
+                  value="1"
+                  data-i18n-attr="aria-label:controls.speed"
+                />
+              </span>
+              <output class="speed-control__value" id="speed-value" for="input-speed">1×</output>
+            </label>
+            <button
+              class="btn"
+              id="btn-restart"
+              type="button"
+              data-mode="run"
+              data-i18n-attr="title:hints.restart;data-hint:hints.restart"
+            >
+              <span class="btn__icon" aria-hidden="true">↺</span>
+              <span class="btn__text" data-i18n="controls.restart"></span>
+            </button>
+            <button
+              class="btn"
+              id="btn-unmark"
+              type="button"
+              data-mode="run"
+              data-i18n-attr="title:hints.unmark;data-hint:hints.unmark"
+            >
+              <span class="btn__text" data-i18n="controls.unmark"></span>
+            </button>
+            <button
+              class="btn"
+              id="btn-edit"
+              type="button"
+              data-mode="run"
+              data-i18n-attr="title:hints.backToEdit;data-hint:hints.backToEdit"
+            >
+              <span class="btn__text" data-i18n="controls.backToEdit"></span>
+            </button>
+            <button
+              class="btn"
+              id="btn-edit-err"
+              type="button"
+              data-mode="error"
+              data-i18n-attr="title:hints.backToEdit;data-hint:hints.backToEdit"
+            >
+              <span class="btn__text" data-i18n="controls.backToEdit"></span>
+            </button>
           </div>
+        </footer>
+      </div>
 
-          <button
-            class="btn btn--ghost"
-            id="btn-help"
-            type="button"
-            data-i18n-attr="title:controls.help;aria-label:controls.help"
-          >
-            ?
-          </button>
-        </nav>
-      </header>
+      <div class="sidepanel-backdrop" id="sidepanel-backdrop" hidden></div>
 
-      <section class="statusbar" id="statusbar" data-i18n-attr="aria-label:a11y.statusLabel">
-        <p
-          class="log"
-          id="log"
-          role="status"
-          aria-live="polite"
-          data-i18n-attr="aria-label:a11y.logLabel"
-        ></p>
-        <p class="stats" id="stats"></p>
-      </section>
+      <aside
+        class="sidepanel"
+        id="sidepanel"
+        aria-labelledby="sidepanel-title"
+        data-i18n-attr="aria-label:a11y.statusLabel"
+      >
+        <header class="sidepanel__header">
+          <h2 class="sidepanel__title" id="sidepanel-title" data-i18n="sidepanel.title"></h2>
+          <button
+            class="icon-btn sidepanel__close"
+            id="btn-sidepanel-close"
+            type="button"
+            data-i18n-attr="title:controls.close;aria-label:controls.close"
+          >
+            ×
+          </button>
+        </header>
 
-      <main class="workspace">
-        <section class="pane pane--tape">
-          <label class="pane__label" for="input-tape" id="label-tape" data-i18n="pane.tape"></label>
-          <div class="pane__slot">
-            <input
-              class="field field--tape"
-              id="input-tape"
-              type="text"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck="false"
-              enterkeyhint="go"
-              tabindex="1"
-              data-i18n-attr="placeholder:hints.editTape;aria-label:a11y.tapeLabel"
-            />
-            <div
-              class="tape"
-              id="display-tape"
-              aria-live="polite"
-              data-i18n-attr="aria-label:a11y.tapeViewLabel"
-            ></div>
-          </div>
-        </section>
+        <div class="sidepanel__body">
+          <section class="sidepanel__section">
+            <h3 class="sidepanel__heading" data-i18n="sidepanel.notifications"></h3>
+            <div class="sidepanel__card sidepanel__card--log">
+              <p
+                class="log"
+                id="log"
+                role="status"
+                aria-live="polite"
+                data-i18n-attr="aria-label:a11y.logLabel"
+              ></p>
+              <p class="sidepanel__empty" data-i18n="sidepanel.noNotifications"></p>
+            </div>
+          </section>
 
-        <section class="pane pane--program">
-          <label
-            class="pane__label"
-            for="input-program"
-            id="label-program"
-            data-i18n="pane.program"
-          ></label>
-          <div class="pane__stack">
-            <textarea
-              class="field field--program"
-              id="input-program"
-              spellcheck="false"
-              autocapitalize="off"
-              autocomplete="off"
-              wrap="off"
-              tabindex="2"
-              data-i18n-attr="placeholder:hints.editProgram;aria-label:a11y.programLabel"
-            ></textarea>
-            <div
-              class="program"
-              id="display-program"
-              tabindex="0"
-              data-i18n-attr="aria-label:a11y.programViewLabel"
-            ></div>
-          </div>
-        </section>
-      </main>
+          <section class="sidepanel__section">
+            <h3 class="sidepanel__heading" data-i18n="sidepanel.metrics"></h3>
+            <div class="sidepanel__card">
+              <div class="stats" id="stats"></div>
+              <p class="sidepanel__empty" data-i18n="sidepanel.noMetrics"></p>
+            </div>
+          </section>
 
-      <footer class="toolbar">
-        <div class="toolbar__buttons" id="controls">
-          <button
-            class="btn btn--primary"
-            id="btn-start"
-            type="button"
-            data-mode="edit"
-            data-i18n-attr="title:hints.start;data-hint:hints.start"
-          >
-            <span class="btn__text" data-i18n="controls.start"></span>
-          </button>
-          <button
-            class="btn"
-            id="btn-totu4"
-            type="button"
-            data-mode="edit"
-            data-i18n-attr="title:hints.toTu4;data-hint:hints.toTu4"
-          >
-            <span class="btn__text" data-i18n="controls.toTu4"></span>
-          </button>
-          <button
-            class="btn"
-            id="btn-copy"
-            type="button"
-            data-mode="edit"
-            data-i18n-attr="title:hints.copy;data-hint:hints.copy"
-          >
-            <span class="btn__text" data-i18n="controls.copy"></span>
-          </button>
-          <button
-            class="btn btn--step-back"
-            id="btn-step-back"
-            type="button"
-            data-mode="run"
-            data-i18n-attr="title:hints.stepBack;data-hint:hints.stepBack;aria-label:controls.stepBack"
-          >
-            <span class="btn__text" aria-hidden="true">←</span>
-          </button>
-          <button
-            class="btn btn--primary"
-            id="btn-step"
-            type="button"
-            data-mode="run"
-            data-i18n-attr="title:hints.step;data-hint:hints.step"
-          >
-            <span class="btn__text" data-i18n="controls.step"></span>
-          </button>
-          <button class="btn" id="btn-run-toggle" type="button" data-mode="run">
-            <span class="btn__text" data-i18n="controls.run"></span>
-          </button>
-          <label
-            class="speed-control"
-            id="speed-control"
-            data-mode="run"
-            data-direction="forward"
-            for="input-speed"
-            data-i18n-attr="title:hints.speed;data-hint:hints.speed"
-          >
-            <span class="speed-control__label" id="label-speed" data-i18n="controls.speed"></span>
-            <span class="speed-control__track-wrap" id="speed-track-wrap">
-              <span class="speed-control__zero" id="speed-zero" aria-hidden="true"></span>
-              <input
-                class="speed-control__slider"
-                id="input-speed"
-                type="range"
-                min="-15"
-                max="25"
-                step="0.5"
-                value="1"
-                data-i18n-attr="aria-label:controls.speed"
-              />
-            </span>
-            <output class="speed-control__value" id="speed-value" for="input-speed">1×</output>
-          </label>
-          <button
-            class="btn"
-            id="btn-restart"
-            type="button"
-            data-mode="run"
-            data-i18n-attr="title:hints.restart;data-hint:hints.restart"
-          >
-            <span class="btn__icon" aria-hidden="true">↺</span>
-            <span class="btn__text" data-i18n="controls.restart"></span>
-          </button>
-          <button
-            class="btn"
-            id="btn-unmark"
-            type="button"
-            data-mode="run"
-            data-i18n-attr="title:hints.unmark;data-hint:hints.unmark"
-          >
-            <span class="btn__text" data-i18n="controls.unmark"></span>
-          </button>
-          <button
-            class="btn"
-            id="btn-edit"
-            type="button"
-            data-mode="run"
-            data-i18n-attr="title:hints.backToEdit;data-hint:hints.backToEdit"
-          >
-            <span class="btn__text" data-i18n="controls.backToEdit"></span>
-          </button>
-          <button
-            class="btn"
-            id="btn-edit-err"
-            type="button"
-            data-mode="error"
-            data-i18n-attr="title:hints.backToEdit;data-hint:hints.backToEdit"
-          >
-            <span class="btn__text" data-i18n="controls.backToEdit"></span>
-          </button>
+          <section class="sidepanel__section sidepanel__section--hint">
+            <h3 class="sidepanel__heading" data-i18n="sidepanel.hint"></h3>
+            <div class="sidepanel__card sidepanel__card--hint">
+              <p class="hint" id="hint"></p>
+              <p class="sidepanel__empty" data-i18n="sidepanel.hintIdle"></p>
+            </div>
+          </section>
         </div>
-        <p class="hint" id="hint" aria-hidden="true"></p>
-      </footer>
+      </aside>
     </div>
 
     <dialog class="help" id="help-dialog" aria-labelledby="help-title" tabindex="-1">
