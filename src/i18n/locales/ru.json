@@ -19,7 +19,8 @@
     "snapshotSaved": "Снимок программы сохранён",
     "snapshotRestored": "Восстановлен снимок: {name}",
     "snapshotDeleted": "Сохранение удалено",
-    "snapshotEmpty": "Нечего сохранять: программа пуста"
+    "snapshotEmpty": "Нечего сохранять: программа пуста",
+    "snapshotQuotaExceeded": "Не удалось сохранить снимок: хранилище браузера переполнено"
   },
   "error": {
     "parseError": "Ошибка разбора текста «{text}»",

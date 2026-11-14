@@ -110,3 +110,113 @@ export function renderTape(tape: string, position: number | null, label: string)
 
   return container;
 }
+
+function formatTapeCell(symbol: string): string {
+  return symbol === ' ' ? '\u00a0' : symbol;
+}
+
+/**
+ * Incremental DOM renderer for the tape pane during execution.
+ * Mutates only cells whose symbol changed, appends/trims tail cells, and moves
+ * the `.current` marker in O(1) without rebuilding the whole tape on every step.
+ */
+export class TapeRenderer {
+  private host: HTMLElement | null = null;
+  private container: HTMLElement | null = null;
+  private cells: HTMLSpanElement[] = [];
+  private symbols: string[] = [];
+  private currentIndex: number | null = null;
+
+  get currentCell(): HTMLSpanElement | null {
+    return this.currentIndex !== null ? (this.cells[this.currentIndex] ?? null) : null;
+  }
+
+  mount(host: HTMLElement, tape: string, position: number | null, label: string): void {
+    const container = el('div', { class: 'tape-view', role: 'img', 'aria-label': label });
+    this.host = host;
+    this.container = container;
+    this.cells = [];
+    this.symbols = [];
+    this.currentIndex = null;
+    this.update(tape, position, label);
+    host.replaceChildren(container);
+  }
+
+  update(tape: string, position: number | null, label: string): void {
+    const container = this.container;
+    if (container === null) return;
+
+    if (container.getAttribute('aria-label') !== label) {
+      container.setAttribute('aria-label', label);
+    }
+    if (this.host !== null && this.host.getAttribute('aria-label') !== label) {
+      this.host.setAttribute('aria-label', label);
+    }
+
+    const nextSymbols = Array.from(tape);
+    if (position !== null && position >= nextSymbols.length) {
+      while (nextSymbols.length <= position) nextSymbols.push(' ');
+    }
+
+    // Trim trailing cells if the tape shrank (e.g. after `stepBack` or `reset`).
+    while (this.cells.length > nextSymbols.length) {
+      const removed = this.cells.pop();
+      this.symbols.pop();
+      removed?.remove();
+    }
+    if (this.currentIndex !== null && this.currentIndex >= this.cells.length) {
+      this.currentIndex = null;
+    }
+
+    // Update only existing cells whose symbol actually changed.
+    const existingCount = this.cells.length;
+    for (let i = 0; i < existingCount; i += 1) {
+      const next = nextSymbols[i] ?? ' ';
+      if (this.symbols[i] !== next) {
+        this.symbols[i] = next;
+        const cell = this.cells[i];
+        if (cell !== undefined) cell.textContent = formatTapeCell(next);
+      }
+    }
+
+    // Append newly visited cells on the right in one batch.
+    if (nextSymbols.length > existingCount) {
+      const fragment = document.createDocumentFragment();
+      for (let i = existingCount; i < nextSymbols.length; i += 1) {
+        const sym = nextSymbols[i] ?? ' ';
+        const cell = el('span', { class: 'cell' }, formatTapeCell(sym));
+        this.cells.push(cell);
+        this.symbols.push(sym);
+        fragment.append(cell);
+      }
+      container.append(fragment);
+    }
+
+    // Move `.current` highlight in O(1).
+    if (this.currentIndex !== position) {
+      if (this.currentIndex !== null) {
+        const prevCell = this.cells[this.currentIndex];
+        if (prevCell !== undefined) {
+          prevCell.classList.remove('current');
+          prevCell.removeAttribute('aria-current');
+        }
+      }
+      this.currentIndex = position;
+      if (position !== null) {
+        const nextCell = this.cells[position];
+        if (nextCell !== undefined) {
+          nextCell.classList.add('current');
+          nextCell.setAttribute('aria-current', 'true');
+        }
+      }
+    }
+  }
+
+  clear(): void {
+    this.host = null;
+    this.container = null;
+    this.cells = [];
+    this.symbols = [];
+    this.currentIndex = null;
+  }
+}
