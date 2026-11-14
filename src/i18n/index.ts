@@ -17,10 +17,8 @@ export function messages(lang: Lang): Messages {
 /**
  * Pick the UI language.
  *
- * Order: `?lang=` → explicit user choice → `navigator.languages`, but a browser
- * without Russian simply keeps the default language (Russian) instead of
- * forcing English on a RU-first audience: the original emulator was RU-first
- * as well, and `?lang=en` is a documented deep link.
+ * Precedence: `?lang=` query parameter → saved user choice → first supported
+ * language in `navigator.languages` → default (`ru`).
  */
 export function detectLang(
   search: string,

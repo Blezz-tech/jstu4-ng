@@ -53,19 +53,23 @@ export interface Messages {
     readonly start: string;
     readonly step: string;
     readonly quick: string;
+    readonly faster: string;
     readonly slow: string;
     readonly backToEdit: string;
     readonly toTu4: string;
     readonly unmark: string;
     readonly copy: string;
     readonly theme: string;
+    readonly sound: string;
     readonly language: string;
+    readonly close: string;
   };
 
   readonly hints: {
     readonly start: string;
     readonly step: string;
     readonly quick: string;
+    readonly faster: string;
     readonly slow: string;
     readonly backToEdit: string;
     readonly toTu4: string;
@@ -75,14 +79,8 @@ export interface Messages {
     readonly editTape: string;
   };
 
-  readonly shortcuts: {
-    readonly run: string;
-    readonly quickToggle: string;
-    readonly step: string;
-    readonly backToEdit: string;
-  };
-
   readonly a11y: {
+    readonly skipToProgram: string;
     readonly tapeLabel: string;
     readonly programLabel: string;
     readonly programViewLabel: string;
@@ -99,8 +97,11 @@ export interface HelpSection {
   readonly blocks: readonly HelpBlock[];
 }
 
+export type HelpInline = string | { readonly label: string; readonly href: string };
+
 export type HelpBlock =
   | { readonly kind: 'p'; readonly text: string }
+  | { readonly kind: 'rich'; readonly parts: readonly HelpInline[] }
   | { readonly kind: 'list'; readonly items: readonly string[] }
   | { readonly kind: 'code'; readonly lines: readonly string[] };
 

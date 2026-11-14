@@ -45,7 +45,6 @@
   --ring: 0 0 0 3px rgb(31 111 235 / 35%);
 
   --space: clamp(10px, 2vmin, 18px);
-  --toolbar-h: auto;
 }
 
 :root[data-theme='dark'] {
@@ -420,17 +419,57 @@ button {
 
 body[data-mode='edit'] #display-tape,
 body[data-mode='edit'] #display-program,
+body[data-mode='run'] #input-tape,
 body[data-mode='run'] #input-program,
+body[data-mode='error'] #display-tape,
 body[data-mode='error'] #input-program {
   display: none;
+}
+
+/* ——— scrollbars ———————————————————————————————————————————————————— */
+
+.tape,
+.program,
+.field--program,
+.help__body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.tape::-webkit-scrollbar,
+.program::-webkit-scrollbar,
+.field--program::-webkit-scrollbar,
+.help__body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.tape::-webkit-scrollbar-track,
+.program::-webkit-scrollbar-track,
+.field--program::-webkit-scrollbar-track,
+.help__body::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+.tape::-webkit-scrollbar-thumb,
+.program::-webkit-scrollbar-thumb,
+.field--program::-webkit-scrollbar-thumb,
+.help__body::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}
+
+.tape::-webkit-scrollbar-thumb:hover,
+.program::-webkit-scrollbar-thumb:hover,
+.field--program::-webkit-scrollbar-thumb:hover,
+.help__body::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* ——— tape view ————————————————————————————————————————————————————— */
 
 .tape {
   display: block;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   min-height: 42px;
   padding: 6px 8px;
   border: 1px solid var(--border);
@@ -489,12 +528,13 @@ body[data-mode='error'] #input-program {
     color-mix(in srgb, var(--surface) 72%, transparent) 55%,
     transparent 100%
   );
+  opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
 }
 
-body[data-mode='edit'] .pane__stack::after {
-  opacity: 0;
+body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
+  opacity: 1;
 }
 
 .program {
@@ -508,8 +548,7 @@ body[data-mode='edit'] .pane__stack::after {
   font-family: var(--font-mono);
   font-size: 0.92rem;
   line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  white-space: pre;
   color: var(--text-muted);
   cursor: text;
   tab-size: 4;
@@ -530,15 +569,8 @@ body[data-mode='edit'] .pane__stack::after {
   background: var(--cell-current);
   color: var(--cell-current-text);
   font-weight: 700;
+  text-decoration: none;
   box-shadow: 0 0 0 2px var(--cell-current);
-}
-
-/* Run finished: no command is "next" any more, so nothing blinks green. */
-body[data-running='false'] .program .cmd.current {
-  background: transparent;
-  color: var(--ok);
-  font-weight: 600;
-  box-shadow: none;
 }
 
 .program mark.error {
@@ -625,6 +657,7 @@ body[data-running='false'] .program .cmd.current {
 /* ——— help dialog ————————————————————————————————————————————————————— */
 
 .help {
+  margin: auto;
   width: min(720px, calc(100vw - 32px));
   max-height: min(84vh, 900px);
   padding: 0;
@@ -679,6 +712,16 @@ body[data-running='false'] .program .cmd.current {
 .help__body p {
   margin: 6px 0;
   color: var(--text-muted);
+}
+
+.help__body a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.help__body a:hover {
+  text-decoration-thickness: 2px;
 }
 
 .help__body ul {

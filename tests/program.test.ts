@@ -50,9 +50,16 @@ describe('createProgram', () => {
   });
 
   it('does not confuse named states with numeric ones', () => {
-    // Numeric states are keyed "0", named ones "#0" — no collision.
+    // Numeric states are keyed "#0", named ones "$a" — no collision.
     const program = compile('0,0,>,0  a,0,>,a');
     expect(findTransition(program, 'a', '0')?.q).toBe('a');
     expect(findTransition(program, 1, '0')).toBeUndefined();
+  });
+
+  it('allows Object.prototype property names as state names without colliding', () => {
+    const program = compile('0, ,>,toString  toString, ,>,constructor  constructor, ,#,0', 0);
+    expect(findTransition(program, 'toString', ' ')?.w).toBe('constructor');
+    expect(findTransition(program, 'constructor', ' ')?.isHalt).toBe(true);
+    expect(findTransition(program, 'valueOf', ' ')).toBeUndefined();
   });
 });

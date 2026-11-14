@@ -2,11 +2,16 @@
 <html lang="ru">
   <head>
     <meta charset="utf-8" />
-    <!-- URL of the 2011–2016 build: /jstu4/jstu4.html?lang=en -->
-    <meta http-equiv="refresh" content="0; url=../../?lang=en" />
+    <!-- Legacy URL of the 2011–2016 build: /jstu4/jstu4.html?lang=ru|en -->
+    <script>
+      location.replace('../' + location.search + location.hash);
+    </script>
+    <noscript>
+      <meta http-equiv="refresh" content="0; url=../" />
+    </noscript>
     <title>jstu4</title>
   </head>
   <body>
-    <p><a href="../../?lang=en">Открыть эмулятор / Open the emulator</a></p>
+    <p><a href="../">Открыть эмулятор / Open the emulator</a></p>
   </body>
 </html>

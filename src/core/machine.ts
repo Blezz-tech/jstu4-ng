@@ -32,9 +32,8 @@ export class Command {
   ) {}
 
   /**
-   * What this command does. Note that `rep,0,0,rep` is a no-op rather than a
-   * "write" — writing the same symbol has no observable effect, so it is
-   * classified as `stay` (same as the original implementation).
+   * What this command does. Note that `rep,0,0,rep` is a halt and `rep,0,0,nxt`
+   * is a stay rather than a write (same as original jstu4 v2.3).
    */
   get kind(): MoveKind | 'write' {
     if (this.v === '<') return 'left';
@@ -45,9 +44,13 @@ export class Command {
     return 'write';
   }
 
-  /** `true` when the machine stops after this command. */
+  /**
+   * `true` when the machine stops after this command. Matches original v2.3
+   * `isStop()`: `#` always halts, and `a === v && q === w` also halts even
+   * when `v` is `<` or `>` (after performing the move).
+   */
   get isHalt(): boolean {
-    return this.kind === 'halt';
+    return this.v === '#' || (this.a === this.v && this.q === this.w);
   }
 
   toString(): string {
@@ -57,9 +60,6 @@ export class Command {
 
 /** Numeric states are stored as numbers, named states as strings. */
 export type StateId = number | string;
-
-/** A command indexed by its next state number (used by the TU4 export). */
-export type CommandList = readonly Command[];
 
 /** Parse a state name: digit-only names become numbers. */
 export function parseStateName(name: string): StateId {
