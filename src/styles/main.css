@@ -608,6 +608,7 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 56px;
   height: 32px;
   padding: 0 4px;
   border: 1px solid var(--border-strong);
@@ -624,7 +625,8 @@ button {
 }
 
 .setting-number__input {
-  width: 5ch;
+  width: 100%;
+  min-width: 0;
   padding: 0;
   border: none;
   background: transparent;
