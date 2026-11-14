@@ -393,12 +393,19 @@ test('a space symbol is readable in error messages', async ({ page }) => {
 });
 
 test('the program pane never overlaps the tape pane', async ({ page }) => {
+  const longProgram = [
+    '0, ,>,s1',
+    ...Array.from({ length: 118 }, (_, i) => `s${i + 1}, ,>,s${i + 2}`),
+    's119, ,#,s119',
+  ].join('\n');
+
   for (const height of [480, 560, 700, 900]) {
     await page.setViewportSize({ width: 1280, height });
     await page.goto('/');
-    await page.locator('#input-program').fill(Array(120).fill('0, ,>,0').join('\n'));
+    await page.locator('#input-program').fill(longProgram);
     await page.locator('#input-tape').fill('1010');
     await page.locator('#btn-start').click();
+    await expect(page.locator('#display-tape')).toBeVisible();
 
     const tape = (await page.locator('#display-tape').boundingBox())!;
     const label = (await page.locator('#label-program').boundingBox())!;
