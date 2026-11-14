@@ -35,6 +35,10 @@
   --cell-current: #b9f3c4;
   --cell-current-text: #0b3d18;
 
+  --scrollbar-thumb: #c2c9d4;
+  --scrollbar-thumb-hover: #a6aebc;
+  --scrollbar-track: transparent;
+
   --radius: 10px;
   --radius-sm: 7px;
   --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 4px 16px rgb(16 24 40 / 6%);
@@ -68,6 +72,10 @@
 
   --cell-current: #2f7a44;
   --cell-current-text: #eafff0;
+
+  --scrollbar-thumb: #3f4855;
+  --scrollbar-thumb-hover: #55606f;
+  --scrollbar-track: transparent;
 
   --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 20px rgb(0 0 0 / 35%);
   --ring: 0 0 0 3px rgb(110 168 255 / 45%);
@@ -249,6 +257,29 @@ button {
   background: color-mix(in srgb, var(--accent) 88%, black);
 }
 
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: var(--surface);
+}
+
+.btn--primary:disabled,
+.btn--primary[aria-disabled='true'] {
+  /* A disabled primary action must not stay saturated blue: it reads as
+     "click me", which is exactly what the halting state is not. */
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text-faint);
+}
+
+.btn--primary:disabled:hover {
+  background: var(--surface);
+}
+
 .btn[aria-pressed='true'] {
   background: var(--accent-soft);
   border-color: var(--accent);
@@ -292,7 +323,7 @@ button {
 .workspace {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--space) * 0.7);
+  gap: calc(var(--space) * 0.9);
   min-height: 0;
 }
 
@@ -301,6 +332,12 @@ button {
   flex-direction: column;
   gap: 6px;
   min-height: 0;
+}
+
+/* The tape pane keeps its natural height: letting it shrink was what made the
+   program panel slide over the tape label when the window was short. */
+.workspace > .pane--tape {
+  flex: 0 0 auto;
 }
 
 .pane--program {
@@ -359,6 +396,7 @@ button {
    page, so both children share one grid cell. */
 
 .pane__stack {
+  position: relative;
   display: grid;
   grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   flex: 1 1 auto;
@@ -391,6 +429,8 @@ body[data-mode='error'] #input-program {
 
 .tape {
   display: block;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   min-height: 42px;
   padding: 6px 8px;
   border: 1px solid var(--border);
@@ -429,6 +469,34 @@ body[data-mode='error'] #input-program {
 
 /* ——— program view ————————————————————————————————————————————————————— */
 
+/* "There is more below": a fade pinned to the bottom edge of the listing, so a
+   long program does not look cut off mid-line. The overlay lives on the stack
+   (not on the scroll container), so it never scrolls and never adds height.
+   It is inset past the 1px border and the 10px scrollbar gutter, and it is
+   purely decorative: `pointer-events: none` keeps the pane clickable. */
+.pane__stack::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  right: 11px;
+  bottom: 1px;
+  left: 11px;
+  height: 30px;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: linear-gradient(
+    to top,
+    var(--surface) 12%,
+    color-mix(in srgb, var(--surface) 72%, transparent) 55%,
+    transparent 100%
+  );
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+body[data-mode='edit'] .pane__stack::after {
+  opacity: 0;
+}
+
 .program {
   min-height: 0;
   overflow: auto;
@@ -463,6 +531,14 @@ body[data-mode='error'] #input-program {
   color: var(--cell-current-text);
   font-weight: 700;
   box-shadow: 0 0 0 2px var(--cell-current);
+}
+
+/* Run finished: no command is "next" any more, so nothing blinks green. */
+body[data-running='false'] .program .cmd.current {
+  background: transparent;
+  color: var(--ok);
+  font-weight: 600;
+  box-shadow: none;
 }
 
 .program mark.error {

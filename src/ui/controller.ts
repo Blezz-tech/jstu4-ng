@@ -41,6 +41,11 @@ export interface ControllerOptions {
   readonly elements: AppElements;
   /** Called after every mode change so the shell can sync buttons/attributes. */
   readonly onModeChange: (mode: UIMode) => void;
+  /**
+   * Called whenever the machine halts or starts running again, so the toolbar
+   * can disable "Step"/"Quick" instead of leaving them looking usable.
+   */
+  readonly onRunningChange?: (isRunning: boolean) => void;
   /** Persist the program draft (debounced by the caller). */
   readonly onProgramChange: (text: string) => void;
   readonly onTapeChange: (text: string) => void;
@@ -133,6 +138,7 @@ export class AppController {
     this.setMode('run');
     this.markCommand(this.run.nextCommand);
     this.log(null);
+    this.options.onRunningChange?.(this.run.isRunning);
     this.options.onStepSound?.();
   }
 
@@ -188,6 +194,7 @@ export class AppController {
   backToEdit(): void {
     this.stopQuick();
     this.run = null;
+    this.options.onRunningChange?.(false);
     this.compiled = null;
     this.setMode('edit');
     this.log(null);
@@ -380,6 +387,13 @@ export class AppController {
     const compiled = this.compiled;
     if (compiled === null) return;
 
+    // When the machine has stopped there is no "next command": leave the last
+    // executed one marked as visited so the listing stays readable.
+    if (next === undefined) {
+      this.el.programView.querySelector('.cmd.current')?.classList.remove('current');
+      return;
+    }
+
     if (next !== undefined) {
       const index = compiled.commands.indexOf(next);
       if (index >= 0) {
@@ -400,6 +414,7 @@ export class AppController {
 
   private reportRuntimeError(error: unknown): void {
     this.stopQuick();
+    this.options.onRunningChange?.(false);
     if (error instanceof NoSuchCommandError) {
       this.log(this.m.error.noSuchCommand(String(error.data.state), error.data.symbol), 'error');
       return;
@@ -412,6 +427,7 @@ export class AppController {
   }
 
   private reportFinish(run: MachineRun): void {
+    this.options.onRunningChange?.(false);
     switch (run.checkNormality()) {
       case 'sourceAltered':
         this.log(this.m.log.warningSourceAltered, 'warning');

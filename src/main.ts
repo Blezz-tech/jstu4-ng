@@ -209,6 +209,20 @@ function applyMode(mode: UIMode): void {
   syncQuickLabel();
 }
 
+/**
+ * Step and Quick only make sense while the machine is running. Once it halts
+ * (finishes or hits a runtime error) the buttons stay visible — the mode is
+ * still "run" — but are disabled and dimmed instead of silently doing nothing.
+ */
+function syncRunState(isRunning: boolean): void {
+  const step = mustFind<HTMLButtonElement>(document, '#btn-step');
+  const quick = mustFind<HTMLButtonElement>(document, '#btn-quick');
+  step.disabled = !isRunning;
+  quick.disabled = !isRunning;
+  step.setAttribute('aria-disabled', String(!isRunning));
+  document.body.dataset.running = String(isRunning);
+}
+
 function syncQuickLabel(): void {
   const quick = mustFind<HTMLButtonElement>(document, '#btn-quick');
   const running = controller?.isQuickRunning ?? false;
@@ -236,6 +250,7 @@ function buildController(): AppController {
       applyMode(mode);
       syncQuickLabel();
     },
+    onRunningChange: syncRunState,
     onProgramChange: saveProgram,
     onTapeChange: saveTape,
     onStepSound: () => sound.tick(),
@@ -397,6 +412,7 @@ mustFind(document, '#btn-sound').dataset.on = String(sound.isEnabled);
 // Localize once the DOM is wired; the controller already restored the draft.
 localize();
 applyMode('edit');
+syncRunState(false);
 
 // Legacy help links (`help-ru.html`, bookmarks) land on `#help`: open the
 // in-app help instead of a separate page.

@@ -195,3 +195,38 @@ test('copy puts the program on the clipboard', async ({ page, context }) => {
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
   expect(clipboard).toBe('0, ,#,0');
 });
+
+test('Step and Quick are disabled once the machine halts', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#input-program').fill('0, ,#,0');
+  await page.locator('#input-tape').fill('abc');
+  await page.locator('#btn-start').click();
+
+  await expect(page.locator('#btn-step')).toBeEnabled();
+  await page.locator('#btn-step').click();
+  await expect(page.locator('#btn-step')).toBeDisabled();
+  await expect(page.locator('#btn-quick')).toBeDisabled();
+  await expect(page.locator('body')).toHaveAttribute('data-running', 'false');
+});
+
+test('a space symbol is readable in error messages', async ({ page }) => {
+  await page.goto('/');
+  // Two transitions on the same (space) symbol → ambiguous command.
+  await page.locator('#input-program').fill('0, ,>,1  0, ,<,1');
+  await page.locator('#btn-start').click();
+  await expect(page.locator('#log')).toContainText('␣');
+});
+
+test('the program pane never overlaps the tape pane', async ({ page }) => {
+  for (const height of [480, 560, 700, 900]) {
+    await page.setViewportSize({ width: 1280, height });
+    await page.goto('/');
+    await page.locator('#input-program').fill(Array(120).fill('0, ,>,0').join('\n'));
+    await page.locator('#input-tape').fill('1010');
+    await page.locator('#btn-start').click();
+
+    const tape = (await page.locator('#display-tape').boundingBox())!;
+    const label = (await page.locator('#label-program').boundingBox())!;
+    expect(tape.y + tape.height).toBeLessThanOrEqual(label.y);
+  }
+});

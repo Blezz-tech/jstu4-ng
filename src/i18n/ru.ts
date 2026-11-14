@@ -1,4 +1,4 @@
-import type { Messages } from './types';
+import { formatSymbol, type Messages } from './types';
 
 export const ru: Messages = {
   appTitle: 'Эмулятор машины Тьюринга в четвёрках',
@@ -18,11 +18,13 @@ export const ru: Messages = {
   error: {
     parseError: (text) => `Ошибка разбора текста «${text}»`,
     programIsEmpty: 'Программа пуста',
-    ambiguousCommand: (q, a) => `Неоднозначный переход для состояния «${q}» и знака «${a}»`,
+    ambiguousCommand: (q, a) =>
+      `Неоднозначный переход для состояния «${q}» и знака «${formatSymbol(a)}»`,
     targetStateDoesNotExist: (w) => `Целевое состояние «${w}» не существует`,
     initialStateDoesNotExist: (q) => `Начальное состояние «${q}» не существует`,
     headIsOutOfTape: 'Выход за левую границу ленты',
-    noSuchCommand: (q, a) => `Не определён переход для состояния «${q}» и знака «${a}»`,
+    noSuchCommand: (q, a) =>
+      `Не определён переход для состояния «${q}» и знака «${formatSymbol(a)}»`,
     tooManyStates: 'В программе больше 256 состояний: формат TU4 это не позволяет',
   },
 

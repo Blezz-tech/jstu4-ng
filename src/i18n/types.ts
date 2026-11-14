@@ -4,6 +4,15 @@ export type Lang = (typeof LANGS)[number];
 
 export const DEFAULT_LANG: Lang = 'ru';
 
+/**
+ * Render a tape symbol for humans. The space is a real symbol in TM
+ * programs but is invisible in a message, so it is shown as the
+ * "open box" glyph (U+2423).
+ */
+export function formatSymbol(symbol: string): string {
+  return symbol === ' ' ? '\u2423' : symbol;
+}
+
 export interface Messages {
   readonly appTitle: string;
   readonly program: string;

@@ -1,4 +1,4 @@
-import type { Messages } from './types';
+import { formatSymbol, type Messages } from './types';
 
 export const en: Messages = {
   appTitle: 'Turing machine emulator in 4-tuples',
@@ -18,11 +18,13 @@ export const en: Messages = {
   error: {
     parseError: (text) => `Could not parse “${text}”`,
     programIsEmpty: 'The program is empty',
-    ambiguousCommand: (q, a) => `Ambiguous transition for state “${q}” and symbol “${a}”`,
+    ambiguousCommand: (q, a) =>
+      `Ambiguous transition for state “${q}” and symbol “${formatSymbol(a)}”`,
     targetStateDoesNotExist: (w) => `Target state “${w}” does not exist`,
     initialStateDoesNotExist: (q) => `Initial state “${q}” does not exist`,
     headIsOutOfTape: 'The head is out of the tape (left border)',
-    noSuchCommand: (q, a) => `Transition is undefined for state “${q}” and symbol “${a}”`,
+    noSuchCommand: (q, a) =>
+      `Transition is undefined for state “${q}” and symbol “${formatSymbol(a)}”`,
     tooManyStates: 'The program has more than 256 states, which the TU4 format cannot express',
   },
 
