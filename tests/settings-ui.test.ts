@@ -148,11 +148,12 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     });
   });
 
-  it('supports reverse stepping, zero-bar stop, negative auto-run, and restart in run mode', async () => {
+  it('supports media-player Play/Stop, ←/→ step arrows, yellow reverse highlight, zero-bar stop, and restart', async () => {
     vi.useFakeTimers();
     await import('../src/main');
 
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
+    const programView = document.querySelector<HTMLElement>('#display-program')!;
     const startBtn = document.querySelector<HTMLButtonElement>('#btn-start')!;
     const stepBackBtn = document.querySelector<HTMLButtonElement>('#btn-step-back')!;
     const stepBtn = document.querySelector<HTMLButtonElement>('#btn-step')!;
@@ -167,10 +168,17 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     programInput.value = '0, ,>,0';
     startBtn.click();
 
+    // Uniform arrow + Play/Stop icon buttons.
+    expect(stepBackBtn.textContent?.trim()).toBe('←');
+    expect(stepBtn.textContent?.trim()).toBe('→');
     expect(stepBackBtn.disabled).toBe(true);
     expect(restartBtn.disabled).toBe(true);
-    expect(runToggleBtn.textContent?.trim()).toBe('Запуск');
+    expect(runToggleBtn.dataset.state).toBe('play');
+    expect(runToggleBtn.getAttribute('aria-label')).toBe('Запуск');
     expect(runToggleBtn.getAttribute('aria-pressed')).toBe('false');
+    expect(runToggleBtn.querySelector('.btn__media-icon--play')).not.toBeNull();
+    expect(runToggleBtn.querySelector('.btn__media-icon--stop')).not.toBeNull();
+    expect(programView.dataset.stepDir).toBe('forward');
     expect(speedSlider.min).toBe('-15');
     expect(speedSlider.max).toBe('25');
     expect(speedSlider.value).toBe('1');
@@ -179,13 +187,17 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     expect(speedControl.style.getPropertyValue('--zero-ratio')).toBe('0.375');
     expect(document.querySelector('#speed-zero')).not.toBeNull();
 
-    // Click Запуск -> becomes Стоп and advances steps at 1× (200 ms/step).
+    // Click Play (▶) -> switches to Stop (■) and STAYS on Stop across multiple ticks!
     runToggleBtn.click();
-    expect(runToggleBtn.textContent?.trim()).toBe('Стоп');
+    expect(runToggleBtn.dataset.state).toBe('stop');
+    expect(runToggleBtn.getAttribute('aria-label')).toBe('Стоп');
     expect(runToggleBtn.getAttribute('aria-pressed')).toBe('true');
 
     vi.advanceTimersByTime(600);
     expect(stats.textContent).toContain('Выполнено операций: 3');
+    expect(runToggleBtn.dataset.state).toBe('stop');
+    expect(runToggleBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(programView.dataset.stepDir).toBe('forward');
     expect(stepBackBtn.disabled).toBe(false);
     expect(restartBtn.disabled).toBe(false);
 
@@ -194,14 +206,16 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     speedSlider.dispatchEvent(new Event('input', { bubbles: true }));
     expect(speedValue.textContent).toBe('0×');
     expect(speedControl.dataset.direction).toBe('stopped');
-    expect(runToggleBtn.textContent?.trim()).toBe('Запуск');
+    expect(runToggleBtn.dataset.state).toBe('play');
+    expect(runToggleBtn.getAttribute('aria-label')).toBe('Запуск');
     expect(runToggleBtn.disabled).toBe(true);
 
-    // Click ← (Step back) -> decrements operationsCount from 3 to 2.
+    // Click ← (Step back) -> decrements operationsCount and switches highlight to yellow ('reverse').
     stepBackBtn.click();
     expect(stats.textContent).toContain('Выполнено операций: 2');
+    expect(programView.dataset.stepDir).toBe('reverse');
 
-    // Slide to -2.5× -> direction='reverse', click Запуск -> rewinds to 0 and shows notice.
+    // Slide to -2.5× -> direction='reverse', click Play -> rewinds in yellow to 0 and shows notice.
     speedSlider.value = '-2.5';
     speedSlider.dispatchEvent(new Event('input', { bubbles: true }));
     expect(speedValue.textContent).toBe('-2.5×');
@@ -209,17 +223,22 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     expect(runToggleBtn.disabled).toBe(false);
 
     runToggleBtn.click();
+    expect(runToggleBtn.dataset.state).toBe('stop');
     vi.advanceTimersByTime(200);
     expect(stats.textContent).toContain('Выполнено операций: 0');
+    expect(programView.dataset.stepDir).toBe('reverse');
     expect(log.textContent).toBe('Машина достигла начального состояния');
+    expect(runToggleBtn.dataset.state).toBe('play');
     expect(stepBackBtn.disabled).toBe(true);
     expect(stepBtn.disabled).toBe(false);
 
-    // Step forward once then click Restart -> returns to step 0 cleanly.
+    // Step forward (→) switches back to green ('forward'); Restart returns to step 0 in green.
     stepBtn.click();
     expect(stats.textContent).toContain('Выполнено операций: 1');
+    expect(programView.dataset.stepDir).toBe('forward');
     restartBtn.click();
     expect(stats.textContent).toContain('Выполнено операций: 0');
+    expect(programView.dataset.stepDir).toBe('forward');
     expect(log.textContent).toBe('Машина перезапущена');
 
     const stored = JSON.parse(window.localStorage.getItem('jstu4:settings') ?? '{}') as {
@@ -228,24 +247,59 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     expect(stored.speed).toBe(-2.5);
   });
 
-  it('places #statusbar (with #log and #stats) above the workspace right below .topbar', async () => {
+  it('houses #log, #stats, and #hint inside a collapsible right-hand #sidepanel toggled next to ?', async () => {
     await import('../src/main');
 
-    const topbar = document.querySelector('.topbar')!;
-    const statusbar = document.querySelector('#statusbar')!;
-    const workspace = document.querySelector('.workspace')!;
-    const log = document.querySelector('#log')!;
-    const stats = document.querySelector('#stats')!;
+    const appShell = document.querySelector<HTMLElement>('#app-shell')!;
+    const helpBtn = document.querySelector<HTMLButtonElement>('#btn-help')!;
+    const sidepanelBtn = document.querySelector<HTMLButtonElement>('#btn-sidepanel')!;
+    const sidepanel = document.querySelector<HTMLElement>('#sidepanel')!;
+    const toolbar = document.querySelector<HTMLElement>('.toolbar')!;
+    const log = document.querySelector<HTMLElement>('#log')!;
+    const stats = document.querySelector<HTMLElement>('#stats')!;
+    const hint = document.querySelector<HTMLElement>('#hint')!;
+    const startBtn = document.querySelector<HTMLButtonElement>('#btn-start')!;
+    const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
 
-    expect(statusbar.contains(log)).toBe(true);
-    expect(statusbar.contains(stats)).toBe(true);
-    expect(
-      topbar.compareDocumentPosition(statusbar) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      statusbar.compareDocumentPosition(workspace) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    // Toggle button sits immediately after ? in the top bar.
+    expect(helpBtn.nextElementSibling).toBe(sidepanelBtn);
+
+    // #log, #stats, and #hint live in #sidepanel (and #hint is NOT in .toolbar).
+    expect(sidepanel.contains(log)).toBe(true);
+    expect(sidepanel.contains(stats)).toBe(true);
+    expect(sidepanel.contains(hint)).toBe(true);
+    expect(toolbar.contains(hint)).toBe(false);
     expect(document.documentElement.dir).toBe('ltr');
+
+    // Hovering a toolbar button updates #hint inside #sidepanel.
+    // jsdom sets offsetParent === null by default; stub it so syncHint sees visible buttons.
+    Object.defineProperty(startBtn, 'offsetParent', { value: toolbar, configurable: true });
+    startBtn.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(hint.textContent).toBe('Разобрать программу и запустить её (Ctrl+Enter)');
+    startBtn.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(hint.textContent).toBe('');
+
+    // Clicking the toggle collapses the side panel and persists sidepanelOpen: false.
+    expect(sidepanel.hidden).toBe(false);
+    expect(appShell.dataset.sidepanel).toBe('open');
+    sidepanelBtn.click();
+    expect(sidepanel.hidden).toBe(true);
+    expect(appShell.dataset.sidepanel).toBe('closed');
+    expect(sidepanelBtn.getAttribute('aria-expanded')).toBe('false');
+    expect(
+      (
+        JSON.parse(window.localStorage.getItem('jstu4:settings') ?? '{}') as {
+          sidepanelOpen?: boolean;
+        }
+      ).sidepanelOpen,
+    ).toBe(false);
+
+    // Triggering a compile error automatically opens the side panel so errors are never missed.
+    programInput.value = '???';
+    startBtn.click();
+    expect(sidepanel.hidden).toBe(false);
+    expect(appShell.dataset.sidepanel).toBe('open');
+    expect(log.dataset.kind).toBe('error');
   });
 
   it('restores saved settings from localStorage on load', async () => {

@@ -2,7 +2,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createI18n, type I18n, type Lang } from '../src/i18n';
 import { StepSound } from '../src/ui/audio';
-import { AppController, type AppElements, type UIMode } from '../src/ui/controller';
+import {
+  AppController,
+  type AppElements,
+  type RunControlState,
+  type UIMode,
+} from '../src/ui/controller';
 
 function setupDom(): AppElements {
   document.body.innerHTML = `
@@ -32,6 +37,7 @@ function makeController(
     i18n?: I18n;
     onModeChange?: (mode: UIMode) => void;
     onRunningChange?: (isRunning: boolean) => void;
+    onRunStateChange?: (state: RunControlState) => void;
     onProgramChange?: (text: string) => void;
     onStepSound?: () => void;
   } = {},
@@ -41,6 +47,7 @@ function makeController(
     elements,
     onModeChange: overrides.onModeChange ?? (() => undefined),
     ...(overrides.onRunningChange ? { onRunningChange: overrides.onRunningChange } : {}),
+    ...(overrides.onRunStateChange ? { onRunStateChange: overrides.onRunStateChange } : {}),
     onProgramChange: overrides.onProgramChange ?? (() => undefined),
     onTapeChange: () => undefined,
     ...(overrides.onStepSound ? { onStepSound: overrides.onStepSound } : {}),
@@ -565,5 +572,67 @@ describe('AppController', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('keeps isAutoRunning === true during onRunStateChange across multiple auto-run ticks (Play/Stop regression)', () => {
+    const el = setupDom();
+    const observedAutoStates: boolean[] = [];
+    const controller = makeController(el, {
+      onRunStateChange: (state) => observedAutoStates.push(state.isAutoRunning),
+    });
+    el.programInput.value = '0, ,>,0';
+    el.tapeInput.value = '';
+
+    controller.start();
+    observedAutoStates.length = 0;
+
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+
+    // Advance through 4 steps at 1× (200 ms/step): every single tick callback must
+    // still report isAutoRunning === true so the Play/Stop button stays on Stop.
+    vi.advanceTimersByTime(800);
+    expect(observedAutoStates.length).toBeGreaterThanOrEqual(4);
+    expect(observedAutoStates.every(Boolean)).toBe(true);
+    expect(controller.isAutoRunning).toBe(true);
+
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(false);
+    expect(observedAutoStates.at(-1)).toBe(false);
+  });
+
+  it('switches programView data-step-dir between forward (green) and reverse (yellow)', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,>,0';
+    el.tapeInput.value = '';
+
+    controller.start();
+    expect(el.programView.dataset.stepDir).toBe('forward');
+    expect(controller.lastStepDirection).toBe('forward');
+
+    // Forward steps keep green ('forward').
+    controller.step();
+    controller.step();
+    expect(el.programView.dataset.stepDir).toBe('forward');
+
+    // Step back switches highlight to yellow ('reverse').
+    controller.stepBack();
+    expect(el.programView.dataset.stepDir).toBe('reverse');
+    expect(controller.lastStepDirection).toBe('reverse');
+
+    // Forward step switches highlight back to green ('forward').
+    controller.step();
+    expect(el.programView.dataset.stepDir).toBe('forward');
+
+    // Negative auto-run switches highlight to yellow ('reverse').
+    controller.setSpeed(-2);
+    controller.toggleAutoRun();
+    vi.advanceTimersByTime(100);
+    expect(el.programView.dataset.stepDir).toBe('reverse');
+
+    // Restart resets direction to green ('forward').
+    controller.restart();
+    expect(el.programView.dataset.stepDir).toBe('forward');
   });
 });

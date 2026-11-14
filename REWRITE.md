@@ -8,10 +8,10 @@
 | Метрика             | v2.3                                            | v3.0                                                                                               |
 | ------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Рантайм-зависимости | jQuery 1.6.4, HotMilk/Milk, `jquery-plugins.js` | **0**                                                                                              |
-| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **52.5 КБ** (16.3 КБ gzip)                                                                         |
+| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **55.7 КБ** (17.1 КБ gzip)                                                                         |
 | Языки               | ES3-стиль, глобальные `i18n`, `TM`              | TypeScript strict, ES-модули, `noUncheckedIndexedAccess`                                           |
 | Типизация           | нет                                             | 100% кода, `tsc --noEmit` в скриптах `build:*`                                                     |
-| Тесты               | нет                                             | **96 юнит/DOM (Vitest) + 29 сквозных (Playwright)**                                                |
+| Тесты               | нет                                             | **98 юнит/DOM (Vitest) + 29 сквозных (Playwright)**                                                |
 | Линт/формат         | нет                                             | ESLint 10 (typescript-eslint, type-checked) + Prettier                                             |
 | Сборка              | ручное подключение `<script>`                   | Vite 7: `build:prod` (оптимизации, без `.js.map`) и `build:dev` (с `.js.map`), работа по `file://` |
 | Доступность         | кнопки-ссылки без семантики                     | `<button>`, `<dialog>`, aria-live, `:focus-visible`, skip-link                                     |
@@ -87,7 +87,7 @@
 
 ```bash
 npm install
-npm run check      # lint + prettier + 96 юнит/DOM-тестов + production-сборка
+npm run check      # lint + prettier + 98 юнит/DOM-тестов + production-сборка
 npm run build:dev  # development-сборка с .js.map
 npm run build:prod # production-сборка без .js.map
 npm run test:e2e   # 29 сценариев Playwright в Chromium

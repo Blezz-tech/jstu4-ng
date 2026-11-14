@@ -49,6 +49,13 @@ describe('storage', () => {
       minSpeed: -20,
       maxSpeed: 40,
     });
+
+    // sidepanelOpen boolean is persisted when explicitly toggled.
+    saveSettings({
+      ...DEFAULT_SETTINGS,
+      sidepanelOpen: false,
+    });
+    expect(loadSettings().sidepanelOpen).toBe(false);
   });
 
   it('clamps stored speed into [minSpeed, maxSpeed] and sanitizes out-of-range values', () => {

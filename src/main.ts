@@ -3,7 +3,7 @@ import './styles/main.css';
 import { TM_VERSION } from './core/version';
 import { bindDomI18n, createI18n, detectLang, type HelpContent } from './i18n';
 import { StepSound } from './ui/audio';
-import { AppController, type RunControlState, type UIMode } from './ui/controller';
+import { AppController, type LogKind, type RunControlState, type UIMode } from './ui/controller';
 import { debounce, el, mustFind } from './ui/dom';
 import {
   clampMaxSpeed,
@@ -53,6 +53,7 @@ function safeReplaceState(url: string): void {
 /* ——— DOM references —————————————————————————————————————————————— */
 
 const dom = {
+  appShell: mustFind(document, '#app-shell'),
   skipLink: mustFind<HTMLAnchorElement>(document, '.skip-link'),
   version: mustFind(document, '#app-version'),
   programInput: mustFind<HTMLTextAreaElement>(document, '#input-program'),
@@ -71,6 +72,11 @@ const dom = {
   speedControl: mustFind(document, '#speed-control'),
   speedInput: mustFind<HTMLInputElement>(document, '#input-speed'),
   speedValue: mustFind(document, '#speed-value'),
+  sidepanelButton: mustFind<HTMLButtonElement>(document, '#btn-sidepanel'),
+  sidepanelClose: mustFind<HTMLButtonElement>(document, '#btn-sidepanel-close'),
+  sidepanelBadge: mustFind(document, '#sidepanel-badge'),
+  sidepanel: mustFind(document, '#sidepanel'),
+  sidepanelBackdrop: mustFind(document, '#sidepanel-backdrop'),
   settingsAnchor: mustFind(document, '#settings-anchor'),
   settingsButton: mustFind<HTMLButtonElement>(document, '#btn-settings'),
   settingsMenu: mustFind(document, '#settings-menu'),
@@ -114,6 +120,38 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
   if (settings.theme === 'auto') applyTheme();
 });
 
+/* ——— side panel (notifications, metrics, hover hints) ———————————— */
+
+const NARROW_VIEWPORT_PX = 900;
+
+function isNarrowViewport(): boolean {
+  return window.innerWidth < NARROW_VIEWPORT_PX;
+}
+
+let sidepanelOpen = settings.sidepanelOpen ?? !isNarrowViewport();
+let latestLogKind: LogKind | null = null;
+
+function syncSidepanelBadge(): void {
+  const showBadge = !sidepanelOpen && latestLogKind !== null;
+  dom.sidepanelBadge.dataset.kind = showBadge ? (latestLogKind ?? '') : '';
+}
+
+function applySidepanel(open: boolean, persist = false): void {
+  sidepanelOpen = open;
+  dom.appShell.dataset.sidepanel = open ? 'open' : 'closed';
+  dom.sidepanel.hidden = !open;
+  dom.sidepanelButton.setAttribute('aria-expanded', String(open));
+  dom.sidepanelBackdrop.hidden = !(open && isNarrowViewport());
+  syncSidepanelBadge();
+  if (persist) updateSettings({ sidepanelOpen: open });
+  requestAnimationFrame(syncProgramOverflow);
+}
+
+applySidepanel(sidepanelOpen, false);
+window.addEventListener('resize', () => {
+  dom.sidepanelBackdrop.hidden = !(sidepanelOpen && isNarrowViewport());
+});
+
 /* ——— sound —————————————————————————————————————————————————————— */
 
 const sound = new StepSound(settings.sound);
@@ -122,7 +160,7 @@ const sound = new StepSound(settings.sound);
 
 let activeHintTarget: HTMLElement | null = null;
 
-/** Keep the hint bar in sync with the hovered/focused visible control. */
+/** Keep the side-panel hint card in sync with the hovered/focused visible control. */
 function syncHint(): void {
   const isDisabled = activeHintTarget instanceof HTMLButtonElement && activeHintTarget.disabled;
   if (activeHintTarget === null || isDisabled || activeHintTarget.offsetParent === null) {
@@ -286,8 +324,8 @@ function applyMode(mode: UIMode): void {
 /**
  * Keep every run-mode button enabled strictly when its action makes sense:
  * - `←` (Step back): enabled whenever at least 1 step was performed (including after halt/error).
- * - `Шаг` (Step): enabled while the machine has not halted.
- * - `Запуск` / `Стоп`: enabled while auto-running, or when stepping in the slider's direction is valid.
+ * - `→` (Step): enabled while the machine has not halted.
+ * - `▶` / `■` (Run / Stop): enabled while auto-running, or when stepping in the slider's direction is valid.
  * - `Сначала` (Restart): enabled after at least 1 step or after halt/error.
  */
 function syncRunState(state: RunControlState): void {
@@ -304,7 +342,8 @@ function syncRunToggleLabel(): void {
   const running = controller.isAutoRunning;
   const label = i18n.t(running ? 'controls.stop' : 'controls.run');
   const hint = i18n.t(running ? 'hints.stop' : 'hints.run');
-  toggle.querySelector('.btn__text')!.textContent = label;
+  toggle.dataset.state = running ? 'stop' : 'play';
+  toggle.setAttribute('aria-label', label);
   toggle.setAttribute('title', hint);
   toggle.setAttribute('data-hint', hint);
   toggle.setAttribute('aria-pressed', String(running));
@@ -331,6 +370,14 @@ const controller = new AppController({
     applyMode(mode);
   },
   onRunStateChange: syncRunState,
+  onLogChange: (kind) => {
+    latestLogKind = kind;
+    if (kind === 'error' && !sidepanelOpen) {
+      applySidepanel(true, false);
+    } else {
+      syncSidepanelBadge();
+    }
+  },
   onProgramChange: saveProgram,
   onTapeChange: saveTape,
   onStepSound: () => sound.tick(),
@@ -413,6 +460,13 @@ on(dom.helpDialog, 'close', () => {
     safeReplaceState(location.pathname + location.search);
   }
 });
+
+on(dom.sidepanelButton, 'click', () => applySidepanel(!sidepanelOpen, true));
+on(dom.sidepanelClose, 'click', () => {
+  applySidepanel(false, true);
+  dom.sidepanelButton.focus();
+});
+on(dom.sidepanelBackdrop, 'click', () => applySidepanel(false, false));
 
 on(dom.settingsButton, 'click', () => {
   if (isSettingsOpen()) closeSettings(false);
@@ -587,6 +641,12 @@ on(document, 'keydown', (event) => {
     return;
   }
 
+  if (sidepanelOpen && isNarrowViewport() && event.key === 'Escape') {
+    event.preventDefault();
+    applySidepanel(false, false);
+    return;
+  }
+
   const hasModifier = event.ctrlKey || event.metaKey;
 
   if (event.key === 'Enter' && !inEditable && (hasModifier || !inControl)) {
@@ -619,7 +679,7 @@ on(document, 'keydown', (event) => {
   }
 });
 
-// Hint bar: show the hint of the hovered/focused toolbar control.
+// Hint card in the side panel: show the hint of the hovered/focused toolbar control.
 const hintTargets = Array.from(dom.controls.querySelectorAll<HTMLElement>('.btn, .speed-control'));
 for (const control of hintTargets) {
   const show = (): void => {

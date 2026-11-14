@@ -12,6 +12,7 @@ import {
 import { MachineRun } from '../core/run';
 import { toTu4 } from '../core/tu4';
 import type { I18n } from '../i18n';
+import { el } from './dom';
 import {
   compileProgram,
   listProgram,
@@ -74,6 +75,8 @@ export interface ControllerOptions {
   readonly onRunningChange?: (isRunning: boolean) => void;
   /** Called whenever run-mode button availability changes (step back/forward, run, restart). */
   readonly onRunStateChange?: (state: RunControlState) => void;
+  /** Called whenever the status notification changes (`null` when cleared). */
+  readonly onLogChange?: (kind: LogKind | null) => void;
   /** Persist the program draft. */
   readonly onProgramChange: (text: string) => void;
   readonly onTapeChange: (text: string) => void;
@@ -139,8 +142,10 @@ export class AppController {
 
   private autoTimer: ReturnType<typeof setTimeout> | null = null;
   private autoRaf: number | null = null;
+  private autoRunning = false;
   private autoGeneration = 0;
   private lastStepAt = 0;
+  private stepDirection: 'forward' | 'reverse' = 'forward';
   private minSpeed: number;
   private maxSpeed: number;
   private speed: number;
@@ -167,7 +172,11 @@ export class AppController {
   }
 
   get isAutoRunning(): boolean {
-    return this.autoTimer !== null || this.autoRaf !== null;
+    return this.autoRunning;
+  }
+
+  get lastStepDirection(): 'forward' | 'reverse' {
+    return this.stepDirection;
   }
 
   get currentSpeed(): number {
@@ -334,6 +343,7 @@ export class AppController {
 
     this.setMode('run');
     this.el.programView.scrollTop = scrollTop;
+    this.setStepDirection('forward');
     this.highlightCurrentCommand(this.run.nextCommand);
     this.setLog({ type: 'none' });
     this.notifyRunState();
@@ -360,6 +370,7 @@ export class AppController {
     this.stats.maxDataLength = this.run.cellsUsed;
     this.renderStats();
     this.renderTapeView();
+    this.setStepDirection('forward');
     this.highlightCurrentCommand(this.run.nextCommand);
     this.setLog({ type: 'restarted' });
     this.notifyRunState();
@@ -577,6 +588,7 @@ export class AppController {
     this.stats.maxDataLength = run.cellsUsed;
     this.renderStats();
     this.renderTapeView();
+    this.setStepDirection('forward');
     this.highlightCurrentCommand(run.nextCommand);
     if (playSound) this.options.onStepSound?.();
 
@@ -614,6 +626,7 @@ export class AppController {
     this.stats.maxDataLength = run.cellsUsed;
     this.renderStats();
     this.renderTapeView();
+    this.setStepDirection('reverse');
     this.highlightCurrentCommand(run.nextCommand);
     if (playSound) this.options.onStepSound?.();
 
@@ -741,6 +754,11 @@ export class AppController {
     }
   }
 
+  private setStepDirection(direction: 'forward' | 'reverse'): void {
+    this.stepDirection = direction;
+    this.el.programView.dataset.stepDir = direction;
+  }
+
   private highlightCurrentCommand(next: Command | undefined): void {
     const compiled = this.compiled;
     if (compiled === null) return;
@@ -806,6 +824,7 @@ export class AppController {
   private scheduleAutoTick(initialDelayMs?: number): void {
     if (this.speed === 0) return;
 
+    this.autoRunning = true;
     const generation = ++this.autoGeneration;
     const interval = stepIntervalMs(this.speed);
 
@@ -819,6 +838,7 @@ export class AppController {
         if (generation !== this.autoGeneration) return;
         this.autoRaf = null;
         if (this.speed === 0) {
+          this.clearAutoHandles();
           this.options.onModeChange(this.mode);
           this.notifyRunState();
           return;
@@ -869,6 +889,7 @@ export class AppController {
       this.lastStepAt = performance.now();
 
       if (this.speed === 0) {
+        this.clearAutoHandles();
         this.options.onModeChange(this.mode);
         this.notifyRunState();
         return;
@@ -890,6 +911,7 @@ export class AppController {
   }
 
   private clearAutoHandles(): void {
+    this.autoRunning = false;
     this.autoGeneration += 1;
     if (this.autoTimer !== null) {
       clearTimeout(this.autoTimer);
@@ -902,7 +924,23 @@ export class AppController {
   }
 
   private renderStats(): void {
-    this.el.stats.textContent = this.i18n.t('stats.summary', this.stats);
+    const rows: ReadonlyArray<readonly [string, number]> = [
+      [this.i18n.t('stats.commands'), this.stats.commandsCount],
+      [this.i18n.t('stats.initialLength'), this.stats.initialDataLength],
+      [this.i18n.t('stats.cellsUsed'), this.stats.maxDataLength],
+      [this.i18n.t('stats.operations'), this.stats.operationsCount],
+    ];
+    const fragment = document.createDocumentFragment();
+    rows.forEach(([label, value], index) => {
+      if (index > 0) fragment.append(document.createTextNode('\n'));
+      const row = el('div', { class: 'stat-row' });
+      row.append(
+        el('span', { class: 'stat-row__label' }, `${label}: `),
+        el('strong', { class: 'stat-row__value' }, this.i18n.formatNumber(value)),
+      );
+      fragment.append(row);
+    });
+    this.el.stats.replaceChildren(fragment);
   }
 
   private setLog(descriptor: LogDescriptor): void {
@@ -991,6 +1029,7 @@ export class AppController {
 
     this.el.log.textContent = text ?? '';
     this.el.log.dataset.kind = text === null ? '' : kind;
+    this.options.onLogChange?.(text === null ? null : kind);
   }
 
   private setMode(mode: UIMode): void {

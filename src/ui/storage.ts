@@ -29,6 +29,7 @@ export interface AppSettings {
   readonly speed: number;
   readonly minSpeed: number;
   readonly maxSpeed: number;
+  readonly sidepanelOpen?: boolean;
 }
 
 export interface SavedState {
@@ -91,6 +92,8 @@ export function loadSettings(): AppSettings {
           typeof record['speed'] === 'number'
             ? clampSpeed(record['speed'], minSpeed, maxSpeed)
             : clampSpeed(DEFAULT_SETTINGS.speed, minSpeed, maxSpeed);
+        const sidepanelOpen =
+          typeof record['sidepanelOpen'] === 'boolean' ? record['sidepanelOpen'] : undefined;
         return {
           lang:
             typeof record['lang'] === 'string' && isLang(record['lang']) ? record['lang'] : null,
@@ -99,6 +102,7 @@ export function loadSettings(): AppSettings {
           speed,
           minSpeed,
           maxSpeed,
+          ...(sidepanelOpen !== undefined ? { sidepanelOpen } : {}),
         };
       }
     } catch {

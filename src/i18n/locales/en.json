@@ -28,11 +28,16 @@
     "tooManyStates": "The program has more than 256 states, which the TU4 format cannot express"
   },
   "stats": {
-    "summary": "Transitions: {commandsCount, number}. Source length: {initialDataLength, number}. Cells used: {maxDataLength, number}. Steps performed: {operationsCount, number}"
+    "summary": "Transitions: {commandsCount, number}. Source length: {initialDataLength, number}. Cells used: {maxDataLength, number}. Steps performed: {operationsCount, number}",
+    "commands": "Transitions",
+    "initialLength": "Source length",
+    "cellsUsed": "Cells used",
+    "operations": "Steps performed"
   },
   "controls": {
     "help": "Help (F1)",
     "settings": "Settings",
+    "sidepanel": "Status panel",
     "start": "Start",
     "stepBack": "Step back",
     "step": "Step",
@@ -48,6 +53,15 @@
     "sound": "Step sound",
     "language": "Switch language",
     "close": "Close"
+  },
+  "sidepanel": {
+    "title": "Status",
+    "notifications": "Notifications",
+    "noNotifications": "No active notifications",
+    "metrics": "Metrics",
+    "noMetrics": "Start the program to see execution metrics",
+    "hint": "Hint",
+    "hintIdle": "Hover a toolbar button to see its shortcut"
   },
   "settings": {
     "title": "Settings",
@@ -147,9 +161,9 @@
             "kind": "list",
             "items": [
               "“Start” — parse and run the program (Ctrl+Enter, or Enter in the tape field);",
-              "“←” (step back) — undo the last executed step, including after halting (Shift+Space);",
-              "“Step” — perform the next step, pausing auto-run if active (Space);",
-              "“Run” / “Stop” — start or pause automatic execution (Enter); the speed slider supports negative values (reverse), a zero mark (stop), and configurable bounds (−15×…25× by default);",
+              "“←” (step back) — undo the last step (Shift+Space); stepping backward highlights the current command in yellow;",
+              "“→” (step forward) — perform the next step, pausing auto-run if active (Space);",
+              "“▶” / “■” (Run / Stop) — start or pause automatic execution (Enter); the speed slider supports negative values (reverse), a zero mark (stop), and configurable bounds (−15×…25× by default);",
               "“Restart” — reset the machine back to its initial state;",
               "“Back to edit” — stop the machine and return to editing (Esc pauses auto-run first);",
               "“To TU4” — replace state names with numbers 00–98 (or hexadecimal 00–ff for 100–256 states)."

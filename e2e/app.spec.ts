@@ -53,8 +53,9 @@ test('auto-run (Запуск/Стоп) finishes, supports reverse speed & restar
   await page.locator('#input-tape').fill('111');
   await page.locator('#btn-start').click();
 
-  // Default speed is 1× (range -15× to 25×), button says "Запуск".
-  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
+  // Default speed is 1× (range -15× to 25×), media button is in Play state.
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('data-state', 'play');
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-label', 'Запуск');
   await expect(page.locator('#speed-value')).toHaveText('1×');
   await expect(page.locator('#input-speed')).toHaveAttribute('min', '-15');
   await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
@@ -73,17 +74,18 @@ test('auto-run (Запуск/Стоп) finishes, supports reverse speed & restar
   await expect(page.locator('#btn-restart')).toBeEnabled();
   await expect(page.locator('#display-tape')).toContainText('110');
 
-  // Switch slider to negative speed and run in reverse back to step 0!
+  // Switch slider to negative speed and run in reverse back to step 0 (yellow highlight)!
   await page.locator('#input-speed').fill('-15');
   await expect(page.locator('#speed-value')).toHaveText('-15×');
   await expect(page.locator('#btn-run-toggle')).toBeEnabled();
   await page.locator('#btn-run-toggle').click();
+  await expect(page.locator('#display-program')).toHaveAttribute('data-step-dir', 'reverse');
   await expect(page.locator('#log')).toContainText('начального состояния', { timeout: 5_000 });
   await expect(page.locator('#display-tape')).toContainText('111');
   await expect(page.locator('#btn-step-back')).toBeDisabled();
 });
 
-test('Запуск/Стоп, zero stop, and configurable min/max speed bounds in settings', async ({
+test('Play/Stop icon toggle, zero stop, and configurable min/max speed bounds in settings', async ({
   page,
 }) => {
   await page.goto('/');
@@ -91,15 +93,18 @@ test('Запуск/Стоп, zero stop, and configurable min/max speed bounds in
   await page.locator('#input-tape').fill('');
   await page.locator('#btn-start').click();
 
-  // Start auto-run: button switches from Запуск to Стоп.
+  // Start auto-run: button switches from Play (▶) to Stop (■) without changing width.
+  const beforeBox = (await page.locator('#btn-run-toggle').boundingBox())!;
   await page.locator('#btn-run-toggle').click();
-  await expect(page.locator('#btn-run-toggle')).toContainText('Стоп');
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('data-state', 'stop');
   await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'true');
+  const afterBox = (await page.locator('#btn-run-toggle').boundingBox())!;
+  expect(afterBox.width).toBeCloseTo(beforeBox.width, 1);
 
   // Moving slider to 0 stops execution immediately.
   await page.locator('#input-speed').fill('0');
   await expect(page.locator('#speed-value')).toHaveText('0×');
-  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('data-state', 'play');
   await expect(page.locator('#btn-run-toggle')).toBeDisabled();
   await expect(page.locator('#btn-step')).toBeEnabled();
 
@@ -246,20 +251,28 @@ test('closing #help removes the hash so reloading does not reopen help', async (
   await expect(page.locator('#help-dialog')).toBeHidden();
 });
 
-test('status bar sits at the top above the tape and stays compact on mobile', async ({ page }) => {
+test('collapsible right-hand side panel holds #log, #stats, #hint and prevents hover layout shift', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/');
-  const titleBox = (await page.locator('.topbar').boundingBox())!;
-  const statusBox = (await page.locator('#statusbar').boundingBox())!;
-  const tapeBox = (await page.locator('#label-tape').boundingBox())!;
-  expect(statusBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height - 1);
-  expect(statusBox.y + statusBox.height).toBeLessThanOrEqual(tapeBox.y + 1);
 
-  await page.setViewportSize({ width: 390, height: 844 });
-  const mobileStatusBox = (await page.locator('#statusbar').boundingBox())!;
-  const programBox = (await page.locator('#input-program').boundingBox())!;
-  expect(mobileStatusBox.height).toBeLessThan(120);
-  expect(programBox.height).toBeGreaterThan(300);
+  const appBox = (await page.locator('.app').boundingBox())!;
+  const panelBox = (await page.locator('#sidepanel').boundingBox())!;
+  expect(panelBox.x).toBeGreaterThanOrEqual(appBox.x + appBox.width - 1);
+
+  // Hovering toolbar buttons updates #hint inside #sidepanel without moving the program pane.
+  const progBefore = (await page.locator('#input-program').boundingBox())!;
+  await page.locator('#btn-start').hover();
+  await expect(page.locator('#hint')).toContainText('Ctrl+Enter');
+  const progAfter = (await page.locator('#input-program').boundingBox())!;
+  expect(progAfter.height).toBeCloseTo(progBefore.height, 1);
+
+  // Collapsing the side panel hides it and expands the workspace.
+  await page.locator('#btn-sidepanel').click();
+  await expect(page.locator('#sidepanel')).toBeHidden();
+  await page.locator('#btn-sidepanel').click();
+  await expect(page.locator('#sidepanel')).toBeVisible();
 });
 
 test('respects the browser language on first visit', async ({ browser }) => {
