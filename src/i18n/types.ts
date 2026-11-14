@@ -67,6 +67,8 @@ export interface MessageParamsMap {
     readonly operationsCount: number;
   };
   readonly 'settings.languageAria': { readonly language: string };
+  readonly 'log.snapshotRestored': { readonly name: string };
+  readonly 'history.linesCount': { readonly count: number };
 }
 
 export type ParameterizedMessageKey = keyof MessageParamsMap;

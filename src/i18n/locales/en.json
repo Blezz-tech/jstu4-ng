@@ -15,7 +15,11 @@
     "warningMisposition": "Warning: the head should stop right after the result",
     "convertedToTu4": "The program was converted to the TU4 format",
     "copied": "Copied to clipboard",
-    "restoredDraft": "The last program was restored"
+    "restoredDraft": "The last program was restored",
+    "snapshotSaved": "Program snapshot saved",
+    "snapshotRestored": "Restored snapshot: {name}",
+    "snapshotDeleted": "Snapshot deleted",
+    "snapshotEmpty": "Nothing to save: program is empty"
   },
   "error": {
     "parseError": "Could not parse “{text}”",
@@ -38,6 +42,7 @@
     "help": "Help (F1)",
     "settings": "Settings",
     "sidepanel": "Status panel",
+    "history": "Version control",
     "start": "Start",
     "stepBack": "Step back",
     "step": "Step",
@@ -49,6 +54,9 @@
     "toTu4": "To TU4",
     "unmark": "Unmark",
     "copy": "Copy",
+    "save": "Save",
+    "delete": "Delete",
+    "cancel": "Cancel",
     "theme": "Theme",
     "sound": "Step sound",
     "language": "Switch language",
@@ -63,6 +71,28 @@
     "hint": "Hint",
     "hintIdle": "Hover a toolbar button to see its shortcut"
   },
+  "history": {
+    "title": "Version control",
+    "showAutosaves": "Autosaves",
+    "namedSection": "Named",
+    "unnamedSection": "Unnamed",
+    "emptyNamed": "No named saves yet",
+    "emptyUnnamed": "No unnamed saves yet",
+    "autosaveSuffix": "autosave",
+    "manualSuffix": "Saved by user",
+    "rename": "Rename",
+    "delete": "Delete",
+    "restore": "Restore snapshot",
+    "renameSave": "Save name",
+    "renameCancel": "Cancel rename",
+    "renamePlaceholder": "Snapshot name",
+    "linesCount": "{count, plural, one {# line} other {# lines}}"
+  },
+  "deleteDialog": {
+    "title": "Delete snapshot?",
+    "message": "Are you sure you want to delete this snapshot?",
+    "skipWarning": "Do not show this warning again"
+  },
   "settings": {
     "title": "Settings",
     "language": "Language",
@@ -73,6 +103,7 @@
     "themeLight": "Light",
     "themeDark": "Dark",
     "sound": "Step sound",
+    "confirmDelete": "Confirm deletion",
     "minSpeed": "Min speed",
     "minSpeedDec": "Decrease min speed",
     "minSpeedInc": "Increase min speed",
@@ -92,6 +123,7 @@
     "toTu4": "Show the program in TU4 format (00–98 decimal, or 00–ff hex) in a popup without modifying the source",
     "unmark": "Clear the marks from executed commands",
     "copy": "Copy the program to the clipboard",
+    "save": "Save a program snapshot to version history (Ctrl+S)",
     "editProgram": "Program: q,a,v,q′. Ctrl+Enter — run",
     "editTape": "Tape: source data. Enter — run"
   },

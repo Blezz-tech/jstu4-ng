@@ -50,12 +50,19 @@ describe('storage', () => {
       maxSpeed: 40,
     });
 
-    // sidepanelOpen boolean is persisted when explicitly toggled.
+    // Optional UI boolean flags are persisted when explicitly toggled.
     saveSettings({
       ...DEFAULT_SETTINGS,
       sidepanelOpen: false,
+      historyOpen: true,
+      showAutosaves: false,
+      confirmSnapshotDelete: false,
     });
-    expect(loadSettings().sidepanelOpen).toBe(false);
+    const loadedFlags = loadSettings();
+    expect(loadedFlags.sidepanelOpen).toBe(false);
+    expect(loadedFlags.historyOpen).toBe(true);
+    expect(loadedFlags.showAutosaves).toBe(false);
+    expect(loadedFlags.confirmSnapshotDelete).toBe(false);
   });
 
   it('clamps stored speed into [minSpeed, maxSpeed] and sanitizes out-of-range values', () => {

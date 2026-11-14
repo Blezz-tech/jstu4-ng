@@ -6,6 +6,13 @@ import { StepSound } from './ui/audio';
 import { AppController, type LogKind, type RunControlState, type UIMode } from './ui/controller';
 import { debounce, el, mustFind } from './ui/dom';
 import {
+  AUTOSAVE_INTERVAL_MS,
+  formatSnapshotTimestamp,
+  getSnapshotDisplayName,
+  SnapshotStore,
+  type ProgramSnapshot,
+} from './ui/history';
+import {
   clampMaxSpeed,
   clampMinSpeed,
   DEFAULT_MAX_SPEED,
@@ -86,12 +93,23 @@ const dom = {
     document.querySelectorAll<HTMLButtonElement>('#theme-group [data-theme-option]'),
   ),
   soundButton: mustFind<HTMLButtonElement>(document, '#btn-sound'),
+  confirmDeleteSettingButton: mustFind<HTMLButtonElement>(document, '#btn-setting-confirm-delete'),
   minSpeedInput: mustFind<HTMLInputElement>(document, '#input-min-speed'),
   minSpeedDec: mustFind<HTMLButtonElement>(document, '#btn-min-speed-dec'),
   minSpeedInc: mustFind<HTMLButtonElement>(document, '#btn-min-speed-inc'),
   maxSpeedInput: mustFind<HTMLInputElement>(document, '#input-max-speed'),
   maxSpeedDec: mustFind<HTMLButtonElement>(document, '#btn-max-speed-dec'),
   maxSpeedInc: mustFind<HTMLButtonElement>(document, '#btn-max-speed-inc'),
+  historyPanel: mustFind<HTMLElement>(document, '#history-panel'),
+  historyBackdrop: mustFind<HTMLElement>(document, '#history-backdrop'),
+  historyButton: mustFind<HTMLButtonElement>(document, '#btn-history'),
+  historyClose: mustFind<HTMLButtonElement>(document, '#btn-history-close'),
+  showAutosavesButton: mustFind<HTMLButtonElement>(document, '#btn-show-autosaves'),
+  historyNamedList: mustFind<HTMLUListElement>(document, '#history-named-list'),
+  historyNamedCount: mustFind<HTMLElement>(document, '#history-named-count'),
+  historyUnnamedList: mustFind<HTMLUListElement>(document, '#history-unnamed-list'),
+  historyUnnamedCount: mustFind<HTMLElement>(document, '#history-unnamed-count'),
+  saveButton: mustFind<HTMLButtonElement>(document, '#btn-save'),
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
   helpBody: mustFind(document, '#help-body'),
@@ -103,6 +121,12 @@ const dom = {
   tu4Close: mustFind<HTMLButtonElement>(document, '#btn-tu4-close'),
   tu4Copy: mustFind<HTMLButtonElement>(document, '#btn-tu4-copy'),
   tu4Done: mustFind<HTMLButtonElement>(document, '#btn-tu4-done'),
+  deleteDialog: mustFind<HTMLDialogElement>(document, '#delete-snapshot-dialog'),
+  deleteSnapshotName: mustFind<HTMLElement>(document, '#delete-snapshot-name'),
+  skipDeleteConfirm: mustFind<HTMLInputElement>(document, '#chk-skip-delete-confirm'),
+  deleteDialogClose: mustFind<HTMLButtonElement>(document, '#btn-delete-dialog-close'),
+  deleteDialogCancel: mustFind<HTMLButtonElement>(document, '#btn-cancel-delete'),
+  deleteDialogConfirm: mustFind<HTMLButtonElement>(document, '#btn-confirm-delete-snapshot'),
 };
 
 dom.version.textContent = `v${TM_VERSION}`;
@@ -138,6 +162,7 @@ function isNarrowViewport(): boolean {
 }
 
 let sidepanelOpen = settings.sidepanelOpen ?? !isNarrowViewport();
+let historyOpen = settings.historyOpen ?? false;
 let latestLogKind: LogKind | null = null;
 
 function syncSidepanelBadge(): void {
@@ -145,8 +170,24 @@ function syncSidepanelBadge(): void {
   dom.sidepanelBadge.dataset.kind = showBadge ? (latestLogKind ?? '') : '';
 }
 
+function applyHistoryPanel(open: boolean, persist = false): void {
+  historyOpen = open;
+  if (open && isNarrowViewport() && sidepanelOpen) {
+    applySidepanel(false, false);
+  }
+  dom.appShell.dataset.history = open ? 'open' : 'closed';
+  dom.historyPanel.hidden = !open;
+  dom.historyButton.setAttribute('aria-expanded', String(open));
+  dom.historyBackdrop.hidden = !(open && isNarrowViewport());
+  if (persist) updateSettings({ historyOpen: open });
+  requestAnimationFrame(syncProgramOverflow);
+}
+
 function applySidepanel(open: boolean, persist = false): void {
   sidepanelOpen = open;
+  if (open && isNarrowViewport() && historyOpen) {
+    applyHistoryPanel(false, false);
+  }
   dom.appShell.dataset.sidepanel = open ? 'open' : 'closed';
   dom.sidepanel.hidden = !open;
   dom.sidepanelButton.setAttribute('aria-expanded', String(open));
@@ -157,8 +198,10 @@ function applySidepanel(open: boolean, persist = false): void {
 }
 
 applySidepanel(sidepanelOpen, false);
+applyHistoryPanel(historyOpen, false);
 window.addEventListener('resize', () => {
   dom.sidepanelBackdrop.hidden = !(sidepanelOpen && isNarrowViewport());
+  dom.historyBackdrop.hidden = !(historyOpen && isNarrowViewport());
 });
 
 /* ——— sound —————————————————————————————————————————————————————— */
@@ -445,12 +488,286 @@ const controller = new AppController({
   onStepSound: () => sound.tick(),
 });
 
+/* ——— version control (snapshots, rename, restore, delete) ———————— */
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function createSvgIcon(paths: readonly string[], size = 14): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  for (const d of paths) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    svg.append(path);
+  }
+  return svg;
+}
+
+const ICON_RENAME = ['M12 20h9', 'M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5Z'];
+const ICON_DELETE = [
+  'M3 6h18',
+  'M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2',
+  'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6',
+  'M10 11v6',
+  'M14 11v6',
+];
+const ICON_CHECK = ['M20 6 9 17l-5-5'];
+const ICON_CANCEL = ['M18 6 6 18', 'M6 6l12 12'];
+
+const snapshots = new SnapshotStore();
+let showAutosaves = settings.showAutosaves ?? true;
+let confirmSnapshotDelete = settings.confirmSnapshotDelete ?? true;
+let activeSnapshotId: string | null = null;
+let editingSnapshotId: string | null = null;
+let pendingDeleteId: string | null = null;
+
+function syncShowAutosavesControl(): void {
+  dom.showAutosavesButton.setAttribute('aria-checked', String(showAutosaves));
+}
+
+function syncConfirmDeleteControl(): void {
+  dom.confirmDeleteSettingButton.setAttribute('aria-checked', String(confirmSnapshotDelete));
+}
+
+function countProgramLines(program: string): number {
+  const nonEmpty = program.split(/\r?\n/).filter((line) => line.trim() !== '').length;
+  return Math.max(nonEmpty, 1);
+}
+
+function closeDeleteDialog(): void {
+  pendingDeleteId = null;
+  if (dom.deleteDialog.open) dom.deleteDialog.close();
+}
+
+function performDeleteSnapshot(id: string): void {
+  const removed = snapshots.remove(id);
+  if (!removed) return;
+  if (activeSnapshotId === id) activeSnapshotId = null;
+  if (editingSnapshotId === id) editingSnapshotId = null;
+  controller.notifySnapshotDeleted();
+  renderHistory();
+}
+
+function requestDeleteSnapshot(snapshot: ProgramSnapshot): void {
+  if (!confirmSnapshotDelete) {
+    performDeleteSnapshot(snapshot.id);
+    return;
+  }
+  pendingDeleteId = snapshot.id;
+  dom.deleteSnapshotName.textContent = getSnapshotDisplayName(snapshot, i18n);
+  dom.skipDeleteConfirm.checked = false;
+  closeSettings(false);
+  if (!dom.deleteDialog.open) dom.deleteDialog.showModal();
+  dom.deleteDialog.focus({ preventScroll: true });
+}
+
+function restoreSnapshot(snapshot: ProgramSnapshot): void {
+  const currentProgram = dom.programInput.value;
+  const currentTape = dom.tapeInput.value;
+  if (
+    currentProgram.trim() !== '' &&
+    (currentProgram !== snapshot.program || currentTape !== snapshot.tape)
+  ) {
+    snapshots.maybeAutosave(currentProgram, currentTape);
+  }
+  activeSnapshotId = snapshot.id;
+  editingSnapshotId = null;
+  controller.loadSnapshot(snapshot.program, snapshot.tape, getSnapshotDisplayName(snapshot, i18n));
+  renderHistory();
+  if (isNarrowViewport()) applyHistoryPanel(false, false);
+}
+
+function createManualSnapshot(): void {
+  const program = dom.programInput.value;
+  const tape = dom.tapeInput.value;
+  if (program.trim() === '') {
+    controller.notifySnapshotEmpty();
+    return;
+  }
+  const created = snapshots.create('manual', program, tape);
+  activeSnapshotId = created.id;
+  controller.notifySnapshotSaved();
+  renderHistory();
+}
+
+function renderSnapshotItem(snapshot: ProgramSnapshot): HTMLLIElement {
+  const isNamed = snapshot.customName !== null;
+  const isEditing = editingSnapshotId === snapshot.id;
+  const displayName = getSnapshotDisplayName(snapshot, i18n);
+
+  const li = el('li', {
+    class: 'snapshot-item',
+    'data-snapshot-id': snapshot.id,
+    'data-kind': snapshot.kind,
+    'data-named': String(isNamed),
+    'data-active': String(activeSnapshotId === snapshot.id),
+  });
+
+  const node = el('span', { class: 'snapshot-item__node', 'aria-hidden': 'true' });
+  const main = el('div', { class: 'snapshot-item__main' });
+
+  if (isEditing) {
+    const form = el('form', { class: 'snapshot-item__edit' });
+    const input = el('input', {
+      class: 'snapshot-item__input',
+      type: 'text',
+      placeholder: i18n.t('history.renamePlaceholder'),
+      'aria-label': i18n.t('history.renamePlaceholder'),
+    });
+    input.value = snapshot.customName ?? '';
+
+    const commitBtn = el(
+      'button',
+      {
+        class: 'snapshot-action',
+        type: 'submit',
+        title: i18n.t('history.renameSave'),
+        'aria-label': i18n.t('history.renameSave'),
+      },
+      createSvgIcon(ICON_CHECK),
+    );
+
+    const cancelBtn = el(
+      'button',
+      {
+        class: 'snapshot-action',
+        type: 'button',
+        title: i18n.t('history.renameCancel'),
+        'aria-label': i18n.t('history.renameCancel'),
+      },
+      createSvgIcon(ICON_CANCEL),
+    );
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const trimmed = input.value.trim();
+      if (trimmed !== '') snapshots.rename(snapshot.id, trimmed);
+      editingSnapshotId = null;
+      renderHistory();
+    });
+    cancelBtn.addEventListener('click', () => {
+      editingSnapshotId = null;
+      renderHistory();
+    });
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        editingSnapshotId = null;
+        renderHistory();
+      }
+    });
+
+    form.append(input, commitBtn, cancelBtn);
+    main.append(form);
+    li.append(node, main);
+    return li;
+  }
+
+  const loadBtn = el('button', {
+    class: 'snapshot-item__load',
+    type: 'button',
+    title: i18n.t('history.restore'),
+  });
+  const titleSpan = el('span', { class: 'snapshot-item__title' }, displayName);
+  const meta = el('span', { class: 'snapshot-item__meta' });
+  const lineText = i18n.t('history.linesCount', { count: countProgramLines(snapshot.program) });
+  if (isNamed) {
+    meta.append(
+      el('span', { class: 'snapshot-item__time' }, formatSnapshotTimestamp(snapshot.createdAt)),
+      el('span', {}, '·'),
+      el('span', {}, lineText),
+    );
+  } else {
+    meta.append(el('span', {}, lineText));
+  }
+  loadBtn.append(titleSpan, meta);
+  loadBtn.addEventListener('click', () => restoreSnapshot(snapshot));
+
+  const actions = el('div', { class: 'snapshot-item__actions' });
+  const renameBtn = el(
+    'button',
+    {
+      class: 'snapshot-action snapshot-action--rename',
+      type: 'button',
+      title: i18n.t('history.rename'),
+      'aria-label': i18n.t('history.rename'),
+    },
+    createSvgIcon(ICON_RENAME),
+  );
+  renameBtn.addEventListener('click', () => {
+    editingSnapshotId = snapshot.id;
+    renderHistory();
+    const editInput = dom.historyPanel.querySelector<HTMLInputElement>('.snapshot-item__input');
+    if (editInput !== null) {
+      editInput.focus();
+      editInput.select();
+    }
+  });
+
+  const deleteBtn = el(
+    'button',
+    {
+      class: 'snapshot-action snapshot-action--delete',
+      type: 'button',
+      title: i18n.t('history.delete'),
+      'aria-label': i18n.t('history.delete'),
+    },
+    createSvgIcon(ICON_DELETE),
+  );
+  deleteBtn.addEventListener('click', () => requestDeleteSnapshot(snapshot));
+
+  actions.append(renameBtn, deleteBtn);
+  main.append(loadBtn);
+  li.append(node, main, actions);
+  return li;
+}
+
+function renderHistory(): void {
+  const named = snapshots.getNamed();
+  const unnamed = snapshots.getUnnamed(showAutosaves);
+
+  dom.historyNamedCount.textContent = String(named.length);
+  dom.historyUnnamedCount.textContent = String(unnamed.length);
+
+  dom.historyNamedList.replaceChildren(...named.map(renderSnapshotItem));
+  dom.historyUnnamedList.replaceChildren(...unnamed.map(renderSnapshotItem));
+
+  if (dom.deleteDialog.open && pendingDeleteId !== null) {
+    const target = snapshots.getById(pendingDeleteId);
+    if (target !== null) {
+      dom.deleteSnapshotName.textContent = getSnapshotDisplayName(target, i18n);
+    }
+  }
+}
+
+window.setInterval(() => {
+  if (controller.currentMode !== 'edit') return;
+  const created = snapshots.maybeAutosave(dom.programInput.value, dom.tapeInput.value);
+  if (created !== null) {
+    activeSnapshotId = created.id;
+    if (editingSnapshotId === null) renderHistory();
+  }
+}, AUTOSAVE_INTERVAL_MS);
+
 // Declaratively bind all `data-i18n` / `data-i18n-attr` nodes, plus sync the
 // dynamic controls whenever the active locale changes.
 function syncDynamicI18n(): void {
   syncSoundControl();
+  syncShowAutosavesControl();
+  syncConfirmDeleteControl();
   syncLangAria();
   renderHelp(i18n.help);
+  renderHistory();
   syncRunToggleLabel();
   syncSpeedControls();
   syncHint();
@@ -509,6 +826,7 @@ on(mustFind(document, '#btn-unmark'), 'click', () => {
 on(mustFind(document, '#btn-edit'), 'click', () => controller.backToEdit('program'));
 on(mustFind(document, '#btn-edit-err'), 'click', () => controller.backToEdit('program'));
 on(mustFind(document, '#btn-copy'), 'click', () => void controller.copyProgram());
+on(dom.saveButton, 'click', () => createManualSnapshot());
 on(mustFind(document, '#btn-totu4'), 'click', () => controller.toTu4());
 on(mustFind(document, '#btn-help'), 'click', () => openHelp());
 on(dom.helpBack, 'click', () => closeHelp());
@@ -529,6 +847,38 @@ on(dom.tu4Dialog, 'click', (event) => {
   if (event.target === dom.tu4Dialog) closeTu4Dialog();
 });
 on(dom.tu4Dialog, 'close', () => clearTu4Status());
+
+on(dom.historyButton, 'click', () => applyHistoryPanel(!historyOpen, true));
+on(dom.historyClose, 'click', () => {
+  applyHistoryPanel(false, true);
+  dom.historyButton.focus();
+});
+on(dom.historyBackdrop, 'click', () => applyHistoryPanel(false, false));
+on(dom.showAutosavesButton, 'click', () => {
+  showAutosaves = !showAutosaves;
+  updateSettings({ showAutosaves });
+  syncShowAutosavesControl();
+  renderHistory();
+});
+
+on(dom.deleteDialogClose, 'click', () => closeDeleteDialog());
+on(dom.deleteDialogCancel, 'click', () => closeDeleteDialog());
+on(dom.deleteDialog, 'click', (event) => {
+  if (event.target === dom.deleteDialog) closeDeleteDialog();
+});
+on(dom.deleteDialog, 'close', () => {
+  pendingDeleteId = null;
+});
+on(dom.deleteDialogConfirm, 'click', () => {
+  if (dom.skipDeleteConfirm.checked) {
+    confirmSnapshotDelete = false;
+    updateSettings({ confirmSnapshotDelete: false });
+    syncConfirmDeleteControl();
+  }
+  const id = pendingDeleteId;
+  closeDeleteDialog();
+  if (id !== null) performDeleteSnapshot(id);
+});
 
 on(dom.sidepanelButton, 'click', () => applySidepanel(!sidepanelOpen, true));
 on(dom.sidepanelClose, 'click', () => {
@@ -579,6 +929,12 @@ on(dom.soundButton, 'click', () => {
     sound.unlock();
     sound.tick();
   }
+});
+
+on(dom.confirmDeleteSettingButton, 'click', () => {
+  confirmSnapshotDelete = !confirmSnapshotDelete;
+  updateSettings({ confirmSnapshotDelete });
+  syncConfirmDeleteControl();
 });
 
 function applyMinSpeedValue(rawValue: string, normalizeInput: boolean): void {
@@ -763,7 +1119,7 @@ on(document, 'keydown', (event) => {
     target instanceof Element &&
     target.closest('button, a, [role="button"], select, summary') !== null;
 
-  if (dom.tu4Dialog.open) return;
+  if (dom.tu4Dialog.open || dom.deleteDialog.open) return;
 
   if (event.key === 'F1' || (event.key === '?' && event.shiftKey && !inEditable)) {
     event.preventDefault();
@@ -781,6 +1137,12 @@ on(document, 'keydown', (event) => {
     return;
   }
 
+  if (historyOpen && isNarrowViewport() && event.key === 'Escape') {
+    event.preventDefault();
+    applyHistoryPanel(false, false);
+    return;
+  }
+
   if (sidepanelOpen && isNarrowViewport() && event.key === 'Escape') {
     event.preventDefault();
     applySidepanel(false, false);
@@ -788,6 +1150,18 @@ on(document, 'keydown', (event) => {
   }
 
   const hasModifier = event.ctrlKey || event.metaKey;
+
+  if (
+    hasModifier &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === 's' &&
+    controller.currentMode === 'edit'
+  ) {
+    event.preventDefault();
+    createManualSnapshot();
+    return;
+  }
 
   if (event.key === 'Enter' && !inEditable && (hasModifier || !inControl)) {
     if (controller.currentMode !== 'edit' || hasModifier) {
