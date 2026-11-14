@@ -42,6 +42,14 @@ function updateSettings(patch: Partial<AppSettings>): void {
   saveSettings(settings);
 }
 
+function safeReplaceState(url: string): void {
+  try {
+    history.replaceState(null, '', url);
+  } catch {
+    /* browsers may restrict history.replaceState on file:// origins */
+  }
+}
+
 /* ——— DOM references —————————————————————————————————————————————— */
 
 const dom = {
@@ -402,7 +410,7 @@ on(dom.helpDialog, 'click', (event) => {
 });
 on(dom.helpDialog, 'close', () => {
   if (location.hash === '#help') {
-    history.replaceState(null, '', location.pathname + location.search);
+    safeReplaceState(location.pathname + location.search);
   }
 });
 
@@ -425,7 +433,7 @@ on(dom.langButton, 'click', () => {
   const url = new URL(location.href);
   if (url.searchParams.has('lang')) {
     url.searchParams.set('lang', next);
-    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    safeReplaceState(url.pathname + url.search + url.hash);
   }
 });
 

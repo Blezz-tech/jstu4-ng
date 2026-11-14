@@ -18,11 +18,18 @@ npm run dev        # http://localhost:5173
 ```
 
 ```bash
-npm run build      # type-check + production-сборка в dist/
+npm run build      # = build:prod: type-check + оптимизированная production-сборка в dist/ (без .js.map)
+npm run build:prod # production-сборка (минификация JS/CSS/HTML, tree-shaking, без console/debugger и .js.map)
+npm run build:dev  # development-сборка в dist/ (без минификации, с .js.map для отладки)
 npm run preview    # локальный просмотр собранной версии
-npm run check      # lint + format + unit/DOM-тесты + build
+npm run check      # lint + format + unit/DOM-тесты + build:prod
 npm run test:e2e   # Playwright: 29 сценариев в реальном Chromium
 ```
+
+Собранный `dist/index.html` (как в `build:prod`, так и в `build:dev`) работает
+напрямую при открытии с диска (`file:///.../dist/index.html`) без ошибок CORS —
+сборка выпускает классический IIFE-скрипт (`<script defer>`) и таблицу стилей без
+атрибута `crossorigin`.
 
 Требуется Node.js `^20.19 || ^22.12 || >=24`.
 
