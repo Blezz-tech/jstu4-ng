@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { messages } from '../src/i18n';
+import { StepSound } from '../src/ui/audio';
 import { AppController, type AppElements, type UIMode } from '../src/ui/controller';
 
 function setupDom(): AppElements {
@@ -276,6 +277,76 @@ describe('AppController', () => {
     expect(controller.currentMode).toBe('run');
     expect(savedPrograms).toEqual(['0, ,#,0']);
     expect(savedTapes).toEqual(['a b']);
+  });
+
+  it('does not shrink #display-tape cells when stepping left from the initial head cell', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,<,1\n1,0,#,1';
+    el.tapeInput.value = '0';
+
+    controller.start();
+    expect(el.tapeView.querySelectorAll('.cell')).toHaveLength(2);
+
+    controller.step(); // head moves left from pos 1 to pos 0
+    expect(el.tapeView.querySelectorAll('.cell')).toHaveLength(2);
+  });
+
+  it('restores program scrollTop after focusing and placing the caret in backToEdit()', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0,1,>,1\nBAD';
+    el.programInput.scrollTop = 120;
+
+    controller.start();
+    expect(controller.currentMode).toBe('error');
+
+    // Simulate a browser that resets scrollTop to 0 when focus() is called.
+    const originalFocus = el.programInput.focus.bind(el.programInput);
+    vi.spyOn(el.programInput, 'focus').mockImplementation((options?: FocusOptions) => {
+      originalFocus(options);
+      el.programInput.scrollTop = 0;
+    });
+
+    controller.backToEdit();
+    expect(el.programInput.scrollTop).toBe(120);
+  });
+
+  it('reports isQuickRunning === false when onRunningChange(false) fires on quick halt', () => {
+    const el = setupDom();
+    const seenQuickDuringHalt: boolean[] = [];
+    const controller = makeController(el, {
+      onRunningChange: (isRunning) => {
+        if (!isRunning) seenQuickDuringHalt.push(controller.isQuickRunning);
+      },
+    });
+    el.programInput.value = '0, ,>,1\n1, ,#,1';
+    el.tapeInput.value = '';
+
+    controller.start();
+    controller.quick();
+    expect(controller.isQuickRunning).toBe(true);
+
+    vi.advanceTimersByTime(500);
+    expect(controller.isMachineRunning).toBe(false);
+    expect(controller.isQuickRunning).toBe(false);
+    expect(seenQuickDuringHalt).toEqual([false]);
+  });
+
+  it('StepSound.tick() swallows Web Audio errors without interrupting execution', () => {
+    const original = window.AudioContext;
+    class BrokenAudioContext {
+      createOscillator(): never {
+        throw new Error('audio device unavailable');
+      }
+    }
+    vi.stubGlobal('AudioContext', BrokenAudioContext);
+    try {
+      const sound = new StepSound(true);
+      expect(() => sound.tick()).not.toThrow();
+    } finally {
+      vi.stubGlobal('AudioContext', original);
+    }
   });
 
   it('does not play step sound in max-speed rAF batch when the very first step throws', () => {

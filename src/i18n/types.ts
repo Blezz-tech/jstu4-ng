@@ -10,7 +10,9 @@ export const DEFAULT_LANG: Lang = 'ru';
  * "open box" glyph (U+2423).
  */
 export function formatSymbol(symbol: string): string {
-  return symbol === ' ' ? '\u2423' : symbol;
+  if (symbol === ' ') return '\u2423';
+  if (symbol === '\t') return '\\t';
+  return symbol;
 }
 
 export interface Messages {

@@ -266,7 +266,7 @@ function syncRunState(isRunning: boolean): void {
   step.setAttribute('aria-disabled', String(!isRunning));
   quick.setAttribute('aria-disabled', String(!isRunning));
   document.body.dataset.running = String(isRunning);
-  syncHint();
+  syncQuickLabel();
 }
 
 function syncQuickLabel(): void {
@@ -341,10 +341,20 @@ on(dom.helpDialog, 'click', (event) => {
   // A click on the backdrop (outside the inner card) closes the dialog.
   if (event.target === dom.helpDialog) closeHelp();
 });
+on(dom.helpDialog, 'close', () => {
+  if (location.hash === '#help') {
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+});
 
 on(mustFind(document, '#btn-lang'), 'click', () => {
   lang = lang === 'ru' ? 'en' : 'ru';
   saveLang(lang);
+  const url = new URL(location.href);
+  if (url.searchParams.has('lang')) {
+    url.searchParams.set('lang', lang);
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
   m = messages(lang);
   controller.setMessages(m);
   localize();
@@ -364,7 +374,10 @@ on(mustFind(document, '#btn-sound'), 'click', () => {
   const button = mustFind(document, '#btn-sound');
   button.setAttribute('aria-pressed', String(next));
   button.dataset.on = String(next);
-  if (next) sound.tick();
+  if (next) {
+    sound.unlock();
+    sound.tick();
+  }
 });
 
 // Persist the draft as the user types (debounced).
@@ -402,9 +415,16 @@ on(dom.programInput, 'keydown', (event) => {
   }
 });
 
-// Clicks on the read-only panes behave like "Back to edit".
-on(dom.programView, 'click', () => controller.backToEdit('program'));
-on(dom.tapeView, 'click', () => controller.backToEdit('tape'));
+// Clicks on the read-only panes behave like "Back to edit", unless the user
+// just dragged a text selection to copy from the listing or tape.
+on(dom.programView, 'click', () => {
+  if (window.getSelection()?.toString()) return;
+  controller.backToEdit('program');
+});
+on(dom.tapeView, 'click', () => {
+  if (window.getSelection()?.toString()) return;
+  controller.backToEdit('tape');
+});
 
 on(dom.programView, 'scroll', syncProgramOverflow);
 window.addEventListener('resize', syncProgramOverflow);
@@ -444,7 +464,14 @@ on(document, 'keydown', (event) => {
     }
     return;
   }
-  if (event.key === ' ' && !inEditable && !inControl) {
+  if (
+    event.key === ' ' &&
+    !inEditable &&
+    !inControl &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey
+  ) {
     event.preventDefault();
     sound.unlock();
     controller.handleSpace();

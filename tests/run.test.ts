@@ -54,9 +54,21 @@ describe('MachineRun', () => {
     run.step(); // move right to pos 3 (without writing)
     expect(run.headPosition).toBe(3);
     expect(run.cellsUsed).toBe(4);
+    expect(run.tapeText).toBe(' a  ');
     run.step(); // move left to pos 2
     expect(run.headPosition).toBe(2);
     expect(run.cellsUsed).toBe(4);
+    // Visited blank cells stay materialised so the tape display does not shrink.
+    expect(run.tapeText).toBe(' a  ');
+  });
+
+  it('keeps the initial head cell when stepping left immediately (matches v2.3)', () => {
+    const run = start(SWAP, ' 0110');
+    expect(run.tapeText).toBe(' 0110 ');
+    run.step(); // moves left from pos 5 to pos 4
+    expect(run.headPosition).toBe(4);
+    expect(run.tapeText).toBe(' 0110 ');
+    expect(run.cellsUsed).toBe(6);
   });
 
   it('moves and halts when a === v === < and q === w (matches v2.3)', () => {

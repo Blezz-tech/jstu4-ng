@@ -799,7 +799,9 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   }
 
   .toolbar__status {
-    min-width: 100%;
+    flex: 0 0 auto;
+    min-width: 0;
+    width: 100%;
   }
 }
 
@@ -815,7 +817,8 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   .topbar__actions,
   .toolbar,
   .hint,
-  .skip-link {
+  .skip-link,
+  .pane__stack::after {
     display: none !important;
   }
 
@@ -825,7 +828,16 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   }
 
   .program,
-  .tape {
+  .tape,
+  .field {
+    background: #fff;
+    color: #000;
+    border-color: #999;
     box-shadow: none;
+  }
+
+  .program {
+    overflow: visible;
+    white-space: pre-wrap;
   }
 }

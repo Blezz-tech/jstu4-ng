@@ -21,7 +21,7 @@ npm run dev        # http://localhost:5173
 npm run build      # type-check + production-сборка в dist/
 npm run preview    # локальный просмотр собранной версии
 npm run check      # lint + format + unit/DOM-тесты + build
-npm run test:e2e   # Playwright: 25 сценариев в реальном Chromium
+npm run test:e2e   # Playwright: 27 сценариев в реальном Chromium
 ```
 
 Требуется Node.js `^20.19 || ^22.12 || >=24`.

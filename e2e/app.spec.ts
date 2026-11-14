@@ -54,6 +54,9 @@ test('quick run finishes the program by itself', async ({ page }) => {
   // The overwritten source cell triggers the v2.3-compatible warning, and the
   // run really stops (the log is only written when the machine halts).
   await expect(page.locator('#log')).toContainText('Внимание', { timeout: 5_000 });
+  await expect(page.locator('#btn-quick')).toBeDisabled();
+  await expect(page.locator('#btn-quick')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#btn-quick')).toContainText('Быстро');
   await expect(page.locator('#display-tape')).toContainText('110');
   await expect(page.locator('#stats')).toContainText('Выполнено операций');
 });
@@ -127,9 +130,31 @@ test('the language switch keeps keyboard focus on the toggle', async ({ page }) 
   await expect(page.locator('#btn-lang')).toBeFocused();
 });
 
-test('supports ?lang=en deep links', async ({ page }) => {
+test('supports ?lang=en deep links and keeps language switches across reload', async ({ page }) => {
   await page.goto('/?lang=en');
   await expect(page.locator('#btn-start')).toContainText('Start');
+  await page.locator('#btn-lang').click();
+  await expect(page.locator('#btn-start')).toContainText('Запустить');
+  await page.reload();
+  await expect(page.locator('#btn-start')).toContainText('Запустить');
+});
+
+test('closing #help removes the hash so reloading does not reopen help', async ({ page }) => {
+  await page.goto('/#help');
+  await expect(page.locator('#help-dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#help-dialog')).toBeHidden();
+  await page.reload();
+  await expect(page.locator('#help-dialog')).toBeHidden();
+});
+
+test('mobile toolbar status does not hog vertical height', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const statusBox = (await page.locator('.toolbar__status').boundingBox())!;
+  const programBox = (await page.locator('#input-program').boundingBox())!;
+  expect(statusBox.height).toBeLessThan(120);
+  expect(programBox.height).toBeGreaterThan(300);
 });
 
 test('respects the browser language on first visit', async ({ browser }) => {
