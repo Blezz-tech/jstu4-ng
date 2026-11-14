@@ -33,22 +33,57 @@ describe('MachineRun', () => {
     expect(run.tapeText.replace(/\s+$/, '')).toBe(' 1001');
   });
 
-  it('halts on #', () => {
+  it('halts on # and clears nextCommand', () => {
     const run = start('0, ,#,0', '');
     expect(run.step()).toBe(true);
     expect(run.isRunning).toBe(false);
+    expect(run.nextCommand).toBeUndefined();
     expect(run.step()).toBe(false);
   });
 
-  it('writes symbols and moves the head', () => {
-    const run = start('0, ,>,1  1, ,a,2  2,a,<,1', '');
-    run.step(); // move right
-    run.step(); // write 'a'
+  it('writes symbols, moves the head, and tracks cellsUsed even when only moving right', () => {
+    const run = start('0, ,>,1  1, ,a,2  2,a,>,3  3, ,>,4  4, ,<,1', '');
+    expect(run.cellsUsed).toBe(1);
+    run.step(); // move right to pos 1
+    expect(run.cellsUsed).toBe(2);
+    run.step(); // write 'a' at pos 1
     expect(run.currentSymbol).toBe('a');
     expect(run.tapeText).toBe(' a');
     expect(run.cellsUsed).toBe(2);
-    run.step(); // move left
-    expect(run.headPosition).toBe(0);
+    run.step(); // move right to pos 2
+    run.step(); // move right to pos 3 (without writing)
+    expect(run.headPosition).toBe(3);
+    expect(run.cellsUsed).toBe(4);
+    expect(run.tapeText).toBe(' a  ');
+    run.step(); // move left to pos 2
+    expect(run.headPosition).toBe(2);
+    expect(run.cellsUsed).toBe(4);
+    // Visited blank cells stay materialised so the tape display does not shrink.
+    expect(run.tapeText).toBe(' a  ');
+  });
+
+  it('keeps the initial head cell when stepping left immediately (matches v2.3)', () => {
+    const run = start(SWAP, ' 0110');
+    expect(run.tapeText).toBe(' 0110 ');
+    run.step(); // moves left from pos 5 to pos 4
+    expect(run.headPosition).toBe(4);
+    expect(run.tapeText).toBe(' 0110 ');
+    expect(run.cellsUsed).toBe(6);
+  });
+
+  it('moves and halts when a === v === < and q === w (matches v2.3)', () => {
+    const run = start('0, ,<,0  0,<,<,0', '<');
+    run.step(); // pos 1 -> pos 0, reads '<'
+    expect(run.isRunning).toBe(true);
+    expect(run.currentSymbol).toBe('<');
+    // At pos 0, moving left throws OutOfTapeError even though a === v && q === w.
+    expect(() => run.step()).toThrow(OutOfTapeError);
+
+    const run2 = start('0, ,<,0  0,<,<,0', ' <');
+    run2.step(); // pos 2 -> pos 1, reads '<'
+    run2.step(); // moves left to pos 0 AND halts
+    expect(run2.headPosition).toBe(0);
+    expect(run2.isRunning).toBe(false);
   });
 
   it('throws OutOfTapeError when moving left from the first cell', () => {
@@ -68,17 +103,37 @@ describe('MachineRun', () => {
     expect(run.headPosition).toBe(0);
   });
 
-  it('reports a normal finish for a run that stops right after the result', () => {
-    // The help example writes the converted word, then scans it to the right.
-    // Because the cell after the word is already a space, the very last cell
-    // of the result is rewritten with the same space — the data is untouched.
+  it('reports sourceAltered for the in-place SWAP example', () => {
+    // The help example replaces 0 and 1 *in place* ("ненормированная замена"):
+    // source ' 0110' is overwritten with ' 1001', so normality reports sourceAltered.
     const run = start(SWAP, ' 0110');
     while (run.isRunning) run.step();
     expect(run.tapeText.replace(/\s+$/, '')).toBe(' 1001');
-    // The example writes a space over the (already empty) cell under the
-    // head, which v2.3 reports as "source altered": the leading space belongs
-    // to the source text and gets overwritten. Exact compatibility is kept.
     expect(run.checkNormality()).toBe('sourceAltered');
+  });
+
+  it('reports normal finish when source data is retained with a separating space', () => {
+    // Input '101', skip the separating blank cell, write '0', move right and halt.
+    const run = start('0, ,>,1  1, ,0,2  2,0,>,3  3, ,#,3', '101');
+    while (run.isRunning) run.step();
+    expect(run.tapeText.replace(/\s+$/, '')).toBe('101 0');
+    expect(run.headPosition).toBe(5);
+    expect(run.checkNormality()).toBe('normal');
+  });
+
+  it('reports sourceAltered when output overwrites the separating space after source', () => {
+    // Input '101', write '0' directly at pos 3 (producing '1010' with no space):
+    // matches original jstu4 v2.3 where initialTape() includes the trailing space.
+    const run = start('0, ,0,1  1,0,>,2  2, ,#,2', '101');
+    while (run.isRunning) run.step();
+    expect(run.tapeText.replace(/\s+$/, '')).toBe('1010');
+    expect(run.checkNormality()).toBe('sourceAltered');
+  });
+
+  it('reports normal finish for an immediate halt on empty input', () => {
+    const run = start('0, ,#,0', '');
+    run.step();
+    expect(run.checkNormality()).toBe('normal');
   });
 
   it('detects altered source data', () => {
@@ -89,7 +144,7 @@ describe('MachineRun', () => {
   });
 
   it('detects a misplaced head at the end of the run', () => {
-    // Restore the data but stop one cell before the end of the result.
+    // Leave source intact but halt before the end of the word.
     const run = start('0, ,<,a  a,1,1,a  a, ,<,b  b,0,>,c  c,0,>,c  c, ,#,c', '101');
     while (run.isRunning) run.step();
     expect(run.checkNormality()).toBe('misplaced');

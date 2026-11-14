@@ -36,8 +36,32 @@ describe('toTu4', () => {
     expect(machine.initialState).toBe(0);
   });
 
-  it('returns null for programs that do not compile', () => {
+  it('uses decimal 00..98 when there are fewer than 100 states (matches v2.3)', () => {
+    const lines = Array.from({ length: 12 }, (_, i) => `s${i}, ,>,s${(i + 1) % 12}`).join('\n');
+    const converted = toTu4(compile(lines));
+    const rows = converted.split('\n');
+    expect(rows[9]).toBe('09, ,>,10');
+    expect(rows[10]).toBe('10, ,>,11');
+    expect(rows[11]).toBe('11, ,>,00');
+  });
+
+  it('switches to two-digit hex 00..ff when there are 100..256 states', () => {
+    const lines = Array.from({ length: 105 }, (_, i) => `s${i}, ,>,s${(i + 1) % 105}`).join('\n');
+    const converted = toTu4(compile(lines));
+    const rows = converted.split('\n');
+    expect(rows[10]).toBe('0a, ,>,0b');
+    expect(rows[104]).toBe('68, ,>,00');
+  });
+
+  it('throws RangeError when the program has more than 256 states', () => {
+    const lines = Array.from({ length: 257 }, (_, i) => `s${i}, ,>,s${(i + 1) % 257}`).join('\n');
+    expect(() => toTu4(compile(lines))).toThrow(RangeError);
+  });
+
+  it('returns null for programs that do not compile or exceed 256 states', () => {
     expect(convertTextToTu4('garbage')).toBeNull();
     expect(convertTextToTu4('')).toBeNull();
+    const tooBig = Array.from({ length: 257 }, (_, i) => `s${i}, ,>,s${(i + 1) % 257}`).join('\n');
+    expect(convertTextToTu4(tooBig)).toBeNull();
   });
 });

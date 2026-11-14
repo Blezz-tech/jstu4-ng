@@ -22,10 +22,6 @@ const SKIP_RE = /^(?:(?:#|\/\/)[^\n]*(?:\n|$))|^(?:\s+)/;
 /** `q,a,v,q'` — `a` and `v` are single characters, `q` and `q'` are words. */
 const COMMAND_RE = /^([^\s]+),(.),(.),([^\s]+)/;
 
-export interface ParsedCommand {
-  readonly command: Command;
-}
-
 /**
  * Parse program text into commands. The function never throws on an empty
  * program: that is detected later by {@link createProgram}, so the UI can show

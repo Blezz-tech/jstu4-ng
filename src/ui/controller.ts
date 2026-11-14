@@ -10,7 +10,7 @@ import {
   ParseError,
 } from '../core/errors';
 import { MachineRun } from '../core/run';
-import { convertTextToTu4 } from '../core/tu4';
+import { toTu4 } from '../core/tu4';
 import type { Messages } from '../i18n';
 import {
   compileProgram,
@@ -20,6 +20,14 @@ import {
   renderTape,
   type CompiledProgram,
 } from './render';
+import {
+  BASE_STEPS_PER_SECOND,
+  clampMaxSpeed,
+  clampSpeed,
+  DEFAULT_MAX_SPEED,
+  DEFAULT_SPEED,
+  stepIntervalMs,
+} from './speed';
 
 export type UIMode = 'edit' | 'run' | 'error';
 
@@ -39,30 +47,61 @@ export type LogKind = 'info' | 'warning' | 'error';
 export interface ControllerOptions {
   readonly messages: Messages;
   readonly elements: AppElements;
-  /** Called after every mode change so the shell can sync buttons/attributes. */
+  /** Initial auto-run speed multiplier (defaults to 1×). */
+  readonly initialSpeed?: number;
+  /** Initial maximum auto-run speed multiplier (defaults to 10×). */
+  readonly initialMaxSpeed?: number;
+  /** Called after every mode or auto-run state change so the shell can sync UI. */
   readonly onModeChange: (mode: UIMode) => void;
   /**
    * Called whenever the machine halts or starts running again, so the toolbar
-   * can disable "Step"/"Quick" instead of leaving them looking usable.
+   * can disable "Step"/"Run" instead of leaving them looking usable.
    */
   readonly onRunningChange?: (isRunning: boolean) => void;
-  /** Persist the program draft (debounced by the caller). */
+  /** Persist the program draft. */
   readonly onProgramChange: (text: string) => void;
   readonly onTapeChange: (text: string) => void;
   /** Optional per-step click. */
   readonly onStepSound?: () => void;
 }
 
-const QUICK_INTERVALS_MS = [70, 30, 10, 0] as const;
+const RAF_THRESHOLD_MS = 20;
+const MAX_BATCH_STEPS_PER_FRAME = 64;
+const MAX_BATCH_MS_PER_FRAME = 6;
+
+type LogDescriptor =
+  | { readonly type: 'none' }
+  | { readonly type: 'ready' }
+  | { readonly type: 'restoredDraft' }
+  | { readonly type: 'finished' }
+  | { readonly type: 'sourceAltered' }
+  | { readonly type: 'misplaced' }
+  | { readonly type: 'convertedToTu4' }
+  | { readonly type: 'copied' }
+  | { readonly type: 'tooManyStates' }
+  | { readonly type: 'parseError'; readonly text: string }
+  | { readonly type: 'programIsEmpty' }
+  | { readonly type: 'ambiguousCommand'; readonly q: string; readonly a: string }
+  | { readonly type: 'targetStateDoesNotExist'; readonly w: string }
+  | { readonly type: 'initialStateDoesNotExist'; readonly q: string }
+  | { readonly type: 'headIsOutOfTape' }
+  | { readonly type: 'noSuchCommand'; readonly q: string; readonly a: string };
 
 /**
- * The tape is a sequence of single-character cells, so an accidental newline
- * (e.g. pasted from a text editor) would silently break the run. Tabs and line
- * breaks are normalised to spaces; the machine itself still reads `\s` only
- * as trailing padding. This mirrors the lenient tape handling of jstu4 v2.x.
+ * The tape is a sequence of single-character cells, so tabs or pasted line
+ * breaks are normalised to spaces (1-to-1 per character).
  */
 export function coerceTape(value: string): string {
-  return value.replace(/[\t\r\n]+/g, ' ');
+  return value.replace(/[\t\r\n]/g, ' ');
+}
+
+function scrollElementIntoView(
+  node: Element | null,
+  options: ScrollIntoViewOptions = { block: 'nearest' },
+): void {
+  if (node !== null && typeof node.scrollIntoView === 'function') {
+    node.scrollIntoView(options);
+  }
 }
 
 /**
@@ -70,45 +109,95 @@ export function coerceTape(value: string): string {
  * DOM events in, DOM updates out.
  */
 export class AppController {
-  private readonly m: Messages;
+  private m: Messages;
   private readonly el: AppElements;
   private readonly options: ControllerOptions;
 
   private mode: UIMode = 'edit';
   private run: MachineRun | null = null;
   private compiled: CompiledProgram | null = null;
-  private visited = new Set<number>();
 
-  private quickTimer: ReturnType<typeof setTimeout> | null = null;
-  private quickIndex = 0;
-  private quickGeneration = 0;
+  private autoTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoRaf: number | null = null;
+  private autoGeneration = 0;
+  private lastStepAt = 0;
+  private maxSpeed: number;
+  private speed: number;
 
+  private returnCursorOffset: number | null = null;
+  private lastLog: LogDescriptor = { type: 'none' };
+  private hasStats = false;
   private stats = { commandsCount: 0, initialDataLength: 0, maxDataLength: 0, operationsCount: 0 };
 
   constructor(options: ControllerOptions) {
     this.options = options;
     this.m = options.messages;
     this.el = options.elements;
+    this.maxSpeed = clampMaxSpeed(options.initialMaxSpeed ?? DEFAULT_MAX_SPEED);
+    this.speed = clampSpeed(options.initialSpeed ?? DEFAULT_SPEED, this.maxSpeed);
   }
 
   get currentMode(): UIMode {
     return this.mode;
   }
 
-  get isQuickRunning(): boolean {
-    return this.quickTimer !== null;
+  get isAutoRunning(): boolean {
+    return this.autoTimer !== null || this.autoRaf !== null;
+  }
+
+  get currentSpeed(): number {
+    return this.speed;
+  }
+
+  get currentMaxSpeed(): number {
+    return this.maxSpeed;
   }
 
   get isMachineRunning(): boolean {
     return this.run?.isRunning ?? false;
   }
 
-  /** Restore a draft without marking the app as "modified by the user". */
+  /** Change auto-run speed multiplier (`0.5×` .. `currentMaxSpeed`). */
+  setSpeed(value: number): number {
+    const next = clampSpeed(value, this.maxSpeed);
+    if (next === this.speed) return next;
+    this.speed = next;
+
+    if (this.isAutoRunning) {
+      this.clearAutoHandles();
+      const remaining = Math.max(
+        0,
+        Math.round(stepIntervalMs(this.speed) - (performance.now() - this.lastStepAt)),
+      );
+      this.scheduleAutoTick(remaining);
+    }
+    return next;
+  }
+
+  /** Change the upper bound for the speed slider and clamp current speed if needed. */
+  setMaxSpeed(value: number): { readonly maxSpeed: number; readonly speed: number } {
+    this.maxSpeed = clampMaxSpeed(value);
+    const clampedSpeed = clampSpeed(this.speed, this.maxSpeed);
+    if (clampedSpeed !== this.speed) {
+      this.setSpeed(clampedSpeed);
+    }
+    return { maxSpeed: this.maxSpeed, speed: this.speed };
+  }
+
+  /** Switch UI language in place without dropping the draft or active run. */
+  setMessages(messages: Messages): void {
+    this.m = messages;
+    this.renderLog();
+    if (this.hasStats) this.renderStats();
+    if (this.mode === 'run') this.renderTapeView();
+  }
+
+  /** Restore a draft on initial startup. */
   hydrate(program: string | null, tape: string | null): void {
     if (program !== null) this.el.programInput.value = program;
     if (tape !== null) this.el.tapeInput.value = tape;
     this.setMode('edit');
-    this.log(this.m.log.ready, 'info');
+    this.setLog(program !== null ? { type: 'restoredDraft' } : { type: 'ready' });
   }
 
   // ——— user actions ————————————————————————————————————————————————
@@ -118,11 +207,16 @@ export class AppController {
     const parsed = this.parseInput();
     if (parsed === null) return;
 
+    const scrollTop = this.el.programInput.scrollTop;
     const tape = coerceTape(this.el.tapeInput.value);
     if (tape !== this.el.tapeInput.value) this.el.tapeInput.value = tape;
+
+    this.stopAutoRun();
     this.compiled = parsed;
     this.run = new MachineRun(parsed.program, tape);
-    this.visited = new Set();
+    this.returnCursorOffset = null;
+    this.options.onProgramChange(this.el.programInput.value);
+    this.options.onTapeChange(tape);
 
     this.el.programView.replaceChildren(renderProgram(parsed));
     this.renderTapeView();
@@ -130,20 +224,173 @@ export class AppController {
     this.stats = {
       commandsCount: parsed.commands.length,
       initialDataLength: this.run.initialTape.length,
-      maxDataLength: this.run.tapeText.length,
+      maxDataLength: this.run.cellsUsed,
       operationsCount: 0,
     };
+    this.hasStats = true;
     this.renderStats();
 
     this.setMode('run');
+    this.el.programView.scrollTop = scrollTop;
     this.markCommand(this.run.nextCommand);
-    this.log(null);
+    this.setLog({ type: 'none' });
     this.options.onRunningChange?.(this.run.isRunning);
-    this.options.onStepSound?.();
+    // Move focus out of any previously active input (e.g. `#input-tape` after
+    // pressing Enter) so Space/Enter/Esc hotkeys work immediately in run mode.
+    this.el.programView.focus({ preventScroll: true });
   }
 
-  /** "Step": execute one command. Returns whether the machine keeps running. */
+  /**
+   * "Step": pause auto-run (if active) and execute one command.
+   * Returns whether the machine keeps running.
+   */
   step(): boolean {
+    this.stopAutoRun();
+    return this.stepOnce(true);
+  }
+
+  /**
+   * "Run / Stop": toggle automatic execution at the current speed.
+   * Stopping pauses the run in place (without resetting or leaving run mode),
+   * just like pressing Step does before advancing.
+   */
+  toggleAutoRun(): void {
+    if (!this.isMachineRunning) return;
+    if (this.isAutoRunning) {
+      this.stopAutoRun();
+      return;
+    }
+    this.lastStepAt = performance.now();
+    this.scheduleAutoTick();
+  }
+
+  /** Pause automatic execution without discarding the current run state. */
+  stopAutoRun(): void {
+    const wasRunning = this.isAutoRunning;
+    this.clearAutoHandles();
+    if (wasRunning) {
+      this.options.onModeChange(this.mode);
+    }
+  }
+
+  /** "Back to edit": stop everything and return to the editable fields. */
+  backToEdit(focus?: 'program' | 'tape'): void {
+    const previousMode = this.mode;
+    const scrollTop = this.el.programView.scrollTop;
+    const cursorOffset = this.returnCursorOffset;
+
+    this.stopAutoRun();
+    this.run = null;
+    this.compiled = null;
+    this.returnCursorOffset = null;
+    this.options.onRunningChange?.(false);
+    this.setMode('edit');
+    this.setLog({ type: 'none' });
+
+    const target =
+      focus ?? (previousMode === 'error' || cursorOffset !== null ? 'program' : 'tape');
+
+    if (target === 'program') {
+      this.el.programInput.focus({ preventScroll: true });
+      if (cursorOffset !== null) {
+        this.el.programInput.setSelectionRange(cursorOffset, cursorOffset);
+      }
+      this.el.programInput.scrollTop = scrollTop;
+    } else {
+      this.el.programInput.scrollTop = scrollTop;
+      this.el.tapeInput.focus();
+    }
+  }
+
+  /** "Unmark": pause auto-run (if active) and clear visited command marks. */
+  unmark(): void {
+    this.stopAutoRun();
+    this.el.programView.querySelectorAll('.cmd.visited').forEach((node) => {
+      node.classList.remove('visited');
+    });
+  }
+
+  /**
+   * "Copy": copy the program to the clipboard. Falls back to textarea
+   * selection + `execCommand` on non-secure origins or older browsers.
+   */
+  async copyProgram(): Promise<void> {
+    const text = this.el.programInput.value;
+    if (text === '') return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const input = this.el.programInput;
+      input.focus();
+      input.select();
+      const copied = document.execCommand('copy');
+      input.setSelectionRange(input.value.length, input.value.length);
+      if (!copied) return;
+    }
+    this.setLog({ type: 'copied' });
+  }
+
+  /** "To TU4": convert the current program and replace the editor content. */
+  toTu4(): void {
+    const parsed = this.parseInput();
+    if (parsed === null) return;
+
+    try {
+      const converted = toTu4(parsed.program);
+      this.el.programInput.value = converted;
+      this.options.onProgramChange(converted);
+      this.setLog({ type: 'convertedToTu4' });
+    } catch (error) {
+      if (error instanceof RangeError) {
+        this.setLog({ type: 'tooManyStates' });
+        return;
+      }
+      throw error;
+    }
+  }
+
+  /** Keyboard: Enter behaviour depends on the current mode. */
+  handleEnter(withModifier = false): void {
+    switch (this.mode) {
+      case 'edit':
+        if (withModifier) this.start();
+        break;
+      case 'run':
+        if (this.isMachineRunning) this.toggleAutoRun();
+        else this.backToEdit('tape');
+        break;
+      case 'error':
+        this.backToEdit('program');
+        break;
+    }
+  }
+
+  handleSpace(): void {
+    if (this.mode !== 'run') return;
+    this.step();
+  }
+
+  handleEscape(): void {
+    if (this.mode === 'edit') return;
+    if (this.mode === 'run') {
+      if (this.isAutoRunning) {
+        this.stopAutoRun();
+        return;
+      }
+      this.backToEdit('tape');
+      return;
+    }
+    this.backToEdit('program');
+  }
+
+  dispose(): void {
+    this.stopAutoRun();
+  }
+
+  // ——— internals ——————————————————————————————————————————————————
+
+  private stepOnce(playSound: boolean): boolean {
     const run = this.run;
     if (run === null || !run.isRunning) return false;
 
@@ -160,10 +407,10 @@ export class AppController {
     this.renderStats();
     this.renderTapeView();
     this.markCommand(run.nextCommand);
-    this.options.onStepSound?.();
+    if (playSound) this.options.onStepSound?.();
 
     if (run.isRunning) {
-      this.log(null);
+      this.setLog({ type: 'none' });
       return true;
     }
 
@@ -171,184 +418,62 @@ export class AppController {
     return false;
   }
 
-  /** "Quick": toggle automatic execution; repeated presses speed it up. */
-  quick(): void {
-    if (!this.isMachineRunning) {
-      // Nothing to run any more (finished or never started): behave like
-      // "Start" instead of silently doing nothing, as the original did.
-      if (this.mode === 'run') this.start();
-      return;
-    }
-    if (this.quickTimer !== null) {
-      // Already running quickly: accelerate.
-      this.stopQuick();
-      this.quickIndex = Math.min(this.quickIndex + 1, QUICK_INTERVALS_MS.length - 1);
-    } else {
-      if (!this.isMachineRunning) return;
-      this.quickIndex = 0;
-    }
-    this.scheduleQuickTick();
-  }
-
-  /** "Back to edit": stop everything and return to the editable fields. */
-  backToEdit(): void {
-    this.stopQuick();
-    this.run = null;
-    this.options.onRunningChange?.(false);
-    this.compiled = null;
-    this.setMode('edit');
-    this.log(null);
-    this.el.tapeInput.focus();
-  }
-
-  /** "Unmark": clear visited marks from previously executed commands. */
-  unmark(): void {
-    this.visited.clear();
-    this.el.programView.querySelectorAll('.cmd.visited').forEach((node) => {
-      node.classList.remove('visited');
-    });
-  }
-
-  /**
-   * "Copy" (or "Cut with Ctrl+X" outside the textarea): copy the program to
-   * the clipboard. The Clipboard API needs a secure context; on `http://`
-   * origins and old browsers the textarea selection + `execCommand` fallback
-   * is used instead.
-   */
-  async copyProgram(): Promise<void> {
-    const text = this.el.programInput.value;
-    if (text === '') return;
-
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const input = this.el.programInput;
-      input.focus();
-      input.select();
-      const copied = document.execCommand('copy');
-      input.setSelectionRange(input.value.length, input.value.length);
-      if (!copied) return;
-    }
-    this.log(this.m.log.copied, 'info');
-  }
-
-  /** "To TU4": convert the current program and replace the editor content. */
-  toTu4(): void {
-    const parsed = this.parseInput();
-    if (parsed === null) return;
-
-    try {
-      const converted = convertTextToTu4(parsed.text);
-      if (converted === null) return;
-      this.el.programInput.value = converted;
-      this.options.onProgramChange(converted);
-      this.log(this.m.log.convertedToTu4, 'info');
-      this.backToEdit();
-    } catch (error) {
-      if (error instanceof RangeError) {
-        this.log(this.m.error.tooManyStates, 'error');
-        return;
-      }
-      throw error;
-    }
-  }
-
-  /** Keyboard: Enter behaviour depends on the current mode. */
-  handleEnter(): void {
-    switch (this.mode) {
-      case 'edit':
-        this.start();
-        break;
-      case 'run':
-        if (this.quickTimer !== null) this.stopQuick();
-        else if (this.isMachineRunning) this.quick();
-        else this.backToEdit();
-        break;
-      case 'error':
-        this.backToEdit();
-        break;
-    }
-  }
-
-  handleSpace(): void {
-    if (this.mode !== 'run') return;
-    this.stopQuick();
-    this.step();
-  }
-
-  handleEscape(): void {
-    if (this.mode === 'edit') return;
-    this.backToEdit();
-  }
-
-  dispose(): void {
-    this.stopQuick();
-  }
-
-  // ——— internals ——————————————————————————————————————————————————
-
   private parseInput(): CompiledProgram | null {
     try {
-      return this.compile(this.el.programInput.value);
+      return compileProgram(this.el.programInput.value, 0);
     } catch (error) {
       this.reportCompileError(error, this.el.programInput.value);
       return null;
     }
   }
 
-  private compile(text: string): CompiledProgram {
-    return compileProgram(text, 0);
-  }
-
   private reportCompileError(error: unknown, text: string): void {
     if (!(error instanceof MachineError)) throw error;
 
+    const scrollTop = this.el.programInput.scrollTop;
+    this.returnCursorOffset = null;
     this.setMode('error');
-    this.log(null);
+    this.setLog({ type: 'none' });
 
     if (error instanceof ParseError) {
+      this.returnCursorOffset = error.data.offset;
       this.el.programView.replaceChildren(renderProgramWithError(text, error.data.offset));
-      this.log(this.m.error.parseError(error.data.text), 'error');
-      return;
-    }
-
-    if (error instanceof EmptyProgramError) {
+      this.setLog({ type: 'parseError', text: error.data.text });
+    } else if (error instanceof EmptyProgramError) {
       this.el.programView.textContent = text;
-      this.log(this.m.error.programIsEmpty, 'error');
-      return;
-    }
-
-    if (error instanceof AmbiguousCommandError) {
+      this.setLog({ type: 'programIsEmpty' });
+    } else if (error instanceof AmbiguousCommandError) {
+      this.returnCursorOffset = error.data.command.source.offset;
       this.renderProgramWithMarks(text, [error.data.command, error.data.original], 'error');
-      this.log(
-        this.m.error.ambiguousCommand(String(error.data.command.q), error.data.command.a),
-        'error',
-      );
-      return;
-    }
-
-    if (error instanceof NonexistentTargetStateError) {
+      this.setLog({
+        type: 'ambiguousCommand',
+        q: String(error.data.command.q),
+        a: error.data.command.a,
+      });
+    } else if (error instanceof NonexistentTargetStateError) {
+      this.returnCursorOffset = error.data.command.source.offset;
       this.renderProgramWithMarks(text, [error.data.command], 'error');
-      this.log(this.m.error.targetStateDoesNotExist(String(error.data.command.w)), 'error');
-      return;
+      this.setLog({ type: 'targetStateDoesNotExist', w: String(error.data.command.w) });
+    } else if (error instanceof NonexistentInitialStateError) {
+      this.renderProgramWithMarks(text, [], 'error');
+      this.setLog({ type: 'initialStateDoesNotExist', q: String(error.data.state) });
+    } else {
+      throw error;
     }
 
-    if (error instanceof NonexistentInitialStateError) {
-      this.el.programView.textContent = text;
-      this.log(this.m.error.initialStateDoesNotExist(String(error.data.state)), 'error');
-      return;
-    }
-
-    throw error;
+    this.el.programView.scrollTop = scrollTop;
+    scrollElementIntoView(this.el.programView.querySelector('mark.error, .cmd.error'));
+    // Move focus out of `#input-tape` (e.g. if error was triggered by pressing
+    // Enter in the tape input) so Enter/Escape immediately return to edit mode.
+    this.el.programView.focus({ preventScroll: true });
   }
 
   /**
    * Render the program with some commands marked as erroneous.
    *
    * The program did not compile, so only the *parser* runs here: the
-   * commands before the failing one are enough to draw the listing, and
-   * validation must not be repeated (it would throw again and lose the
-   * marks).
+   * commands are enough to draw the syntax-highlighted listing without
+   * repeating validation.
    */
   private renderProgramWithMarks(
     text: string,
@@ -358,8 +483,6 @@ export class AppController {
     try {
       const listing = listProgram(text);
       this.el.programView.replaceChildren(renderProgram(listing));
-      // The failing commands come from a *different* parse, so identity
-      // comparison cannot work: match them by their source offset.
       const offsets = new Set(commands.map((command) => command.source.offset));
       listing.commands.forEach((command, index) => {
         if (offsets.has(command.source.offset)) this.commandNode(index)?.classList.add(className);
@@ -377,6 +500,10 @@ export class AppController {
       renderTape(run.tapeText, run.headPosition, this.m.a11y.tapeViewLabel),
     );
     this.el.tapeView.setAttribute('aria-label', this.m.a11y.tapeViewLabel);
+    scrollElementIntoView(this.el.tapeView.querySelector('.cell.current'), {
+      block: 'nearest',
+      inline: 'nearest',
+    });
   }
 
   private commandNode(index: number): HTMLElement | null {
@@ -387,99 +514,226 @@ export class AppController {
     const compiled = this.compiled;
     if (compiled === null) return;
 
-    // When the machine has stopped there is no "next command": leave the last
-    // executed one marked as visited so the listing stays readable.
-    if (next === undefined) {
-      this.el.programView.querySelector('.cmd.current')?.classList.remove('current');
-      return;
-    }
+    // Transition the previously active command into the visited state before
+    // highlighting the next one (mirrors original jstu4 `selectCommand`).
+    this.el.programView.querySelectorAll('.cmd.current').forEach((node) => {
+      node.classList.remove('current');
+      node.classList.add('visited');
+    });
 
-    if (next !== undefined) {
-      const index = compiled.commands.indexOf(next);
-      if (index >= 0) {
-        this.visited.add(index);
-        for (const id of this.visited) {
-          const node = this.commandNode(id);
-          if (node !== null && id !== index) {
-            node.classList.remove('current');
-            node.classList.add('visited');
-          }
-        }
-        const current = this.commandNode(index);
-        current?.classList.add('current');
-        current?.scrollIntoView({ block: 'nearest' });
-      }
+    if (next === undefined) return;
+
+    const index = compiled.commands.indexOf(next);
+    if (index >= 0) {
+      const current = this.commandNode(index);
+      current?.classList.add('current');
+      scrollElementIntoView(current, { block: 'nearest' });
+      this.returnCursorOffset = next.source.offset;
     }
   }
 
   private reportRuntimeError(error: unknown): void {
-    this.stopQuick();
+    this.stopAutoRun();
     this.options.onRunningChange?.(false);
     if (error instanceof NoSuchCommandError) {
-      this.log(this.m.error.noSuchCommand(String(error.data.state), error.data.symbol), 'error');
+      this.setLog({
+        type: 'noSuchCommand',
+        q: String(error.data.state),
+        a: error.data.symbol,
+      });
       return;
     }
     if (error instanceof OutOfTapeError) {
-      this.log(this.m.error.headIsOutOfTape, 'error');
+      // Mark the offending command as an error rather than leaving it green.
+      this.el.programView.querySelectorAll('.cmd.current').forEach((node) => {
+        node.classList.remove('current');
+        node.classList.add('error');
+      });
+      this.setLog({ type: 'headIsOutOfTape' });
       return;
     }
     throw error;
   }
 
   private reportFinish(run: MachineRun): void {
+    this.stopAutoRun();
     this.options.onRunningChange?.(false);
     switch (run.checkNormality()) {
       case 'sourceAltered':
-        this.log(this.m.log.warningSourceAltered, 'warning');
+        this.setLog({ type: 'sourceAltered' });
         break;
       case 'misplaced':
-        this.log(this.m.log.warningMisposition, 'warning');
+        this.setLog({ type: 'misplaced' });
         break;
       case 'normal':
-        this.log(this.m.log.finished, 'info');
+        this.setLog({ type: 'finished' });
         break;
     }
   }
 
-  private scheduleQuickTick(): void {
-    const generation = ++this.quickGeneration;
-    const interval = QUICK_INTERVALS_MS[this.quickIndex] ?? 0;
+  private scheduleAutoTick(initialDelayMs?: number): void {
+    const generation = ++this.autoGeneration;
+    const interval = stepIntervalMs(this.speed);
+
+    if (interval < RAF_THRESHOLD_MS) {
+      // High-speed mode (> 10×): run a rate-accurate, time-budgeted batch per
+      // animation frame so speeds beyond browser timer resolution scale smoothly
+      // without freezing repaints or piling up timers in background tabs.
+      let lastFrameAt = performance.now();
+      let stepBudget = 0;
+
+      const frame = (now: number): void => {
+        if (generation !== this.autoGeneration) return;
+        this.autoRaf = null;
+
+        const elapsedMs = Math.max(0, Math.min(100, now - lastFrameAt));
+        lastFrameAt = now;
+        stepBudget += (elapsedMs * BASE_STEPS_PER_SECOND * this.speed) / 1000;
+
+        const targetSteps = Math.min(
+          MAX_BATCH_STEPS_PER_FRAME,
+          Math.max(1, Math.floor(stepBudget)),
+        );
+        const deadline = performance.now() + MAX_BATCH_MS_PER_FRAME;
+        const opsBefore = this.stats.operationsCount;
+        let stepped = 0;
+        let keepGoing = true;
+
+        while (
+          keepGoing &&
+          stepped < targetSteps &&
+          (stepped === 0 || performance.now() < deadline)
+        ) {
+          keepGoing = this.stepOnce(false);
+          stepped += 1;
+        }
+        stepBudget = Math.max(0, stepBudget - stepped);
+        this.lastStepAt = performance.now();
+        if (this.stats.operationsCount > opsBefore) this.options.onStepSound?.();
+
+        if (!keepGoing || generation !== this.autoGeneration) {
+          this.options.onModeChange(this.mode);
+          return;
+        }
+
+        this.autoRaf = requestAnimationFrame(frame);
+      };
+
+      this.autoRaf = requestAnimationFrame(frame);
+      this.options.onModeChange(this.mode);
+      return;
+    }
 
     const tick = (): void => {
-      if (generation !== this.quickGeneration) return;
+      if (generation !== this.autoGeneration) return;
+      this.autoTimer = null;
+      this.lastStepAt = performance.now();
 
-      if (!this.step()) {
-        this.quickTimer = null;
+      if (!this.stepOnce(true) || generation !== this.autoGeneration) {
         this.options.onModeChange(this.mode);
         return;
       }
 
-      if (interval === 0) {
-        // "As fast as possible": loop in a macrotask-free chain of
-        // requestAnimationFrame callbacks, so the UI still repaints.
-        this.quickTimer = setTimeout(() => {
-          requestAnimationFrame(tick);
-        }, 0);
-      } else {
-        this.quickTimer = setTimeout(tick, interval);
-      }
+      this.autoTimer = setTimeout(tick, Math.round(stepIntervalMs(this.speed)));
     };
 
-    this.quickTimer = setTimeout(tick, interval);
+    const delay = initialDelayMs ?? Math.round(interval);
+    this.autoTimer = setTimeout(tick, delay);
     this.options.onModeChange(this.mode);
   }
 
-  private stopQuick(): void {
-    this.quickGeneration += 1;
-    if (this.quickTimer !== null) clearTimeout(this.quickTimer);
-    this.quickTimer = null;
+  private clearAutoHandles(): void {
+    this.autoGeneration += 1;
+    if (this.autoTimer !== null) {
+      clearTimeout(this.autoTimer);
+      this.autoTimer = null;
+    }
+    if (this.autoRaf !== null) {
+      cancelAnimationFrame(this.autoRaf);
+      this.autoRaf = null;
+    }
   }
 
   private renderStats(): void {
     this.el.stats.textContent = this.m.stats(this.stats);
   }
 
-  private log(text: string | null, kind: LogKind = 'info'): void {
+  private setLog(descriptor: LogDescriptor): void {
+    this.lastLog = descriptor;
+    this.renderLog();
+  }
+
+  private renderLog(): void {
+    const d = this.lastLog;
+    let text: string | null = null;
+    let kind: LogKind = 'info';
+
+    switch (d.type) {
+      case 'none':
+        text = null;
+        break;
+      case 'ready':
+        text = this.m.log.ready;
+        kind = 'info';
+        break;
+      case 'restoredDraft':
+        text = this.m.log.restoredDraft;
+        kind = 'info';
+        break;
+      case 'finished':
+        text = this.m.log.finished;
+        kind = 'info';
+        break;
+      case 'sourceAltered':
+        text = this.m.log.warningSourceAltered;
+        kind = 'warning';
+        break;
+      case 'misplaced':
+        text = this.m.log.warningMisposition;
+        kind = 'warning';
+        break;
+      case 'convertedToTu4':
+        text = this.m.log.convertedToTu4;
+        kind = 'info';
+        break;
+      case 'copied':
+        text = this.m.log.copied;
+        kind = 'info';
+        break;
+      case 'tooManyStates':
+        text = this.m.error.tooManyStates;
+        kind = 'error';
+        break;
+      case 'parseError':
+        text = this.m.error.parseError(d.text);
+        kind = 'error';
+        break;
+      case 'programIsEmpty':
+        text = this.m.error.programIsEmpty;
+        kind = 'error';
+        break;
+      case 'ambiguousCommand':
+        text = this.m.error.ambiguousCommand(d.q, d.a);
+        kind = 'error';
+        break;
+      case 'targetStateDoesNotExist':
+        text = this.m.error.targetStateDoesNotExist(d.w);
+        kind = 'error';
+        break;
+      case 'initialStateDoesNotExist':
+        text = this.m.error.initialStateDoesNotExist(d.q);
+        kind = 'error';
+        break;
+      case 'headIsOutOfTape':
+        text = this.m.error.headIsOutOfTape;
+        kind = 'error';
+        break;
+      case 'noSuchCommand':
+        text = this.m.error.noSuchCommand(d.q, d.a);
+        kind = 'error';
+        break;
+    }
+
     this.el.log.textContent = text ?? '';
     this.el.log.dataset.kind = text === null ? '' : kind;
   }

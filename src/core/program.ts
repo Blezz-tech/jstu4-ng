@@ -42,6 +42,7 @@ export function createProgram(
   const q0 = initialState ?? first.q;
 
   const transitions = new Map<string, Command>();
+  const definedStates = new Set<string>();
   for (const command of commands) {
     const key = transitionKey(command.q, command.a);
     const original = transitions.get(key);
@@ -49,16 +50,17 @@ export function createProgram(
       throw new AmbiguousCommandError({ command, original });
     }
     transitions.set(key, command);
+    definedStates.add(stateKey(command.q));
   }
 
-  const q0Exists = commands.some((command) => stateKey(command.q) === stateKey(q0));
-  if (!q0Exists) throw new NonexistentInitialStateError({ state: q0 });
+  if (!definedStates.has(stateKey(q0))) {
+    throw new NonexistentInitialStateError({ state: q0 });
+  }
 
   for (const command of commands) {
-    const targetExists = commands.some(
-      (candidate) => stateKey(candidate.q) === stateKey(command.w),
-    );
-    if (!targetExists) throw new NonexistentTargetStateError({ command });
+    if (!definedStates.has(stateKey(command.w))) {
+      throw new NonexistentTargetStateError({ command });
+    }
   }
 
   return { initialState: q0, commands: Object.freeze([...commands]), transitions };

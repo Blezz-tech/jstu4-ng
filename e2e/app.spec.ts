@@ -39,23 +39,75 @@ test('runs the swap example step by step', async ({ page }) => {
 
   await expect(page.locator('#display-tape')).toContainText('1001');
   await expect(page.locator('#stats')).toContainText('15');
-  // The help example overwrites the leading space of the tape with a space,
+  // The help example overwrites 0110 with 1001 in place ("ненормированная замена"),
   // so v2.3-compatible normality checking reports "source altered".
   await expect(page.locator('#log')).toContainText('Внимание');
 });
 
-test('quick run finishes the program by itself', async ({ page }) => {
+test('auto-run (Запуск/Стоп) finishes the program and supports pausing + speed slider', async ({
+  page,
+}) => {
   await page.goto('/');
   // Overwrite the first '1' with '0', then stop right after the result.
   await page.locator('#input-program').fill('0, ,<,a  a,1,0,a  a,0,>,b  b,0,>,b  b,1,>,b  b, ,#,b');
   await page.locator('#input-tape').fill('111');
   await page.locator('#btn-start').click();
-  await page.locator('#btn-quick').click();
+
+  // Default speed is 1× (range 0.5× to 10×), button says "Запуск".
+  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
+  await expect(page.locator('#speed-value')).toHaveText('1×');
+  await expect(page.locator('#input-speed')).toHaveAttribute('min', '0.5');
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '10');
+
+  // Raise speed to 10× via the slider.
+  await page.locator('#input-speed').fill('10');
+  await expect(page.locator('#speed-value')).toHaveText('10×');
+
+  await page.locator('#btn-run-toggle').click();
   // The overwritten source cell triggers the v2.3-compatible warning, and the
   // run really stops (the log is only written when the machine halts).
   await expect(page.locator('#log')).toContainText('Внимание', { timeout: 5_000 });
+  await expect(page.locator('#btn-run-toggle')).toBeDisabled();
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
   await expect(page.locator('#display-tape')).toContainText('110');
   await expect(page.locator('#stats')).toContainText('Выполнено операций');
+});
+
+test('Запуск turns into Стоп to pause execution and max speed can be overridden in settings', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('#input-program').fill('0, ,>,0');
+  await page.locator('#input-tape').fill('');
+  await page.locator('#btn-start').click();
+
+  // Start auto-run: button switches from Запуск to Стоп.
+  await page.locator('#btn-run-toggle').click();
+  await expect(page.locator('#btn-run-toggle')).toContainText('Стоп');
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'true');
+
+  // Clicking Стоп pauses execution without leaving run mode.
+  await page.locator('#btn-run-toggle').click();
+  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#btn-step')).toBeEnabled();
+
+  // Change max speed in settings and verify the slider range & persistence.
+  await page.locator('#btn-settings').click();
+  await page.locator('#input-max-speed').fill('25');
+  await page.locator('#input-max-speed').press('Tab');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
+
+  await page.locator('#input-speed').fill('20');
+  await expect(page.locator('#speed-value')).toHaveText('20×');
+
+  await page.reload();
+  await page.locator('#input-program').fill('0, ,>,0');
+  await page.locator('#btn-start').click();
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
+  await expect(page.locator('#speed-value')).toHaveText('20×');
 });
 
 test('reports parse errors and highlights the offender', async ({ page }) => {
@@ -82,16 +134,18 @@ test('reports an empty program', async ({ page }) => {
   await expect(page.locator('#log')).toContainText('Программа пуста');
 });
 
-test('converts to TU4 and keeps the machine equivalent', async ({ page }) => {
+test('converts to TU4, preserves state 0 as 00, and keeps the notice visible', async ({ page }) => {
   await page.goto('/');
   await page.locator('#input-program').fill(SWAP);
   await page.locator('#btn-totu4').click();
-  // Conversion returns to edit mode; the notice about it does not survive
-  // the mode switch by design, so the converted text itself is asserted.
   await expect(page.locator('#input-program')).toHaveValue(/00, ,<,01/);
+  await expect(page.locator('#log')).toContainText('TU4');
 
-  const value = await page.locator('#input-program').inputValue();
-  expect(value).toContain('00, ,<,01');
+  // Even when state 0 is not on the first line, it stays 00.
+  await page.locator('#input-program').fill('fin, ,#,fin\n0, ,>,fin');
+  await page.locator('#btn-totu4').click();
+  await expect(page.locator('#input-program')).toHaveValue('01, ,#,01\n00, ,>,01');
+
   // The converted program still compiles and runs.
   await page.locator('#input-tape').fill(' 0110');
   await page.locator('#btn-start').click();
@@ -108,26 +162,84 @@ test('persists the draft across reloads', async ({ page }) => {
   await expect(page.locator('#input-tape')).toHaveValue('hello');
 });
 
-test('switches language and remembers it', async ({ page }) => {
+test('opens settings menu with the gear button and closes on Escape or outside click', async ({
+  page,
+}) => {
   await page.goto('/');
+  await expect(page.locator('#settings-menu')).toBeHidden();
+  await expect(page.locator('#btn-settings')).toHaveAttribute('aria-expanded', 'false');
+
+  await page.locator('#btn-settings').click();
+  await expect(page.locator('#settings-menu')).toBeVisible();
+  await expect(page.locator('#btn-settings')).toHaveAttribute('aria-expanded', 'true');
+
+  // Escape closes the settings menu and restores focus to the gear button.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#settings-menu')).toBeHidden();
+  await expect(page.locator('#btn-settings')).toBeFocused();
+
+  // Clicking outside closes the settings menu.
+  await page.locator('#btn-settings').click();
+  await expect(page.locator('#settings-menu')).toBeVisible();
+  await page.locator('#app-title').click();
+  await expect(page.locator('#settings-menu')).toBeHidden();
+});
+
+test('switches language with a button inside settings and persists to localStorage', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('#btn-settings').click();
+  await expect(page.locator('#btn-lang')).toContainText('Русский');
   await page.locator('#btn-lang').click();
+  await expect(page.locator('#btn-lang')).toContainText('English');
   await expect(page.locator('#btn-start')).toContainText('Start');
   await expect(page).toHaveTitle(/Turing machine/);
+
+  const stored = await page.evaluate(
+    () => JSON.parse(window.localStorage.getItem('jstu4:settings') ?? '{}') as { lang?: string },
+  );
+  expect(stored.lang).toBe('en');
+
   await page.reload();
   await expect(page.locator('#btn-start')).toContainText('Start');
 });
 
-test('the language switch keeps keyboard focus on the toggle', async ({ page }) => {
+test('the language switch keeps keyboard focus on the button', async ({ page }) => {
   await page.goto('/');
+  await page.locator('#btn-settings').click();
   await page.locator('#btn-lang').focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.locator('#btn-lang')).toBeFocused();
 });
 
-test('supports ?lang=en deep links', async ({ page }) => {
+test('supports ?lang=en deep links and keeps language switches across reload', async ({ page }) => {
   await page.goto('/?lang=en');
   await expect(page.locator('#btn-start')).toContainText('Start');
+  await page.locator('#btn-settings').click();
+  await page.locator('#btn-lang').click();
+  await expect(page.locator('#btn-start')).toContainText('Старт');
+  await page.reload();
+  await expect(page.locator('#btn-start')).toContainText('Старт');
+});
+
+test('closing #help removes the hash so reloading does not reopen help', async ({ page }) => {
+  await page.goto('/#help');
+  await expect(page.locator('#help-dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#help-dialog')).toBeHidden();
+  await page.reload();
+  await expect(page.locator('#help-dialog')).toBeHidden();
+});
+
+test('mobile toolbar status does not hog vertical height', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const statusBox = (await page.locator('.toolbar__status').boundingBox())!;
+  const programBox = (await page.locator('#input-program').boundingBox())!;
+  expect(statusBox.height).toBeLessThan(120);
+  expect(programBox.height).toBeGreaterThan(300);
 });
 
 test('respects the browser language on first visit', async ({ browser }) => {
@@ -138,19 +250,28 @@ test('respects the browser language on first visit', async ({ browser }) => {
   await context.close();
 });
 
-test('cycles the theme auto → light → dark → auto', async ({ page }) => {
+test('switches theme auto / light / dark in settings and persists to localStorage', async ({
+  page,
+}) => {
   await page.goto('/');
   const html = page.locator('html');
   const choice = () => html.getAttribute('data-theme-choice');
 
   expect(await choice()).toBe('auto');
-  await page.locator('#btn-theme').click();
+  await page.locator('#btn-settings').click();
+  await page.locator('#btn-theme-light').click();
   expect(await choice()).toBe('light');
   await expect(html).toHaveAttribute('data-theme', 'light');
-  await page.locator('#btn-theme').click();
+  await page.locator('#btn-theme-dark').click();
   expect(await choice()).toBe('dark');
   await expect(html).toHaveAttribute('data-theme', 'dark');
-  await page.locator('#btn-theme').click();
+
+  await page.reload();
+  expect(await choice()).toBe('dark');
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+
+  await page.locator('#btn-settings').click();
+  await page.locator('#btn-theme-auto').click();
   expect(await choice()).toBe('auto');
 });
 
@@ -196,7 +317,7 @@ test('copy puts the program on the clipboard', async ({ page, context }) => {
   expect(clipboard).toBe('0, ,#,0');
 });
 
-test('Step and Quick are disabled once the machine halts', async ({ page }) => {
+test('Step and Run/Stop are disabled once the machine halts', async ({ page }) => {
   await page.goto('/');
   await page.locator('#input-program').fill('0, ,#,0');
   await page.locator('#input-tape').fill('abc');
@@ -205,7 +326,7 @@ test('Step and Quick are disabled once the machine halts', async ({ page }) => {
   await expect(page.locator('#btn-step')).toBeEnabled();
   await page.locator('#btn-step').click();
   await expect(page.locator('#btn-step')).toBeDisabled();
-  await expect(page.locator('#btn-quick')).toBeDisabled();
+  await expect(page.locator('#btn-run-toggle')).toBeDisabled();
   await expect(page.locator('body')).toHaveAttribute('data-running', 'false');
 });
 
@@ -229,4 +350,82 @@ test('the program pane never overlaps the tape pane', async ({ page }) => {
     const label = (await page.locator('#label-program').boundingBox())!;
     expect(tape.y + tape.height).toBeLessThanOrEqual(label.y);
   }
+});
+
+test('starting with Enter in the tape field hides #input-tape so run hotkeys work', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('#input-program').fill('0, ,#,0');
+  await page.locator('#input-tape').fill('101');
+  await page.locator('#input-tape').press('Enter');
+
+  await expect(page.locator('#input-tape')).toBeHidden();
+  await expect(page.locator('#display-tape')).toBeVisible();
+  await page.keyboard.press('Space');
+  await expect(page.locator('#log')).toContainText('завершила работу');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#input-tape')).toBeVisible();
+});
+
+test('error mode keeps #input-tape visible, hides #display-tape, and Escape exits after Enter in tape', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('#input-program').fill('???');
+  await page.locator('#input-tape').fill('101');
+  await page.locator('#input-tape').press('Enter');
+
+  await expect(page.locator('#input-tape')).toBeVisible();
+  await expect(page.locator('#display-tape')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#input-program')).toBeVisible();
+  await expect(page.locator('#input-program')).toBeFocused();
+});
+
+test('switching language preserves edited program and active run', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#input-program').fill('0, ,>,1\n1, ,#,1');
+  await page.locator('#input-tape').fill('101');
+  await page.locator('#btn-settings').click();
+  await page.locator('#btn-lang').click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#input-program')).toHaveValue('0, ,>,1\n1, ,#,1');
+
+  await page.locator('#btn-start').click();
+  await page.locator('#btn-step').click();
+  await page.locator('#btn-settings').click();
+  await page.locator('#btn-lang').click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#btn-step')).toBeVisible();
+  await expect(page.locator('#stats')).toContainText('Выполнено операций: 1');
+});
+
+test('help dialog is centered in the viewport and sound switch persists', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/');
+  await page.locator('#btn-settings').click();
+  await expect(page.locator('#btn-sound')).toHaveAttribute('aria-checked', 'false');
+  await page.locator('#btn-sound').click();
+  await expect(page.locator('#btn-sound')).toHaveAttribute('aria-checked', 'true');
+  await page.reload();
+  await page.locator('#btn-settings').click();
+  await expect(page.locator('#btn-sound')).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+
+  await page.keyboard.press('F1');
+  const box = (await page.locator('#help-dialog').boundingBox())!;
+  expect(box.x).toBeGreaterThan(100);
+  expect(box.y).toBeGreaterThan(20);
+});
+
+test('unmark followed by step leaves only one current command', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#input-program').fill(SWAP);
+  await page.locator('#input-tape').fill(' 0110');
+  await page.locator('#btn-start').click();
+  await page.locator('#btn-step').click();
+  await page.locator('#btn-unmark').click();
+  await page.locator('#btn-step').click();
+  await expect(page.locator('.cmd.current')).toHaveCount(1);
 });

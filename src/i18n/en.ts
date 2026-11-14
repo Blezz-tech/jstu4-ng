@@ -34,39 +34,52 @@ export const en: Messages = {
 
   controls: {
     help: 'Help (F1)',
+    settings: 'Settings',
     start: 'Start',
     step: 'Step',
-    quick: 'Quick',
-    slow: 'Slower',
+    run: 'Run',
+    stop: 'Stop',
+    speed: 'Speed',
     backToEdit: 'Back to edit',
     toTu4: 'To TU4',
     unmark: 'Unmark',
     copy: 'Copy',
-    theme: 'Toggle theme',
+    theme: 'Theme',
+    sound: 'Step sound',
     language: 'Switch language',
+    close: 'Close',
+  },
+
+  settings: {
+    title: 'Settings',
+    language: 'Language',
+    languageName: 'English',
+    theme: 'Theme',
+    themeAuto: 'Auto',
+    themeLight: 'Light',
+    themeDark: 'Dark',
+    sound: 'Step sound',
+    maxSpeed: 'Max speed',
+    on: 'On',
+    off: 'Off',
   },
 
   hints: {
     start: 'Parse the program and run it (Ctrl+Enter)',
-    step: 'Perform the next step (Space)',
-    quick: 'Quick run; press again to speed up (Enter)',
-    slow: 'Slow the quick run down',
+    step: 'Perform the next step, pausing auto-run if active (Space)',
+    run: 'Start automatic execution (Enter)',
+    stop: 'Pause automatic execution (Enter or Esc)',
+    speed: 'Execution speed (from 0.5× to the maximum set in settings)',
     backToEdit: 'Stop the machine and return to editing (Esc)',
-    toTu4: 'Replace state names with hexadecimal numbers 00–FF',
+    toTu4: 'Replace state names with TU4 numbers (00–98 decimal, or 00–ff hex)',
     unmark: 'Clear the marks from executed commands',
     copy: 'Copy the program to the clipboard',
     editProgram: 'Program: q,a,v,q′. Ctrl+Enter — run',
     editTape: 'Tape: source data. Enter — run',
   },
 
-  shortcuts: {
-    run: 'Ctrl+Enter — run the program',
-    quickToggle: 'Enter or Ctrl+Enter — toggle quick run',
-    step: 'Space — perform one step',
-    backToEdit: 'Esc — return to editing',
-  },
-
   a11y: {
+    skipToProgram: 'Skip to program',
     tapeLabel: 'Source data on the tape',
     programLabel: 'Program text',
     programViewLabel: 'Executing program',
@@ -89,10 +102,12 @@ export const en: Messages = {
               'algorithms. The application is an interpreter for 4-tuple Turing machine programs.',
           },
           {
-            kind: 'p',
-            text:
-              '© Alexey Dubinin. The application is available on GitHub: github.com/lxyd/jstu4. ' +
-              'It is distributed under the terms of the MIT License.',
+            kind: 'rich',
+            parts: [
+              '© Alexey Dubinin. Original application on GitHub: ',
+              { label: 'github.com/lxyd/jstu4', href: 'https://github.com/lxyd/jstu4' },
+              '. Distributed under the terms of the MIT License.',
+            ],
           },
         ],
       },
@@ -142,16 +157,16 @@ export const en: Messages = {
             kind: 'list',
             items: [
               '“Start” — parse and run the program (Ctrl+Enter, or Enter in the tape field);',
-              '“Step” — perform the next step (Space);',
-              '“Quick” — automatic execution; press again to speed up (Enter);',
-              '“Back to edit” — stop the machine and return to editing (Esc);',
-              '“To TU4” — replace state names with hexadecimal numbers 00–FF.',
+              '“Step” — perform the next step, pausing auto-run if active (Space);',
+              '“Run” / “Stop” — start or pause automatic execution (Enter); adjust speed with the slider (from 0.5× up to the maximum set in settings);',
+              '“Back to edit” — stop the machine and return to editing (Esc pauses auto-run first);',
+              '“To TU4” — replace state names with numbers 00–98 (or hexadecimal 00–ff for 100–256 states).',
             ],
           },
         ],
       },
       {
-        title: 'Example: swap 0 and 1',
+        title: 'Example: swap 0 and 1 in place',
         blocks: [
           {
             kind: 'code',

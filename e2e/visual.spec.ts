@@ -13,10 +13,18 @@ const SWAP = [
 ].join('\n');
 
 test.describe('screenshots', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      if (!window.sessionStorage.getItem('shots-cleared')) {
+        window.localStorage.clear();
+        window.sessionStorage.setItem('shots-cleared', '1');
+      }
+    });
+  });
+
   for (const theme of ['light', 'dark'] as const) {
     for (const lang of ['ru', 'en'] as const) {
       test(`edit mode, ${theme}, ${lang}`, async ({ page }) => {
-        await page.addInitScript(() => window.localStorage.clear());
         await page.goto(`/?lang=${lang}`);
         await page.evaluate((value) => {
           localStorage.setItem('jstu4:program', value);
@@ -30,7 +38,6 @@ test.describe('screenshots', () => {
   }
 
   test('run mode with visited marks', async ({ page }) => {
-    await page.addInitScript(() => window.localStorage.clear());
     await page.goto('/');
     await page.locator('#input-program').fill(SWAP);
     await page.locator('#input-tape').fill(' 0110');
@@ -40,7 +47,6 @@ test.describe('screenshots', () => {
   });
 
   test('error mode', async ({ page }) => {
-    await page.addInitScript(() => window.localStorage.clear());
     await page.goto('/');
     await page.locator('#input-program').fill('0,1,>,1\n0,1,<,1');
     await page.locator('#btn-start').click();
@@ -48,15 +54,20 @@ test.describe('screenshots', () => {
   });
 
   test('help dialog', async ({ page }) => {
-    await page.addInitScript(() => window.localStorage.clear());
     await page.goto('/');
     await page.keyboard.press('F1');
     await page.waitForTimeout(150);
     await page.screenshot({ path: 'screenshots/help.png' });
   });
 
+  test('settings menu', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#btn-settings').click();
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: 'screenshots/settings.png' });
+  });
+
   test('mobile', async ({ page }) => {
-    await page.addInitScript(() => window.localStorage.clear());
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
     await page.screenshot({ path: 'screenshots/mobile.png' });

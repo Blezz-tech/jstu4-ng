@@ -10,7 +10,9 @@ export const DEFAULT_LANG: Lang = 'ru';
  * "open box" glyph (U+2423).
  */
 export function formatSymbol(symbol: string): string {
-  return symbol === ' ' ? '\u2423' : symbol;
+  if (symbol === ' ') return '\u2423';
+  if (symbol === '\t') return '\\t';
+  return symbol;
 }
 
 export interface Messages {
@@ -50,23 +52,42 @@ export interface Messages {
 
   readonly controls: {
     readonly help: string;
+    readonly settings: string;
     readonly start: string;
     readonly step: string;
-    readonly quick: string;
-    readonly slow: string;
+    readonly run: string;
+    readonly stop: string;
+    readonly speed: string;
     readonly backToEdit: string;
     readonly toTu4: string;
     readonly unmark: string;
     readonly copy: string;
     readonly theme: string;
+    readonly sound: string;
     readonly language: string;
+    readonly close: string;
+  };
+
+  readonly settings: {
+    readonly title: string;
+    readonly language: string;
+    readonly languageName: string;
+    readonly theme: string;
+    readonly themeAuto: string;
+    readonly themeLight: string;
+    readonly themeDark: string;
+    readonly sound: string;
+    readonly maxSpeed: string;
+    readonly on: string;
+    readonly off: string;
   };
 
   readonly hints: {
     readonly start: string;
     readonly step: string;
-    readonly quick: string;
-    readonly slow: string;
+    readonly run: string;
+    readonly stop: string;
+    readonly speed: string;
     readonly backToEdit: string;
     readonly toTu4: string;
     readonly unmark: string;
@@ -75,14 +96,8 @@ export interface Messages {
     readonly editTape: string;
   };
 
-  readonly shortcuts: {
-    readonly run: string;
-    readonly quickToggle: string;
-    readonly step: string;
-    readonly backToEdit: string;
-  };
-
   readonly a11y: {
+    readonly skipToProgram: string;
     readonly tapeLabel: string;
     readonly programLabel: string;
     readonly programViewLabel: string;
@@ -99,8 +114,11 @@ export interface HelpSection {
   readonly blocks: readonly HelpBlock[];
 }
 
+export type HelpInline = string | { readonly label: string; readonly href: string };
+
 export type HelpBlock =
   | { readonly kind: 'p'; readonly text: string }
+  | { readonly kind: 'rich'; readonly parts: readonly HelpInline[] }
   | { readonly kind: 'list'; readonly items: readonly string[] }
   | { readonly kind: 'code'; readonly lines: readonly string[] };
 

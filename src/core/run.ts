@@ -21,7 +21,6 @@ export class MachineRun {
   private next: Command | undefined;
   private steps = 0;
   private readonly initialTapeText: string;
-  private cellsHighWaterMark: number;
 
   constructor(
     private readonly program: Program,
@@ -32,10 +31,12 @@ export class MachineRun {
     const normalised = tapeText.replace(/\s+$/, '');
     this.tape = Array.from(normalised);
     this.initialTapeText = normalised;
-    this.cellsHighWaterMark = this.tape.length;
     this.state = program.initialState;
     // The head starts *after* the last symbol, on an empty (space) cell.
     this.position = this.tape.length;
+    // Materialise the initial cell under the head so `tapeText` and `cellsUsed`
+    // stay monotonically non-shrinking when the head moves left (matches v2.3).
+    this.tape.push(' ');
     this.next = this.lookup();
   }
 
@@ -72,16 +73,14 @@ export class MachineRun {
     return this.initialTapeText;
   }
 
-  /** Current tape as a string; the cell under the head is always present. */
+  /** Current tape as a string; every cell visited by the head is kept. */
   get tapeText(): string {
-    const cells = [...this.tape];
-    while (cells.length <= this.position) cells.push(' ');
-    return cells.join('');
+    return this.tape.join('');
   }
 
   /** Highest number of cells the run has ever occupied. */
   get cellsUsed(): number {
-    return this.cellsHighWaterMark;
+    return this.tape.length;
   }
 
   /**
@@ -110,11 +109,11 @@ export class MachineRun {
         break;
       case 'right':
         this.position += 1;
+        while (this.tape.length <= this.position) this.tape.push(' ');
         break;
       case 'write':
         while (this.tape.length <= this.position) this.tape.push(' ');
         this.tape[this.position] = command.v;
-        this.cellsHighWaterMark = Math.max(this.cellsHighWaterMark, this.tape.length);
         break;
       case 'stay':
         break;
@@ -124,8 +123,9 @@ export class MachineRun {
 
     this.steps += 1;
 
-    if (command.kind === 'halt') {
+    if (command.isHalt) {
       this.running = false;
+      this.next = undefined;
     } else {
       this.state = command.w;
       this.next = this.lookup();
@@ -136,15 +136,20 @@ export class MachineRun {
 
   /**
    * Why the finished run deviates from the "normal" convention, if it does.
-   * A normal run keeps the source data intact and stops right after the
-   * result; the original UI reported both deviations as warnings.
+   * A normal run keeps the source data intact (including the blank separator
+   * cell after it, where the head starts) and stops right after the result;
+   * matches original jstu4 v2.3 exactly.
    */
   checkNormality(): 'normal' | 'sourceAltered' | 'misplaced' {
-    const source = this.initialTapeText.replace(/\s+$/, '');
-    const current = this.tapeText.replace(/\s+$/, '');
+    // Original v2.3's `initialTape()` is `initialTapeText + ' '` (length + 1),
+    // so overwriting that separating blank cell (appending output with no
+    // space) is also flagged as altering the source data.
+    const sourceWithSeparatorLength = this.initialTapeText.length + 1;
+    const current = this.tapeText;
+    const sourcePrefix = current.slice(0, sourceWithSeparatorLength).replace(/\s+$/, '');
 
-    if (current.slice(0, source.length) !== source) return 'sourceAltered';
-    if (current.length !== this.position) return 'misplaced';
+    if (sourcePrefix !== this.initialTapeText) return 'sourceAltered';
+    if (current.replace(/\s+$/, '').length !== this.position) return 'misplaced';
     return 'normal';
   }
 }
