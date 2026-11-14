@@ -1,112 +1,19 @@
-/** Languages shipped with the app. */
-export const LANGS = ['ru', 'en'] as const;
-export type Lang = (typeof LANGS)[number];
+import type ruCatalog from './locales/ru.json';
 
+/** Supported locale metadata registry (BCP-47 tag, writing direction, native name). */
+export const LOCALES = {
+  ru: { bcp47: 'ru-RU', dir: 'ltr', nativeName: 'Русский' },
+  en: { bcp47: 'en-US', dir: 'ltr', nativeName: 'English' },
+} as const;
+
+export type Lang = keyof typeof LOCALES;
+export const LANGS = Object.keys(LOCALES) as readonly Lang[];
 export const DEFAULT_LANG: Lang = 'ru';
 
-/**
- * Render a tape symbol for humans. The space is a real symbol in TM
- * programs but is invisible in a message, so it is shown as the
- * "open box" glyph (U+2423).
- */
-export function formatSymbol(symbol: string): string {
-  if (symbol === ' ') return '\u2423';
-  if (symbol === '\t') return '\\t';
-  return symbol;
-}
-
-export interface Messages {
-  readonly appTitle: string;
-  readonly program: string;
-  readonly tape: string;
-
-  /** Log / status messages. */
-  readonly log: {
-    readonly ready: string;
-    readonly finished: string;
-    readonly warningSourceAltered: string;
-    readonly warningMisposition: string;
-    readonly convertedToTu4: string;
-    readonly copied: string;
-    readonly restoredDraft: string;
-  };
-
-  /** Error messages for compile and runtime errors. */
-  readonly error: {
-    readonly parseError: (text: string) => string;
-    readonly programIsEmpty: string;
-    readonly ambiguousCommand: (q: string, a: string) => string;
-    readonly targetStateDoesNotExist: (w: string) => string;
-    readonly initialStateDoesNotExist: (q: string) => string;
-    readonly headIsOutOfTape: string;
-    readonly noSuchCommand: (q: string, a: string) => string;
-    readonly tooManyStates: string;
-  };
-
-  readonly stats: (values: {
-    readonly commandsCount: number;
-    readonly initialDataLength: number;
-    readonly maxDataLength: number;
-    readonly operationsCount: number;
-  }) => string;
-
-  readonly controls: {
-    readonly help: string;
-    readonly settings: string;
-    readonly start: string;
-    readonly step: string;
-    readonly run: string;
-    readonly stop: string;
-    readonly speed: string;
-    readonly backToEdit: string;
-    readonly toTu4: string;
-    readonly unmark: string;
-    readonly copy: string;
-    readonly theme: string;
-    readonly sound: string;
-    readonly language: string;
-    readonly close: string;
-  };
-
-  readonly settings: {
-    readonly title: string;
-    readonly language: string;
-    readonly languageName: string;
-    readonly theme: string;
-    readonly themeAuto: string;
-    readonly themeLight: string;
-    readonly themeDark: string;
-    readonly sound: string;
-    readonly maxSpeed: string;
-    readonly on: string;
-    readonly off: string;
-  };
-
-  readonly hints: {
-    readonly start: string;
-    readonly step: string;
-    readonly run: string;
-    readonly stop: string;
-    readonly speed: string;
-    readonly backToEdit: string;
-    readonly toTu4: string;
-    readonly unmark: string;
-    readonly copy: string;
-    readonly editProgram: string;
-    readonly editTape: string;
-  };
-
-  readonly a11y: {
-    readonly skipToProgram: string;
-    readonly tapeLabel: string;
-    readonly programLabel: string;
-    readonly programViewLabel: string;
-    readonly tapeViewLabel: string;
-    readonly logLabel: string;
-    readonly currentCell: string;
-  };
-
-  readonly help: HelpContent;
+export interface LocaleMeta {
+  readonly bcp47: string;
+  readonly dir: 'ltr' | 'rtl';
+  readonly nativeName: string;
 }
 
 export interface HelpSection {
@@ -127,3 +34,40 @@ export interface HelpContent {
   readonly back: string;
   readonly sections: readonly HelpSection[];
 }
+
+/** Shape of a declarative JSON message catalog (`src/i18n/locales/*.json`). */
+export type MessageCatalog = Omit<typeof ruCatalog, 'help'> & {
+  readonly help: HelpContent;
+};
+
+type StringLeafKeys<T, Prefix extends string = ''> = {
+  [K in keyof T & string]: T[K] extends string
+    ? `${Prefix}${K}`
+    : T[K] extends readonly unknown[]
+      ? never
+      : T[K] extends Record<string, unknown>
+        ? StringLeafKeys<T[K], `${Prefix}${K}.`>
+        : never;
+}[keyof T & string];
+
+/** Every valid dot-separated translation key in the JSON message catalogs. */
+export type MessageKey = StringLeafKeys<Omit<MessageCatalog, 'help'>>;
+
+/** Compile-time required parameter map for every parameterized message key. */
+export interface MessageParamsMap {
+  readonly 'error.parseError': { readonly text: string };
+  readonly 'error.ambiguousCommand': { readonly q: string; readonly a: string };
+  readonly 'error.targetStateDoesNotExist': { readonly w: string };
+  readonly 'error.initialStateDoesNotExist': { readonly q: string };
+  readonly 'error.noSuchCommand': { readonly q: string; readonly a: string };
+  readonly 'stats.summary': {
+    readonly commandsCount: number;
+    readonly initialDataLength: number;
+    readonly maxDataLength: number;
+    readonly operationsCount: number;
+  };
+  readonly 'settings.languageAria': { readonly language: string };
+}
+
+export type ParameterizedMessageKey = keyof MessageParamsMap;
+export type PlainMessageKey = Exclude<MessageKey, ParameterizedMessageKey>;

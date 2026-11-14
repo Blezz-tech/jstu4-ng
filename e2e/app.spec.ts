@@ -44,7 +44,7 @@ test('runs the swap example step by step', async ({ page }) => {
   await expect(page.locator('#log')).toContainText('Внимание');
 });
 
-test('auto-run (Запуск/Стоп) finishes the program and supports pausing + speed slider', async ({
+test('auto-run (Запуск/Стоп) finishes, supports reverse speed & restart from end', async ({
   page,
 }) => {
   await page.goto('/');
@@ -53,11 +53,13 @@ test('auto-run (Запуск/Стоп) finishes the program and supports pausing
   await page.locator('#input-tape').fill('111');
   await page.locator('#btn-start').click();
 
-  // Default speed is 1× (range 0.5× to 10×), button says "Запуск".
-  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
+  // Default speed is 1× (range -15× to 25×), media button is in Play state.
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('data-state', 'play');
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-label', 'Запуск');
   await expect(page.locator('#speed-value')).toHaveText('1×');
-  await expect(page.locator('#input-speed')).toHaveAttribute('min', '0.5');
-  await expect(page.locator('#input-speed')).toHaveAttribute('max', '10');
+  await expect(page.locator('#input-speed')).toHaveAttribute('min', '-15');
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
+  await expect(page.locator('#btn-step-back')).toBeDisabled();
 
   // Raise speed to 10× via the slider.
   await page.locator('#input-speed').fill('10');
@@ -68,13 +70,22 @@ test('auto-run (Запуск/Стоп) finishes the program and supports pausing
   // run really stops (the log is only written when the machine halts).
   await expect(page.locator('#log')).toContainText('Внимание', { timeout: 5_000 });
   await expect(page.locator('#btn-run-toggle')).toBeDisabled();
-  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
+  await expect(page.locator('#btn-step-back')).toBeEnabled();
+  await expect(page.locator('#btn-restart')).toBeEnabled();
   await expect(page.locator('#display-tape')).toContainText('110');
-  await expect(page.locator('#stats')).toContainText('Выполнено операций');
+
+  // Switch slider to negative speed and run in reverse back to step 0 (yellow highlight)!
+  await page.locator('#input-speed').fill('-15');
+  await expect(page.locator('#speed-value')).toHaveText('-15×');
+  await expect(page.locator('#btn-run-toggle')).toBeEnabled();
+  await page.locator('#btn-run-toggle').click();
+  await expect(page.locator('#display-program')).toHaveAttribute('data-step-dir', 'reverse');
+  await expect(page.locator('#log')).toContainText('начального состояния', { timeout: 5_000 });
+  await expect(page.locator('#display-tape')).toContainText('111');
+  await expect(page.locator('#btn-step-back')).toBeDisabled();
 });
 
-test('Запуск turns into Стоп to pause execution and max speed can be overridden in settings', async ({
+test('Play/Stop icon toggle, zero stop, and configurable min/max speed bounds in settings', async ({
   page,
 }) => {
   await page.goto('/');
@@ -82,32 +93,39 @@ test('Запуск turns into Стоп to pause execution and max speed can be o
   await page.locator('#input-tape').fill('');
   await page.locator('#btn-start').click();
 
-  // Start auto-run: button switches from Запуск to Стоп.
+  // Start auto-run: button switches from Play (▶) to Stop (■) without changing width.
+  const beforeBox = (await page.locator('#btn-run-toggle').boundingBox())!;
   await page.locator('#btn-run-toggle').click();
-  await expect(page.locator('#btn-run-toggle')).toContainText('Стоп');
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('data-state', 'stop');
   await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'true');
+  const afterBox = (await page.locator('#btn-run-toggle').boundingBox())!;
+  expect(afterBox.width).toBeCloseTo(beforeBox.width, 1);
 
-  // Clicking Стоп pauses execution without leaving run mode.
-  await page.locator('#btn-run-toggle').click();
-  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
-  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'false');
+  // Moving slider to 0 stops execution immediately.
+  await page.locator('#input-speed').fill('0');
+  await expect(page.locator('#speed-value')).toHaveText('0×');
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('data-state', 'play');
+  await expect(page.locator('#btn-run-toggle')).toBeDisabled();
   await expect(page.locator('#btn-step')).toBeEnabled();
 
-  // Change max speed in settings and verify the slider range & persistence.
+  // Change min & max speed in settings and verify the slider range & persistence.
   await page.locator('#btn-settings').click();
-  await page.locator('#input-max-speed').fill('25');
+  await page.locator('#input-min-speed').fill('-30');
+  await page.locator('#input-max-speed').fill('50');
   await page.locator('#input-max-speed').press('Tab');
   await page.keyboard.press('Escape');
-  await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
+  await expect(page.locator('#input-speed')).toHaveAttribute('min', '-30');
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '50');
 
-  await page.locator('#input-speed').fill('20');
-  await expect(page.locator('#speed-value')).toHaveText('20×');
+  await page.locator('#input-speed').fill('-20');
+  await expect(page.locator('#speed-value')).toHaveText('-20×');
 
   await page.reload();
   await page.locator('#input-program').fill('0, ,>,0');
   await page.locator('#btn-start').click();
-  await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
-  await expect(page.locator('#speed-value')).toHaveText('20×');
+  await expect(page.locator('#input-speed')).toHaveAttribute('min', '-30');
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '50');
+  await expect(page.locator('#speed-value')).toHaveText('-20×');
 });
 
 test('reports parse errors and highlights the offender', async ({ page }) => {
@@ -134,19 +152,40 @@ test('reports an empty program', async ({ page }) => {
   await expect(page.locator('#log')).toContainText('Программа пуста');
 });
 
-test('converts to TU4, preserves state 0 as 00, and keeps the notice visible', async ({ page }) => {
+test('opens TU4 popup without modifying source program, preserves state 0 as 00, and copies TU4 code', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/');
   await page.locator('#input-program').fill(SWAP);
   await page.locator('#btn-totu4').click();
-  await expect(page.locator('#input-program')).toHaveValue(/00, ,<,01/);
+
+  // Original editor source stays untouched while popup shows the TU4 output.
+  await expect(page.locator('#input-program')).toHaveValue(SWAP);
+  await expect(page.locator('#tu4-dialog')).toBeVisible();
+  await expect(page.locator('#tu4-output')).toHaveValue(/00, ,<,01/);
   await expect(page.locator('#log')).toContainText('TU4');
 
-  // Even when state 0 is not on the first line, it stays 00.
-  await page.locator('#input-program').fill('fin, ,#,fin\n0, ,>,fin');
-  await page.locator('#btn-totu4').click();
-  await expect(page.locator('#input-program')).toHaveValue('01, ,#,01\n00, ,>,01');
+  // Copy button inside the popup copies the TU4 text.
+  await page.locator('#btn-tu4-copy').click();
+  await expect(page.locator('#tu4-status')).toContainText('TU4');
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toMatch(/00, ,<,01/);
 
-  // The converted program still compiles and runs.
+  await page.locator('#btn-tu4-done').click();
+  await expect(page.locator('#tu4-dialog')).toBeHidden();
+
+  // Even when state 0 is not on the first line, it stays 00 and source remains untouched.
+  const source = 'fin, ,#,fin\n0, ,>,fin';
+  await page.locator('#input-program').fill(source);
+  await page.locator('#btn-totu4').click();
+  await expect(page.locator('#input-program')).toHaveValue(source);
+  await expect(page.locator('#tu4-output')).toHaveValue('01, ,#,01\n00, ,>,01');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#tu4-dialog')).toBeHidden();
+
+  // The untouched source program still compiles and runs.
   await page.locator('#input-tape').fill(' 0110');
   await page.locator('#btn-start').click();
   await expect(page.locator('#display-tape')).toBeVisible();
@@ -233,13 +272,28 @@ test('closing #help removes the hash so reloading does not reopen help', async (
   await expect(page.locator('#help-dialog')).toBeHidden();
 });
 
-test('mobile toolbar status does not hog vertical height', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+test('collapsible right-hand side panel holds #log, #stats, #hint and prevents hover layout shift', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/');
-  const statusBox = (await page.locator('.toolbar__status').boundingBox())!;
-  const programBox = (await page.locator('#input-program').boundingBox())!;
-  expect(statusBox.height).toBeLessThan(120);
-  expect(programBox.height).toBeGreaterThan(300);
+
+  const appBox = (await page.locator('.app').boundingBox())!;
+  const panelBox = (await page.locator('#sidepanel').boundingBox())!;
+  expect(panelBox.x).toBeGreaterThanOrEqual(appBox.x + appBox.width - 1);
+
+  // Hovering toolbar buttons updates #hint inside #sidepanel without moving the program pane.
+  const progBefore = (await page.locator('#input-program').boundingBox())!;
+  await page.locator('#btn-start').hover();
+  await expect(page.locator('#hint')).toContainText('Ctrl+Enter');
+  const progAfter = (await page.locator('#input-program').boundingBox())!;
+  expect(progAfter.height).toBeCloseTo(progBefore.height, 1);
+
+  // Collapsing the side panel hides it and expands the workspace.
+  await page.locator('#btn-sidepanel').click();
+  await expect(page.locator('#sidepanel')).toBeHidden();
+  await page.locator('#btn-sidepanel').click();
+  await expect(page.locator('#sidepanel')).toBeVisible();
 });
 
 test('respects the browser language on first visit', async ({ browser }) => {

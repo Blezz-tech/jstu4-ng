@@ -155,4 +155,87 @@ describe('MachineRun', () => {
     run.step();
     expect(run.stepsCount).toBe(1);
   });
+
+  it('reverses every step losslessly with stepBack() from halt all the way back to step 0', () => {
+    const run = start('0, ,>,1  1, ,0,2  2,0,>,3  3, ,1,4  4,1,<,5  5,0,=,6  6,0,#,6', 'ab');
+
+    type Snapshot = {
+      readonly tapeText: string;
+      readonly headPosition: number;
+      readonly currentState: string | number;
+      readonly cellsUsed: number;
+      readonly stepsCount: number;
+      readonly isRunning: boolean;
+      readonly nextOffset: number | undefined;
+    };
+
+    const snap = (): Snapshot => ({
+      tapeText: run.tapeText,
+      headPosition: run.headPosition,
+      currentState: run.currentState,
+      cellsUsed: run.cellsUsed,
+      stepsCount: run.stepsCount,
+      isRunning: run.isRunning,
+      nextOffset: run.nextCommand?.source.offset,
+    });
+
+    const snapshots: Snapshot[] = [snap()];
+    while (run.isRunning) {
+      run.step();
+      snapshots.push(snap());
+    }
+
+    expect(run.isRunning).toBe(false);
+    expect(run.canStepBack).toBe(true);
+    expect(run.stepsCount).toBe(snapshots.length - 1);
+
+    for (let i = snapshots.length - 2; i >= 0; i -= 1) {
+      expect(run.stepBack()).not.toBeNull();
+      expect(snap()).toEqual(snapshots[i]);
+    }
+
+    expect(run.isAtStart).toBe(true);
+    expect(run.canStepBack).toBe(false);
+    expect(run.stepBack()).toBeNull();
+  });
+
+  it('recovers cleanly via stepBack() after a runtime OutOfTapeError or NoSuchCommandError', () => {
+    const run = start('0, ,<,0  0,a,<,0', 'a');
+    run.step(); // pos 1 -> 0 (symbol 'a')
+    expect(() => run.step()).toThrow(OutOfTapeError);
+    expect(run.isRunning).toBe(false);
+    expect(run.stepsCount).toBe(1);
+    expect(run.canStepBack).toBe(true);
+
+    expect(run.stepBack()).not.toBeNull();
+    expect(run.isRunning).toBe(true);
+    expect(run.headPosition).toBe(1);
+    expect(run.stepsCount).toBe(0);
+
+    const run2 = start('0, ,>,1  1,a,#,1', 'x');
+    run2.step(); // state 0 -> 1, symbol ' ' has no transition
+    expect(() => run2.step()).toThrow(NoSuchCommandError);
+    expect(run2.isRunning).toBe(false);
+    expect(run2.stepBack()).not.toBeNull();
+    expect(run2.isRunning).toBe(true);
+    expect(run2.currentState).toBe(0);
+    expect(run2.stepsCount).toBe(0);
+  });
+
+  it('resets completely to initial state and tape with reset()', () => {
+    const run = start('0, ,>,1  1, ,X,2  2,X,#,2', 'hi');
+    while (run.isRunning) run.step();
+    expect(run.isRunning).toBe(false);
+    expect(run.stepsCount).toBe(3);
+
+    run.reset();
+    expect(run.isRunning).toBe(true);
+    expect(run.isAtStart).toBe(true);
+    expect(run.canStepBack).toBe(false);
+    expect(run.stepsCount).toBe(0);
+    expect(run.currentState).toBe(0);
+    expect(run.headPosition).toBe(2);
+    expect(run.tapeText).toBe('hi ');
+    expect(run.cellsUsed).toBe(3);
+  });
 });

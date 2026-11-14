@@ -1,19 +1,22 @@
 import './styles/main.css';
 
 import { TM_VERSION } from './core/version';
-import { detectLang, messages, type Lang, type Messages } from './i18n';
-import type { HelpContent } from './i18n/types';
+import { bindDomI18n, createI18n, detectLang, type HelpContent } from './i18n';
 import { StepSound } from './ui/audio';
-import { AppController, type UIMode } from './ui/controller';
+import { AppController, type LogKind, type RunControlState, type UIMode } from './ui/controller';
 import { debounce, el, mustFind } from './ui/dom';
 import {
   clampMaxSpeed,
+  clampMinSpeed,
   DEFAULT_MAX_SPEED,
+  DEFAULT_MIN_SPEED,
   formatSpeed,
   MAX_MAX_SPEED,
+  MAX_MIN_SPEED,
   MIN_MAX_SPEED,
-  MIN_SPEED,
+  MIN_MIN_SPEED,
   SPEED_STEP,
+  zeroRatio,
 } from './ui/speed';
 import {
   loadState,
@@ -24,16 +27,14 @@ import {
   type Theme,
 } from './ui/storage';
 
-/* ——— settings, language & theme ———————————————————————————————————— */
+/* ——— settings, i18n & theme ———————————————————————————————————————— */
 
 const html = document.documentElement;
 const saved = loadState();
 let settings: AppSettings = saved.settings;
 
-let lang: Lang = detectLang(
-  location.search,
-  settings.lang,
-  navigator.languages ?? [navigator.language],
+const i18n = createI18n(
+  detectLang(location.search, settings.lang, navigator.languages ?? [navigator.language]),
 );
 
 function updateSettings(patch: Partial<AppSettings>): void {
@@ -41,11 +42,19 @@ function updateSettings(patch: Partial<AppSettings>): void {
   saveSettings(settings);
 }
 
+function safeReplaceState(url: string): void {
+  try {
+    history.replaceState(null, '', url);
+  } catch {
+    /* browsers may restrict history.replaceState on file:// origins */
+  }
+}
+
 /* ——— DOM references —————————————————————————————————————————————— */
 
 const dom = {
+  appShell: mustFind(document, '#app-shell'),
   skipLink: mustFind<HTMLAnchorElement>(document, '.skip-link'),
-  title: mustFind(document, '#app-title'),
   version: mustFind(document, '#app-version'),
   programInput: mustFind<HTMLTextAreaElement>(document, '#input-program'),
   tapeInput: mustFind<HTMLInputElement>(document, '#input-tape'),
@@ -56,36 +65,47 @@ const dom = {
   stats: mustFind(document, '#stats'),
   controls: mustFind(document, '#controls'),
   hint: mustFind(document, '#hint'),
-  labelProgram: mustFind(document, '#label-program'),
-  labelTape: mustFind(document, '#label-tape'),
+  stepBackButton: mustFind<HTMLButtonElement>(document, '#btn-step-back'),
+  stepButton: mustFind<HTMLButtonElement>(document, '#btn-step'),
   runToggleButton: mustFind<HTMLButtonElement>(document, '#btn-run-toggle'),
+  restartButton: mustFind<HTMLButtonElement>(document, '#btn-restart'),
   speedControl: mustFind(document, '#speed-control'),
-  speedLabel: mustFind(document, '#label-speed'),
   speedInput: mustFind<HTMLInputElement>(document, '#input-speed'),
   speedValue: mustFind(document, '#speed-value'),
+  sidepanelButton: mustFind<HTMLButtonElement>(document, '#btn-sidepanel'),
+  sidepanelClose: mustFind<HTMLButtonElement>(document, '#btn-sidepanel-close'),
+  sidepanelBadge: mustFind(document, '#sidepanel-badge'),
+  sidepanel: mustFind(document, '#sidepanel'),
+  sidepanelBackdrop: mustFind(document, '#sidepanel-backdrop'),
   settingsAnchor: mustFind(document, '#settings-anchor'),
   settingsButton: mustFind<HTMLButtonElement>(document, '#btn-settings'),
   settingsMenu: mustFind(document, '#settings-menu'),
-  settingsTitle: mustFind(document, '#settings-title'),
   settingsClose: mustFind<HTMLButtonElement>(document, '#btn-settings-close'),
-  settingLangLabel: mustFind(document, '#label-setting-lang'),
   langButton: mustFind<HTMLButtonElement>(document, '#btn-lang'),
-  langLabel: mustFind(document, '#lang-label'),
-  settingThemeLabel: mustFind(document, '#label-setting-theme'),
   themeButtons: Array.from(
     document.querySelectorAll<HTMLButtonElement>('#theme-group [data-theme-option]'),
   ),
-  settingSoundLabel: mustFind(document, '#label-setting-sound'),
   soundButton: mustFind<HTMLButtonElement>(document, '#btn-sound'),
-  soundLabel: mustFind(document, '#sound-label'),
-  settingMaxSpeedLabel: mustFind(document, '#label-setting-max-speed'),
+  minSpeedInput: mustFind<HTMLInputElement>(document, '#input-min-speed'),
+  minSpeedDec: mustFind<HTMLButtonElement>(document, '#btn-min-speed-dec'),
+  minSpeedInc: mustFind<HTMLButtonElement>(document, '#btn-min-speed-inc'),
   maxSpeedInput: mustFind<HTMLInputElement>(document, '#input-max-speed'),
+  maxSpeedDec: mustFind<HTMLButtonElement>(document, '#btn-max-speed-dec'),
+  maxSpeedInc: mustFind<HTMLButtonElement>(document, '#btn-max-speed-inc'),
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
   helpBody: mustFind(document, '#help-body'),
   helpClose: mustFind<HTMLButtonElement>(document, '#btn-help-close'),
   helpBack: mustFind<HTMLButtonElement>(document, '#btn-help-back'),
+  tu4Dialog: mustFind<HTMLDialogElement>(document, '#tu4-dialog'),
+  tu4Output: mustFind<HTMLTextAreaElement>(document, '#tu4-output'),
+  tu4Status: mustFind(document, '#tu4-status'),
+  tu4Close: mustFind<HTMLButtonElement>(document, '#btn-tu4-close'),
+  tu4Copy: mustFind<HTMLButtonElement>(document, '#btn-tu4-copy'),
+  tu4Done: mustFind<HTMLButtonElement>(document, '#btn-tu4-done'),
 };
+
+dom.version.textContent = `v${TM_VERSION}`;
 
 function themeIsDark(): boolean {
   return (
@@ -109,16 +129,47 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
   if (settings.theme === 'auto') applyTheme();
 });
 
+/* ——— side panel (notifications, metrics, hover hints) ———————————— */
+
+const NARROW_VIEWPORT_PX = 900;
+
+function isNarrowViewport(): boolean {
+  return window.innerWidth < NARROW_VIEWPORT_PX;
+}
+
+let sidepanelOpen = settings.sidepanelOpen ?? !isNarrowViewport();
+let latestLogKind: LogKind | null = null;
+
+function syncSidepanelBadge(): void {
+  const showBadge = !sidepanelOpen && latestLogKind !== null;
+  dom.sidepanelBadge.dataset.kind = showBadge ? (latestLogKind ?? '') : '';
+}
+
+function applySidepanel(open: boolean, persist = false): void {
+  sidepanelOpen = open;
+  dom.appShell.dataset.sidepanel = open ? 'open' : 'closed';
+  dom.sidepanel.hidden = !open;
+  dom.sidepanelButton.setAttribute('aria-expanded', String(open));
+  dom.sidepanelBackdrop.hidden = !(open && isNarrowViewport());
+  syncSidepanelBadge();
+  if (persist) updateSettings({ sidepanelOpen: open });
+  requestAnimationFrame(syncProgramOverflow);
+}
+
+applySidepanel(sidepanelOpen, false);
+window.addEventListener('resize', () => {
+  dom.sidepanelBackdrop.hidden = !(sidepanelOpen && isNarrowViewport());
+});
+
 /* ——— sound —————————————————————————————————————————————————————— */
 
 const sound = new StepSound(settings.sound);
 
-/* ——— i18n bootstrap ————————————————————————————————————————————— */
+/* ——— dynamic UI sync ————————————————————————————————————————————— */
 
-let m: Messages = messages(lang);
 let activeHintTarget: HTMLElement | null = null;
 
-/** Keep the hint bar in sync with the hovered/focused visible control. */
+/** Keep the side-panel hint card in sync with the hovered/focused visible control. */
 function syncHint(): void {
   const isDisabled = activeHintTarget instanceof HTMLButtonElement && activeHintTarget.disabled;
   if (activeHintTarget === null || isDisabled || activeHintTarget.offsetParent === null) {
@@ -140,121 +191,47 @@ function syncSoundControl(): void {
   const onState = sound.isEnabled;
   dom.soundButton.setAttribute('aria-checked', String(onState));
   dom.soundButton.dataset.on = String(onState);
-  dom.soundLabel.textContent = onState ? m.settings.on : m.settings.off;
+}
+
+function syncLangAria(): void {
+  dom.langButton.setAttribute(
+    'aria-label',
+    i18n.t('settings.languageAria', { language: i18n.meta.nativeName }),
+  );
 }
 
 function syncSpeedControls(): void {
+  const minSpeed = controller.currentMinSpeed;
   const maxSpeed = controller.currentMaxSpeed;
   const speed = controller.currentSpeed;
   const formatted = formatSpeed(speed);
+  const direction = speed < 0 ? 'reverse' : speed === 0 ? 'stopped' : 'forward';
 
-  dom.speedInput.min = String(MIN_SPEED);
+  dom.speedControl.dataset.direction = direction;
+  dom.speedControl.style.setProperty('--zero-ratio', String(zeroRatio(minSpeed, maxSpeed)));
+
+  dom.speedInput.min = String(minSpeed);
   dom.speedInput.max = String(maxSpeed);
   dom.speedInput.step = String(SPEED_STEP);
   dom.speedInput.value = String(speed);
   dom.speedInput.setAttribute('aria-valuetext', formatted);
   dom.speedValue.textContent = formatted;
 
+  dom.minSpeedInput.min = String(MIN_MIN_SPEED);
+  dom.minSpeedInput.max = String(MAX_MIN_SPEED);
+  if (document.activeElement !== dom.minSpeedInput) {
+    dom.minSpeedInput.value = String(minSpeed);
+  }
+  setButtonDisabled(dom.minSpeedDec, minSpeed <= MIN_MIN_SPEED);
+  setButtonDisabled(dom.minSpeedInc, minSpeed >= MAX_MIN_SPEED);
+
   dom.maxSpeedInput.min = String(MIN_MAX_SPEED);
   dom.maxSpeedInput.max = String(MAX_MAX_SPEED);
   if (document.activeElement !== dom.maxSpeedInput) {
     dom.maxSpeedInput.value = String(maxSpeed);
   }
-}
-
-/** Apply all localized strings to the static markup. */
-function localize(): void {
-  html.lang = lang;
-  document.title = m.appTitle;
-  dom.title.textContent = m.appTitle;
-  dom.version.textContent = `v${TM_VERSION}`;
-  dom.skipLink.textContent = m.a11y.skipToProgram;
-
-  dom.labelTape.textContent = m.tape;
-  dom.labelProgram.textContent = m.program;
-  dom.tapeInput.placeholder = m.hints.editTape;
-  dom.programInput.placeholder = m.hints.editProgram;
-
-  dom.tapeInput.setAttribute('aria-label', m.a11y.tapeLabel);
-  dom.programInput.setAttribute('aria-label', m.a11y.programLabel);
-  dom.programView.setAttribute('aria-label', m.a11y.programViewLabel);
-  dom.tapeView.setAttribute('aria-label', m.a11y.tapeViewLabel);
-  dom.log.setAttribute('aria-label', m.a11y.logLabel);
-
-  const byId = (id: string): HTMLElement => mustFind(document, id);
-  const text = (id: string, value: string): void => {
-    byId(id).querySelector('.btn__text')!.textContent = value;
-  };
-  const title = (id: string, value: string): void => {
-    byId(id).setAttribute('title', value);
-  };
-  const hint = (id: string, value: string): void => {
-    byId(id).setAttribute('data-hint', value);
-  };
-
-  text('#btn-start', m.controls.start);
-  text('#btn-totu4', m.controls.toTu4);
-  text('#btn-copy', m.controls.copy);
-  text('#btn-step', m.controls.step);
-  text('#btn-run-toggle', m.controls.run);
-  text('#btn-unmark', m.controls.unmark);
-  text('#btn-edit', m.controls.backToEdit);
-  text('#btn-edit-err', m.controls.backToEdit);
-
-  title('#btn-start', m.hints.start);
-  title('#btn-totu4', m.hints.toTu4);
-  title('#btn-copy', m.hints.copy);
-  title('#btn-step', m.hints.step);
-  title('#btn-run-toggle', m.hints.run);
-  title('#btn-unmark', m.hints.unmark);
-  title('#btn-edit', m.hints.backToEdit);
-  title('#btn-edit-err', m.hints.backToEdit);
-  title('#btn-help', m.controls.help);
-
-  hint('#btn-start', m.hints.start);
-  hint('#btn-totu4', m.hints.toTu4);
-  hint('#btn-copy', m.hints.copy);
-  hint('#btn-step', m.hints.step);
-  hint('#btn-run-toggle', m.hints.run);
-  hint('#btn-unmark', m.hints.unmark);
-  hint('#btn-edit', m.hints.backToEdit);
-  hint('#btn-edit-err', m.hints.backToEdit);
-
-  dom.speedLabel.textContent = m.controls.speed;
-  dom.speedControl.setAttribute('title', m.hints.speed);
-  dom.speedControl.setAttribute('data-hint', m.hints.speed);
-  dom.speedInput.setAttribute('aria-label', m.controls.speed);
-
-  dom.settingsButton.setAttribute('title', m.controls.settings);
-  dom.settingsButton.setAttribute('aria-label', m.controls.settings);
-  dom.settingsTitle.textContent = m.settings.title;
-  dom.settingsClose.setAttribute('title', m.controls.close);
-  dom.settingsClose.setAttribute('aria-label', m.controls.close);
-
-  dom.settingLangLabel.textContent = m.settings.language;
-  dom.langLabel.textContent = m.settings.languageName;
-  dom.langButton.setAttribute('title', m.controls.language);
-  dom.langButton.setAttribute('aria-label', `${m.controls.language}: ${m.settings.languageName}`);
-
-  dom.settingThemeLabel.textContent = m.settings.theme;
-  byId('#btn-theme-auto').textContent = m.settings.themeAuto;
-  byId('#btn-theme-light').textContent = m.settings.themeLight;
-  byId('#btn-theme-dark').textContent = m.settings.themeDark;
-
-  dom.settingSoundLabel.textContent = m.settings.sound;
-  syncSoundControl();
-
-  dom.settingMaxSpeedLabel.textContent = m.settings.maxSpeed;
-  dom.maxSpeedInput.setAttribute('aria-label', m.settings.maxSpeed);
-
-  mustFind(document, '#btn-help').setAttribute('aria-label', m.controls.help);
-  dom.helpClose.setAttribute('aria-label', m.controls.close);
-  dom.helpClose.setAttribute('title', m.controls.close);
-
-  renderHelp(m.help);
-  syncRunToggleLabel();
-  syncSpeedControls();
-  syncHint();
+  setButtonDisabled(dom.maxSpeedDec, maxSpeed <= MIN_MAX_SPEED);
+  setButtonDisabled(dom.maxSpeedInc, maxSpeed >= MAX_MAX_SPEED);
 }
 
 /* ——— settings menu ——————————————————————————————————————————————— */
@@ -340,7 +317,61 @@ function closeHelp(): void {
   if (dom.helpDialog.open) dom.helpDialog.close();
 }
 
+/* ——— TU4 export dialog ——————————————————————————————————————————— */
+
+let tu4StatusTimer: number | null = null;
+
+function clearTu4Status(): void {
+  if (tu4StatusTimer !== null) {
+    window.clearTimeout(tu4StatusTimer);
+    tu4StatusTimer = null;
+  }
+  dom.tu4Status.textContent = '';
+}
+
+function openTu4Dialog(converted: string): void {
+  closeSettings(false);
+  closeHelp();
+  clearTu4Status();
+  dom.tu4Output.value = converted;
+  dom.tu4Output.scrollTop = 0;
+  if (!dom.tu4Dialog.open) dom.tu4Dialog.showModal();
+  dom.tu4Dialog.focus({ preventScroll: true });
+}
+
+function closeTu4Dialog(): void {
+  clearTu4Status();
+  if (dom.tu4Dialog.open) dom.tu4Dialog.close();
+}
+
+async function copyTu4Output(): Promise<void> {
+  const text = dom.tu4Output.value;
+  if (text === '') return;
+
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    dom.tu4Output.focus();
+    dom.tu4Output.select();
+    const copied = document.execCommand('copy');
+    dom.tu4Output.setSelectionRange(0, 0);
+    if (!copied) return;
+  }
+
+  clearTu4Status();
+  dom.tu4Status.textContent = i18n.t('tu4Dialog.copied');
+  tu4StatusTimer = window.setTimeout(() => {
+    tu4StatusTimer = null;
+    dom.tu4Status.textContent = '';
+  }, 2500);
+}
+
 /* ——— toolbar state ——————————————————————————————————————————————— */
+
+function setButtonDisabled(button: HTMLButtonElement, disabled: boolean): void {
+  button.disabled = disabled;
+  button.setAttribute('aria-disabled', String(disabled));
+}
 
 function applyMode(mode: UIMode): void {
   dom.controls.dataset.mode = mode;
@@ -352,27 +383,28 @@ function applyMode(mode: UIMode): void {
 }
 
 /**
- * Step and Run/Stop only make sense while the machine is running. Once it halts
- * (finishes or hits a runtime error) the buttons stay visible — the mode is
- * still "run" — but are disabled and dimmed instead of silently doing nothing.
+ * Keep every run-mode button enabled strictly when its action makes sense:
+ * - `←` (Step back): enabled whenever at least 1 step was performed (including after halt/error).
+ * - `→` (Step): enabled while the machine has not halted.
+ * - `▶` / `■` (Run / Stop): enabled while auto-running, or when stepping in the slider's direction is valid.
+ * - `Сначала` (Restart): enabled after at least 1 step or after halt/error.
  */
-function syncRunState(isRunning: boolean): void {
-  const step = mustFind<HTMLButtonElement>(document, '#btn-step');
-  const toggle = dom.runToggleButton;
-  step.disabled = !isRunning;
-  toggle.disabled = !isRunning;
-  step.setAttribute('aria-disabled', String(!isRunning));
-  toggle.setAttribute('aria-disabled', String(!isRunning));
-  document.body.dataset.running = String(isRunning);
+function syncRunState(state: RunControlState): void {
+  setButtonDisabled(dom.stepBackButton, !state.canStepBack);
+  setButtonDisabled(dom.stepButton, !state.canStepForward);
+  setButtonDisabled(dom.runToggleButton, !state.canAutoRun);
+  setButtonDisabled(dom.restartButton, !state.canRestart);
+  document.body.dataset.running = String(state.isRunning);
   syncRunToggleLabel();
 }
 
 function syncRunToggleLabel(): void {
   const toggle = dom.runToggleButton;
   const running = controller.isAutoRunning;
-  const label = running ? m.controls.stop : m.controls.run;
-  const hint = running ? m.hints.stop : m.hints.run;
-  toggle.querySelector('.btn__text')!.textContent = label;
+  const label = i18n.t(running ? 'controls.stop' : 'controls.run');
+  const hint = i18n.t(running ? 'hints.stop' : 'hints.run');
+  toggle.dataset.state = running ? 'stop' : 'play';
+  toggle.setAttribute('aria-label', label);
   toggle.setAttribute('title', hint);
   toggle.setAttribute('data-hint', hint);
   toggle.setAttribute('aria-pressed', String(running));
@@ -382,8 +414,9 @@ function syncRunToggleLabel(): void {
 /* ——— wiring ————————————————————————————————————————————————————— */
 
 const controller = new AppController({
-  messages: m,
+  i18n,
   initialSpeed: settings.speed,
+  initialMinSpeed: settings.minSpeed,
   initialMaxSpeed: settings.maxSpeed,
   elements: {
     programInput: dom.programInput,
@@ -397,11 +430,35 @@ const controller = new AppController({
   onModeChange: (mode) => {
     applyMode(mode);
   },
-  onRunningChange: syncRunState,
+  onRunStateChange: syncRunState,
+  onLogChange: (kind) => {
+    latestLogKind = kind;
+    if (kind === 'error' && !sidepanelOpen) {
+      applySidepanel(true, false);
+    } else {
+      syncSidepanelBadge();
+    }
+  },
   onProgramChange: saveProgram,
   onTapeChange: saveTape,
+  onTu4Converted: openTu4Dialog,
   onStepSound: () => sound.tick(),
 });
+
+// Declaratively bind all `data-i18n` / `data-i18n-attr` nodes, plus sync the
+// dynamic controls whenever the active locale changes.
+function syncDynamicI18n(): void {
+  syncSoundControl();
+  syncLangAria();
+  renderHelp(i18n.help);
+  syncRunToggleLabel();
+  syncSpeedControls();
+  syncHint();
+}
+
+bindDomI18n(document, i18n);
+syncDynamicI18n();
+i18n.subscribe(syncDynamicI18n);
 
 /* ——— events ————————————————————————————————————————————————————— */
 
@@ -415,7 +472,12 @@ on(mustFind(document, '#btn-start'), 'click', () => {
   sound.unlock();
   controller.start();
 });
-on(mustFind(document, '#btn-step'), 'click', () => {
+on(dom.stepBackButton, 'click', () => {
+  sound.unlock();
+  controller.stepBack();
+  syncRunToggleLabel();
+});
+on(dom.stepButton, 'click', () => {
   sound.unlock();
   controller.step();
   syncRunToggleLabel();
@@ -425,11 +487,21 @@ on(dom.runToggleButton, 'click', () => {
   controller.toggleAutoRun();
   syncRunToggleLabel();
 });
+on(dom.restartButton, 'click', () => {
+  controller.restart();
+  syncRunToggleLabel();
+});
+
+on(dom.speedInput, 'pointerdown', () => controller.beginSpeedDrag());
+window.addEventListener('pointerup', () => controller.endSpeedDrag());
+window.addEventListener('pointercancel', () => controller.endSpeedDrag());
+on(dom.speedInput, 'change', () => controller.endSpeedDrag());
 on(dom.speedInput, 'input', () => {
   const nextSpeed = controller.setSpeed(Number(dom.speedInput.value));
   updateSettings({ speed: nextSpeed });
   syncSpeedControls();
 });
+
 on(mustFind(document, '#btn-unmark'), 'click', () => {
   controller.unmark();
   syncRunToggleLabel();
@@ -447,9 +519,23 @@ on(dom.helpDialog, 'click', (event) => {
 });
 on(dom.helpDialog, 'close', () => {
   if (location.hash === '#help') {
-    history.replaceState(null, '', location.pathname + location.search);
+    safeReplaceState(location.pathname + location.search);
   }
 });
+on(dom.tu4Close, 'click', () => closeTu4Dialog());
+on(dom.tu4Done, 'click', () => closeTu4Dialog());
+on(dom.tu4Copy, 'click', () => void copyTu4Output());
+on(dom.tu4Dialog, 'click', (event) => {
+  if (event.target === dom.tu4Dialog) closeTu4Dialog();
+});
+on(dom.tu4Dialog, 'close', () => clearTu4Status());
+
+on(dom.sidepanelButton, 'click', () => applySidepanel(!sidepanelOpen, true));
+on(dom.sidepanelClose, 'click', () => {
+  applySidepanel(false, true);
+  dom.sidepanelButton.focus();
+});
+on(dom.sidepanelBackdrop, 'click', () => applySidepanel(false, false));
 
 on(dom.settingsButton, 'click', () => {
   if (isSettingsOpen()) closeSettings(false);
@@ -465,16 +551,13 @@ document.addEventListener('pointerdown', (event) => {
 });
 
 on(dom.langButton, 'click', () => {
-  lang = lang === 'ru' ? 'en' : 'ru';
-  updateSettings({ lang });
+  const next = i18n.toggleLocale();
+  updateSettings({ lang: next });
   const url = new URL(location.href);
   if (url.searchParams.has('lang')) {
-    url.searchParams.set('lang', lang);
-    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    url.searchParams.set('lang', next);
+    safeReplaceState(url.pathname + url.search + url.hash);
   }
-  m = messages(lang);
-  controller.setMessages(m);
-  localize();
 });
 
 for (const button of dom.themeButtons) {
@@ -498,9 +581,30 @@ on(dom.soundButton, 'click', () => {
   }
 });
 
+function applyMinSpeedValue(rawValue: string, normalizeInput: boolean): void {
+  const trimmed = rawValue.trim();
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || trimmed === '' || trimmed === '-') {
+    if (!normalizeInput) return;
+    const result = controller.setMinSpeed(DEFAULT_MIN_SPEED);
+    updateSettings({ minSpeed: result.minSpeed, speed: result.speed });
+    dom.minSpeedInput.value = String(result.minSpeed);
+    syncSpeedControls();
+    return;
+  }
+
+  if (!normalizeInput && (parsed < MIN_MIN_SPEED || parsed > MAX_MIN_SPEED)) return;
+
+  const result = controller.setMinSpeed(clampMinSpeed(parsed));
+  updateSettings({ minSpeed: result.minSpeed, speed: result.speed });
+  if (normalizeInput) dom.minSpeedInput.value = String(result.minSpeed);
+  syncSpeedControls();
+}
+
 function applyMaxSpeedValue(rawValue: string, normalizeInput: boolean): void {
-  const parsed = Number(rawValue);
-  if (!Number.isFinite(parsed) || rawValue.trim() === '') {
+  const trimmed = rawValue.trim();
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || trimmed === '') {
     if (!normalizeInput) return;
     const result = controller.setMaxSpeed(DEFAULT_MAX_SPEED);
     updateSettings({ maxSpeed: result.maxSpeed, speed: result.speed });
@@ -517,9 +621,82 @@ function applyMaxSpeedValue(rawValue: string, normalizeInput: boolean): void {
   syncSpeedControls();
 }
 
+on(dom.minSpeedInput, 'input', () => applyMinSpeedValue(dom.minSpeedInput.value, false));
+on(dom.minSpeedInput, 'change', () => applyMinSpeedValue(dom.minSpeedInput.value, true));
+on(dom.minSpeedInput, 'blur', () => applyMinSpeedValue(dom.minSpeedInput.value, true));
+
 on(dom.maxSpeedInput, 'input', () => applyMaxSpeedValue(dom.maxSpeedInput.value, false));
 on(dom.maxSpeedInput, 'change', () => applyMaxSpeedValue(dom.maxSpeedInput.value, true));
 on(dom.maxSpeedInput, 'blur', () => applyMaxSpeedValue(dom.maxSpeedInput.value, true));
+
+function stepMinSpeed(delta: number): void {
+  const result = controller.setMinSpeed(clampMinSpeed(controller.currentMinSpeed + delta));
+  updateSettings({ minSpeed: result.minSpeed, speed: result.speed });
+  dom.minSpeedInput.value = String(result.minSpeed);
+  syncSpeedControls();
+}
+
+function stepMaxSpeed(delta: number): void {
+  const result = controller.setMaxSpeed(clampMaxSpeed(controller.currentMaxSpeed + delta));
+  updateSettings({ maxSpeed: result.maxSpeed, speed: result.speed });
+  dom.maxSpeedInput.value = String(result.maxSpeed);
+  syncSpeedControls();
+}
+
+function bindStepperButton(button: HTMLButtonElement, onStep: () => void): void {
+  let delayId: number | null = null;
+  let repeatId: number | null = null;
+  let didRepeat = false;
+
+  const stop = (): void => {
+    if (delayId !== null) {
+      window.clearTimeout(delayId);
+      delayId = null;
+    }
+    if (repeatId !== null) {
+      window.clearInterval(repeatId);
+      repeatId = null;
+    }
+  };
+
+  on(button, 'pointerdown', (event) => {
+    if (event.button !== 0 || button.disabled) return;
+    didRepeat = false;
+    stop();
+    delayId = window.setTimeout(() => {
+      delayId = null;
+      if (button.disabled) return;
+      didRepeat = true;
+      onStep();
+      repeatId = window.setInterval(() => {
+        if (button.disabled) {
+          stop();
+          return;
+        }
+        onStep();
+      }, 65);
+    }, 380);
+  });
+
+  on(button, 'pointerup', stop);
+  on(button, 'pointercancel', stop);
+  on(button, 'pointerleave', stop);
+  on(button, 'blur', stop);
+
+  on(button, 'click', () => {
+    stop();
+    if (didRepeat) {
+      didRepeat = false;
+      return;
+    }
+    if (!button.disabled) onStep();
+  });
+}
+
+bindStepperButton(dom.minSpeedDec, () => stepMinSpeed(-1));
+bindStepperButton(dom.minSpeedInc, () => stepMinSpeed(1));
+bindStepperButton(dom.maxSpeedDec, () => stepMaxSpeed(-1));
+bindStepperButton(dom.maxSpeedInc, () => stepMaxSpeed(1));
 
 // Persist the draft as the user types (debounced).
 const persistProgram = debounce((text: string) => saveProgram(text), 400);
@@ -586,6 +763,8 @@ on(document, 'keydown', (event) => {
     target instanceof Element &&
     target.closest('button, a, [role="button"], select, summary') !== null;
 
+  if (dom.tu4Dialog.open) return;
+
   if (event.key === 'F1' || (event.key === '?' && event.shiftKey && !inEditable)) {
     event.preventDefault();
     openHelp();
@@ -599,6 +778,12 @@ on(document, 'keydown', (event) => {
       event.preventDefault();
       closeSettings(true);
     }
+    return;
+  }
+
+  if (sidepanelOpen && isNarrowViewport() && event.key === 'Escape') {
+    event.preventDefault();
+    applySidepanel(false, false);
     return;
   }
 
@@ -623,7 +808,8 @@ on(document, 'keydown', (event) => {
   ) {
     event.preventDefault();
     sound.unlock();
-    controller.handleSpace();
+    if (event.shiftKey) controller.handleShiftSpace();
+    else controller.handleSpace();
     syncRunToggleLabel();
     return;
   }
@@ -633,7 +819,7 @@ on(document, 'keydown', (event) => {
   }
 });
 
-// Hint bar: show the hint of the hovered/focused toolbar control.
+// Hint card in the side panel: show the hint of the hovered/focused toolbar control.
 const hintTargets = Array.from(dom.controls.querySelectorAll<HTMLElement>('.btn, .speed-control'));
 for (const control of hintTargets) {
   const show = (): void => {
@@ -650,10 +836,17 @@ for (const control of hintTargets) {
   control.addEventListener('focusout', hide);
 }
 
-// Hydrate saved draft, localize static DOM, and initialize toolbar state.
+// Hydrate saved draft and initialize toolbar state.
 controller.hydrate(saved.program, saved.tape);
-localize();
-syncRunState(false);
+syncRunState({
+  isRunning: false,
+  isAutoRunning: false,
+  canStepForward: false,
+  canStepBack: false,
+  canAutoRun: false,
+  canRestart: false,
+  speed: controller.currentSpeed,
+});
 
 // Bookmarks landing on `#help` open the in-app help dialog.
 if (location.hash === '#help') openHelp();

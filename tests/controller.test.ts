@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { messages } from '../src/i18n';
+import { createI18n, type I18n, type Lang } from '../src/i18n';
 import { StepSound } from '../src/ui/audio';
-import { AppController, type AppElements, type UIMode } from '../src/ui/controller';
+import {
+  AppController,
+  type AppElements,
+  type RunControlState,
+  type UIMode,
+} from '../src/ui/controller';
 
 function setupDom(): AppElements {
   document.body.innerHTML = `
@@ -28,20 +33,25 @@ function setupDom(): AppElements {
 function makeController(
   elements: AppElements,
   overrides: {
-    lang?: 'ru' | 'en';
+    lang?: Lang;
+    i18n?: I18n;
     onModeChange?: (mode: UIMode) => void;
     onRunningChange?: (isRunning: boolean) => void;
+    onRunStateChange?: (state: RunControlState) => void;
     onProgramChange?: (text: string) => void;
+    onTu4Converted?: (converted: string) => void;
     onStepSound?: () => void;
   } = {},
 ): AppController {
   return new AppController({
-    messages: messages(overrides.lang ?? 'ru'),
+    i18n: overrides.i18n ?? createI18n(overrides.lang ?? 'ru'),
     elements,
     onModeChange: overrides.onModeChange ?? (() => undefined),
     ...(overrides.onRunningChange ? { onRunningChange: overrides.onRunningChange } : {}),
+    ...(overrides.onRunStateChange ? { onRunStateChange: overrides.onRunStateChange } : {}),
     onProgramChange: overrides.onProgramChange ?? (() => undefined),
     onTapeChange: () => undefined,
+    ...(overrides.onTu4Converted ? { onTu4Converted: overrides.onTu4Converted } : {}),
     ...(overrides.onStepSound ? { onStepSound: overrides.onStepSound } : {}),
   });
 }
@@ -56,24 +66,34 @@ describe('AppController', () => {
     document.body.innerHTML = '';
   });
 
-  it('keeps state 0 as 00 in toTu4 even when state 0 is not on the first line and preserves the log', () => {
+  it('keeps source unchanged in toTu4, preserves state 0 as 00, and delivers output via onTu4Converted', () => {
     const el = setupDom();
+    const i18n = createI18n('ru');
     const saved: string[] = [];
-    const controller = makeController(el, { onProgramChange: (t) => saved.push(t) });
+    const converted: string[] = [];
+    const controller = makeController(el, {
+      i18n,
+      onProgramChange: (t) => saved.push(t),
+      onTu4Converted: (t) => converted.push(t),
+    });
 
-    el.programInput.value = 'fin, ,#,fin\n0, ,>,fin';
-    controller.toTu4();
+    const source = 'fin, ,#,fin\n0, ,>,fin';
+    el.programInput.value = source;
+    const result = controller.toTu4();
 
-    expect(el.programInput.value).toBe('01, ,#,01\n00, ,>,01');
-    expect(saved).toEqual(['01, ,#,01\n00, ,>,01']);
-    expect(el.log.textContent).toBe(messages('ru').log.convertedToTu4);
+    expect(result).toBe('01, ,#,01\n00, ,>,01');
+    expect(converted).toEqual(['01, ,#,01\n00, ,>,01']);
+    expect(el.programInput.value).toBe(source);
+    expect(saved).toEqual([]);
+    expect(el.log.textContent).toBe(i18n.t('log.convertedToTu4'));
     expect(el.log.dataset.kind).toBe('info');
     expect(controller.currentMode).toBe('edit');
   });
 
   it('reports tooManyStates when toTu4 is called on a program with > 256 states', () => {
     const el = setupDom();
-    const controller = makeController(el);
+    const i18n = createI18n('ru');
+    const controller = makeController(el, { i18n });
 
     const lines = [
       '0, ,>,s1',
@@ -82,7 +102,7 @@ describe('AppController', () => {
     el.programInput.value = lines.join('\n');
     controller.toTu4();
 
-    expect(el.log.textContent).toBe(messages('ru').error.tooManyStates);
+    expect(el.log.textContent).toBe(i18n.t('error.tooManyStates'));
     expect(el.log.dataset.kind).toBe('error');
   });
 
@@ -126,7 +146,8 @@ describe('AppController', () => {
     controller.start();
     expect(controller.isAutoRunning).toBe(false);
     expect(controller.currentSpeed).toBe(1);
-    expect(controller.currentMaxSpeed).toBe(10);
+    expect(controller.currentMinSpeed).toBe(-15);
+    expect(controller.currentMaxSpeed).toBe(25);
 
     // Start auto-run at default 1× (200 ms/step).
     controller.toggleAutoRun();
@@ -176,9 +197,169 @@ describe('AppController', () => {
     expect(controller.currentMode).toBe('edit');
   });
 
-  it('updates language in place via setMessages() without losing input or active run', () => {
+  it('supports stepping backwards, visited-mark rollback, and reaching initial state notification', () => {
     const el = setupDom();
-    const controller = makeController(el, { lang: 'ru' });
+    const i18n = createI18n('ru');
+    const controller = makeController(el, { i18n });
+
+    el.programInput.value = '0, ,>,1\n1, ,A,2\n2,A,>,3\n3, ,#,3';
+    el.tapeInput.value = 'x';
+    controller.start();
+
+    expect(controller.canStepBack).toBe(false);
+    expect(controller.canRestart).toBe(false);
+
+    // Run all 4 steps to a normal finish (tape 'x A', head right after result).
+    controller.step();
+    controller.step();
+    controller.step();
+    controller.step();
+    expect(controller.isMachineRunning).toBe(false);
+    expect(el.log.textContent).toBe(i18n.t('log.finished'));
+    expect(el.stats.textContent).toContain('Выполнено операций: 4');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(4);
+    expect(controller.canStepBack).toBe(true);
+    expect(controller.canRestart).toBe(true);
+
+    // Step back from halted state un-halts the machine and clears visited mark of the undone command.
+    expect(controller.stepBack()).toBe(true);
+    expect(controller.isMachineRunning).toBe(true);
+    expect(el.stats.textContent).toContain('Выполнено операций: 3');
+    expect(el.log.textContent).toBe('');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(3);
+    expect(el.programView.querySelectorAll('.cmd.current')).toHaveLength(1);
+
+    // Step back all the way to step 0 -> displays reachedInitialState notice.
+    expect(controller.stepBack()).toBe(true);
+    expect(controller.stepBack()).toBe(true);
+    expect(el.stats.textContent).toContain('Выполнено операций: 1');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(1);
+
+    expect(controller.stepBack()).toBe(false);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(0);
+    expect(el.log.textContent).toBe(i18n.t('log.reachedInitialState'));
+    expect(controller.canStepBack).toBe(false);
+  });
+
+  it('stops auto-run at speed 0, reverses on negative speed (including from end), and supports restart()', () => {
+    const el = setupDom();
+    const i18n = createI18n('ru');
+    const controller = makeController(el, { i18n });
+
+    el.programInput.value = '0, ,=,1\n1, ,=,2\n2, ,=,3\n3, ,#,3';
+    el.tapeInput.value = '';
+    controller.start();
+
+    // Auto-run forward at 5× (40 ms/step) for 2 steps, then set speed to 0 -> stops immediately.
+    controller.setSpeed(5);
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    vi.advanceTimersByTime(80);
+    expect(el.stats.textContent).toContain('Выполнено операций: 2');
+
+    controller.setSpeed(0);
+    expect(controller.isAutoRunning).toBe(false);
+    expect(controller.canAutoRun).toBe(false);
+    vi.advanceTimersByTime(400);
+    expect(el.stats.textContent).toContain('Выполнено операций: 2');
+
+    // Dragging smoothly across 0 from +5× to -5× seamlessly reverses auto-run.
+    controller.setSpeed(5);
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    controller.beginSpeedDrag();
+    controller.setSpeed(0);
+    expect(controller.isAutoRunning).toBe(false);
+    controller.setSpeed(-5);
+    controller.endSpeedDrag();
+    expect(controller.isAutoRunning).toBe(true);
+
+    // Runs backwards 2 steps back to step 0 -> stops and logs reachedInitialState.
+    vi.advanceTimersByTime(80);
+    expect(controller.isAutoRunning).toBe(false);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
+    expect(el.log.textContent).toBe(i18n.t('log.reachedInitialState'));
+
+    // Run forward all the way to halt (4 steps), then reverse automatically from the halted state!
+    controller.setSpeed(5);
+    controller.toggleAutoRun();
+    vi.advanceTimersByTime(200);
+    expect(controller.isMachineRunning).toBe(false);
+    expect(el.log.textContent).toBe(i18n.t('log.finished'));
+    expect(controller.canAutoRun).toBe(false); // speed > 0 at halt
+
+    // Setting negative speed after halt enables Запуск again to run backwards!
+    controller.setSpeed(-5);
+    expect(controller.canAutoRun).toBe(true);
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    vi.advanceTimersByTime(80);
+    expect(el.stats.textContent).toContain('Выполнено операций: 2');
+    expect(controller.isMachineRunning).toBe(true);
+
+    // Calling restart() resets to step 0 cleanly.
+    controller.restart();
+    expect(controller.isAutoRunning).toBe(false);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
+    expect(el.log.textContent).toBe(i18n.t('log.restarted'));
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(0);
+
+    // Lowering/raising minSpeed clamps negative speed.
+    const clampedMin = controller.setMinSpeed(-3);
+    expect(clampedMin).toEqual({ minSpeed: -3, speed: -3 });
+    expect(controller.currentSpeed).toBe(-3);
+  });
+
+  it('batches high-speed reverse auto-run (-15×) via rAF and stops cleanly at step 0', () => {
+    const el = setupDom();
+    const i18n = createI18n('ru');
+    const sounds = vi.fn();
+    const pendingRafs: FrameRequestCallback[] = [];
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((cb: FrameRequestCallback) => {
+        pendingRafs.push(cb);
+        return pendingRafs.length;
+      }),
+    );
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    const controller = makeController(el, { i18n, onStepSound: sounds });
+    el.programInput.value = '0, ,>,0';
+    el.tapeInput.value = '';
+    controller.start();
+
+    // Advance 5 steps forward, then rewind at -15× (rAF batched mode).
+    for (let i = 0; i < 5; i += 1) controller.step();
+    sounds.mockClear();
+    expect(el.stats.textContent).toContain('Выполнено операций: 5');
+
+    controller.setSpeed(-15);
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    expect(pendingRafs).toHaveLength(1);
+
+    // Advance frames until the batch rewinds all 5 steps to step 0.
+    let now = performance.now();
+    for (let i = 0; i < 10 && controller.isAutoRunning; i += 1) {
+      now += 100;
+      const cb = pendingRafs.shift();
+      cb?.(now);
+    }
+
+    expect(controller.isAutoRunning).toBe(false);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
+    expect(el.log.textContent).toBe(i18n.t('log.reachedInitialState'));
+    expect(sounds).toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
+
+  it('updates language reactively via i18n without losing input or active run', () => {
+    const el = setupDom();
+    const i18n = createI18n('ru');
+    const controller = makeController(el, { i18n });
 
     el.programInput.value = '0, ,=,1\n1, ,#,1';
     el.tapeInput.value = '101';
@@ -186,7 +367,7 @@ describe('AppController', () => {
     controller.step(); // 1 step done, still running in state 1
 
     expect(el.stats.textContent).toContain('Команд в программе: 2');
-    controller.setMessages(messages('en'));
+    i18n.setLocale('en');
 
     expect(controller.currentMode).toBe('run');
     expect(controller.isMachineRunning).toBe(true);
@@ -196,9 +377,9 @@ describe('AppController', () => {
 
     // Finish in English, then switch back to Russian — log message translates too.
     controller.step();
-    expect(el.log.textContent).toBe(messages('en').log.finished);
-    controller.setMessages(messages('ru'));
-    expect(el.log.textContent).toBe(messages('ru').log.finished);
+    expect(el.log.textContent).toBe(i18n.t('log.finished'));
+    i18n.setLocale('ru');
+    expect(el.log.textContent).toBe(i18n.t('log.finished'));
   });
 
   it('restores cursor offset in #input-program when returning from a compile error', () => {
@@ -282,7 +463,7 @@ describe('AppController', () => {
     const savedPrograms: string[] = [];
     const savedTapes: string[] = [];
     const controller = new AppController({
-      messages: messages('en'),
+      i18n: createI18n('en'),
       elements: el,
       onModeChange: () => undefined,
       onProgramChange: (p) => savedPrograms.push(p),
@@ -401,5 +582,67 @@ describe('AppController', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('keeps isAutoRunning === true during onRunStateChange across multiple auto-run ticks (Play/Stop regression)', () => {
+    const el = setupDom();
+    const observedAutoStates: boolean[] = [];
+    const controller = makeController(el, {
+      onRunStateChange: (state) => observedAutoStates.push(state.isAutoRunning),
+    });
+    el.programInput.value = '0, ,>,0';
+    el.tapeInput.value = '';
+
+    controller.start();
+    observedAutoStates.length = 0;
+
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+
+    // Advance through 4 steps at 1× (200 ms/step): every single tick callback must
+    // still report isAutoRunning === true so the Play/Stop button stays on Stop.
+    vi.advanceTimersByTime(800);
+    expect(observedAutoStates.length).toBeGreaterThanOrEqual(4);
+    expect(observedAutoStates.every(Boolean)).toBe(true);
+    expect(controller.isAutoRunning).toBe(true);
+
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(false);
+    expect(observedAutoStates.at(-1)).toBe(false);
+  });
+
+  it('switches programView data-step-dir between forward (green) and reverse (yellow)', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,>,0';
+    el.tapeInput.value = '';
+
+    controller.start();
+    expect(el.programView.dataset.stepDir).toBe('forward');
+    expect(controller.lastStepDirection).toBe('forward');
+
+    // Forward steps keep green ('forward').
+    controller.step();
+    controller.step();
+    expect(el.programView.dataset.stepDir).toBe('forward');
+
+    // Step back switches highlight to yellow ('reverse').
+    controller.stepBack();
+    expect(el.programView.dataset.stepDir).toBe('reverse');
+    expect(controller.lastStepDirection).toBe('reverse');
+
+    // Forward step switches highlight back to green ('forward').
+    controller.step();
+    expect(el.programView.dataset.stepDir).toBe('forward');
+
+    // Negative auto-run switches highlight to yellow ('reverse').
+    controller.setSpeed(-2);
+    controller.toggleAutoRun();
+    vi.advanceTimersByTime(100);
+    expect(el.programView.dataset.stepDir).toBe('reverse');
+
+    // Restart resets direction to green ('forward').
+    controller.restart();
+    expect(el.programView.dataset.stepDir).toBe('forward');
   });
 });

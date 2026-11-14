@@ -1,0 +1,198 @@
+{
+  "app": {
+    "title": "Turing machine emulator in 4-tuples"
+  },
+  "pane": {
+    "program": "Program",
+    "tape": "Tape"
+  },
+  "log": {
+    "ready": "Ready to run: Ctrl+Enter",
+    "finished": "The machine has successfully finished its work",
+    "reachedInitialState": "Machine reached the initial state",
+    "restarted": "Machine restarted",
+    "warningSourceAltered": "Warning: the source data was overwritten or modified",
+    "warningMisposition": "Warning: the head should stop right after the result",
+    "convertedToTu4": "The program was converted to the TU4 format",
+    "copied": "Copied to clipboard",
+    "restoredDraft": "The last program was restored"
+  },
+  "error": {
+    "parseError": "Could not parse “{text}”",
+    "programIsEmpty": "The program is empty",
+    "ambiguousCommand": "Ambiguous transition for state “{q}” and symbol “{a, symbol}”",
+    "targetStateDoesNotExist": "Target state “{w}” does not exist",
+    "initialStateDoesNotExist": "Initial state “{q}” does not exist",
+    "headIsOutOfTape": "The head is out of the tape (left border)",
+    "noSuchCommand": "Transition is undefined for state “{q}” and symbol “{a, symbol}”",
+    "tooManyStates": "The program has more than 256 states, which the TU4 format cannot express"
+  },
+  "stats": {
+    "summary": "Transitions: {commandsCount, number}. Source length: {initialDataLength, number}. Cells used: {maxDataLength, number}. Steps performed: {operationsCount, number}",
+    "commands": "Transitions",
+    "initialLength": "Source length",
+    "cellsUsed": "Cells used",
+    "operations": "Steps performed"
+  },
+  "controls": {
+    "help": "Help (F1)",
+    "settings": "Settings",
+    "sidepanel": "Status panel",
+    "start": "Start",
+    "stepBack": "Step back",
+    "step": "Step",
+    "run": "Run",
+    "stop": "Stop",
+    "restart": "Restart",
+    "speed": "Speed",
+    "backToEdit": "Back to edit",
+    "toTu4": "To TU4",
+    "unmark": "Unmark",
+    "copy": "Copy",
+    "theme": "Theme",
+    "sound": "Step sound",
+    "language": "Switch language",
+    "close": "Close"
+  },
+  "sidepanel": {
+    "title": "Status",
+    "notifications": "Notifications",
+    "noNotifications": "No active notifications",
+    "metrics": "Metrics",
+    "noMetrics": "Start the program to see execution metrics",
+    "hint": "Hint",
+    "hintIdle": "Hover a toolbar button to see its shortcut"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "languageName": "English",
+    "languageAria": "Switch language: {language}",
+    "theme": "Theme",
+    "themeAuto": "Auto",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "sound": "Step sound",
+    "minSpeed": "Min speed",
+    "minSpeedDec": "Decrease min speed",
+    "minSpeedInc": "Increase min speed",
+    "maxSpeed": "Max speed",
+    "maxSpeedDec": "Decrease max speed",
+    "maxSpeedInc": "Increase max speed"
+  },
+  "hints": {
+    "start": "Parse the program and run it (Ctrl+Enter)",
+    "stepBack": "Undo the last executed step (Shift+Space)",
+    "step": "Perform the next step, pausing auto-run if active (Space)",
+    "run": "Start automatic execution in the selected direction (Enter)",
+    "stop": "Pause automatic execution (Enter or Esc)",
+    "restart": "Restart the machine from the initial state",
+    "speed": "Speed: < 0 reverse, 0 stop, > 0 forward (limits in settings)",
+    "backToEdit": "Stop the machine and return to editing (Esc)",
+    "toTu4": "Show the program in TU4 format (00–98 decimal, or 00–ff hex) in a popup without modifying the source",
+    "unmark": "Clear the marks from executed commands",
+    "copy": "Copy the program to the clipboard",
+    "editProgram": "Program: q,a,v,q′. Ctrl+Enter — run",
+    "editTape": "Tape: source data. Enter — run"
+  },
+  "tu4Dialog": {
+    "title": "Program in TU4 format",
+    "description": "Your original program in the editor was not modified.",
+    "codeLabel": "Program code in TU4 format",
+    "copied": "TU4 code copied to clipboard"
+  },
+  "a11y": {
+    "skipToProgram": "Skip to program",
+    "tapeLabel": "Source data on the tape",
+    "programLabel": "Program text",
+    "programViewLabel": "Executing program",
+    "tapeViewLabel": "Tape during execution",
+    "logLabel": "Emulator messages",
+    "statusLabel": "Execution status and statistics",
+    "currentCell": "Current cell"
+  },
+  "help": {
+    "title": "Turing machine emulator in 4-tuples",
+    "back": "Back to program",
+    "sections": [
+      {
+        "title": "About",
+        "blocks": [
+          {
+            "kind": "p",
+            "text": "This interactive textbook is intended for students studying the theory of algorithms. The application is an interpreter for 4-tuple Turing machine programs."
+          },
+          {
+            "kind": "rich",
+            "parts": [
+              "© Alexey Dubinin. Original application on GitHub: ",
+              { "label": "github.com/lxyd/jstu4", "href": "https://github.com/lxyd/jstu4" },
+              ". Distributed under the terms of the MIT License."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Reference",
+        "blocks": [
+          {
+            "kind": "p",
+            "text": "Command format: q,a,v,q′ — current state, the symbol seen on the tape, the action (a symbol to write or a command) and the new state."
+          },
+          {
+            "kind": "list",
+            "items": [
+              "> — move the head right;",
+              "< — move the head left;",
+              "= — stay in place;",
+              "# — stop the machine."
+            ]
+          },
+          {
+            "kind": "p",
+            "text": "Several commands may be written on one line separated by whitespace. C-style (//) and shell-style (#) comments are supported — but there must be at least one space or line break between a command and a comment."
+          },
+          {
+            "kind": "p",
+            "text": "Named states are supported; names consisting of digits only are interpreted as numbers (01 and 1 are the same state). The initial state must be named 0."
+          },
+          {
+            "kind": "p",
+            "text": "Executed commands are marked with colour; the “Unmark” button clears the marks. The tape is limited at the left edge and is not padded with spaces automatically."
+          }
+        ]
+      },
+      {
+        "title": "Buttons and hotkeys",
+        "blocks": [
+          {
+            "kind": "list",
+            "items": [
+              "“Start” — parse and run the program (Ctrl+Enter, or Enter in the tape field);",
+              "“←” (step back) — undo the last step (Shift+Space); stepping backward highlights the current command in yellow;",
+              "“→” (step forward) — perform the next step, pausing auto-run if active (Space);",
+              "“▶” / “■” (Run / Stop) — start or pause automatic execution (Enter); the speed slider supports negative values (reverse), a zero mark (stop), and configurable bounds (−15×…25× by default);",
+              "“Restart” — reset the machine back to its initial state;",
+              "“Back to edit” — stop the machine and return to editing (Esc pauses auto-run first);",
+              "“To TU4” — show the program converted to TU4 format (numbers 00–98, or hexadecimal 00–ff for 100–256 states) in a popup without modifying the source."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Example: swap 0 and 1 in place",
+        "blocks": [
+          {
+            "kind": "code",
+            "lines": [
+              "00, ,<,rep",
+              "rep,0,1,mov  rep,1,0,mov  rep, ,>,fin  // rewrite the cell",
+              "mov,0,<,rep  mov,1,<,rep               // step left",
+              "fin,0,>,fin  fin,1,>,fin  fin, ,#,fin  // move to the end"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
