@@ -8,10 +8,10 @@
 | Метрика             | v2.3                                            | v3.0                                                               |
 | ------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
 | Рантайм-зависимости | jQuery 1.6.4, HotMilk/Milk, `jquery-plugins.js` | **0**                                                              |
-| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **38.2 КБ** (12.3 КБ gzip)                                         |
+| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **40.6 КБ** (13.0 КБ gzip)                                         |
 | Языки               | ES3-стиль, глобальные `i18n`, `TM`              | TypeScript strict, ES-модули, `noUncheckedIndexedAccess`           |
 | Типизация           | нет                                             | 100% кода, `tsc --noEmit` в скрипте `build`                        |
-| Тесты               | нет                                             | **60 юнит/DOM (Vitest) + 27 сквозных (Playwright)**                |
+| Тесты               | нет                                             | **69 юнит/DOM (Vitest) + 28 сквозных (Playwright)**                |
 | Линт/формат         | нет                                             | ESLint 10 (typescript-eslint, type-checked) + Prettier             |
 | Сборка              | ручное подключение `<script>`                   | Vite 7, хешированные ассеты, sourcemaps                            |
 | Доступность         | кнопки-ссылки без семантики                     | `<button>`, `<dialog>`, aria-live, `:focus-visible`, skip-link     |
@@ -21,17 +21,17 @@
 
 ## Сопоставление файлов
 
-| Оригинал                                                 | Куда переехало                                                                      |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `tu4.js` (TM, TMRun, TM.Command, TM.compile)             | `src/core/{machine,parser,program,run,tu4,errors}.ts`                               |
-| `i18n.js`                                                | `src/i18n/{ru,en,types,index}.ts`                                                   |
-| `ui.js`                                                  | `src/ui/controller.ts` + `src/ui/render.ts` + `src/main.ts`                         |
-| `hotmilk.browser.jquery.js` (Milk-шаблоны)               | шаблонные функции в `i18n/*.ts`                                                     |
-| `jquery-plugins.js` (placeholder, scrollTo, selectRange) | платформенные API: `placeholder`, `scrollIntoView`, `setSelectionRange`             |
-| `jquery-1.6.4.js`                                        | — (не нужен)                                                                        |
-| `jstu4.html`, `jstu4.css`                                | `index.html`, `src/styles/main.css`                                                 |
-| `help-ru.html`, `help-en.html`, `help.css`               | `<dialog id="help-dialog">` + `i18n.help` (старые URL → заглушки в `public/jstu4/`) |
-| `jstu4-{ru,en}.html`                                     | `?lang=ru` / `?lang=en` (+ заглушки в `public/`)                                    |
+| Оригинал                                                 | Куда переехало                                                          |
+| -------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `tu4.js` (TM, TMRun, TM.Command, TM.compile)             | `src/core/{machine,parser,program,run,tu4,errors}.ts`                   |
+| `i18n.js`                                                | `src/i18n/{ru,en,types,index}.ts`                                       |
+| `ui.js`                                                  | `src/ui/controller.ts` + `src/ui/render.ts` + `src/main.ts`             |
+| `hotmilk.browser.jquery.js` (Milk-шаблоны)               | шаблонные функции в `i18n/*.ts`                                         |
+| `jquery-plugins.js` (placeholder, scrollTo, selectRange) | платформенные API: `placeholder`, `scrollIntoView`, `setSelectionRange` |
+| `jquery-1.6.4.js`                                        | — (не нужен)                                                            |
+| `jstu4.html`, `jstu4.css`                                | `public/index.html`, `src/styles/main.css`                              |
+| `help-ru.html`, `help-en.html`, `help.css`               | `<dialog id="help-dialog">` + `i18n.help`                               |
+| `jstu4-{ru,en}.html`                                     | кнопка смены языка в меню настроек + `?lang=ru` / `?lang=en`            |
 
 ## Ключевые решения
 
@@ -84,7 +84,7 @@
 
 ```bash
 npm install
-npm run check      # lint + prettier + 60 юнит/DOM-тестов + сборка
-npm run test:e2e   # 27 сценариев Playwright в Chromium
+npm run check      # lint + prettier + 69 юнит/DOM-тестов + сборка
+npm run test:e2e   # 28 сценариев Playwright в Chromium
 npm run dev        # живой предпросмотр
 ```

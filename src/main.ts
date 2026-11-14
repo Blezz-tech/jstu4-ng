@@ -8,48 +8,29 @@ import { AppController, type UIMode } from './ui/controller';
 import { debounce, el, mustFind } from './ui/dom';
 import {
   loadState,
-  saveLang,
   saveProgram,
-  saveSound,
+  saveSettings,
   saveTape,
-  saveTheme,
+  type AppSettings,
   type Theme,
 } from './ui/storage';
 
-/* ——— language & theme ————————————————————————————————————————————— */
+/* ——— settings, language & theme ———————————————————————————————————— */
 
 const html = document.documentElement;
 const saved = loadState();
+let settings: AppSettings = saved.settings;
 
 let lang: Lang = detectLang(
   location.search,
-  saved.lang,
+  settings.lang,
   navigator.languages ?? [navigator.language],
 );
 
-const themeCandidates: readonly Theme[] = ['auto', 'light', 'dark'];
-let theme: Theme = saved.theme;
-
-function themeIsDark(): boolean {
-  return (
-    theme === 'dark' ||
-    (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  );
+function updateSettings(patch: Partial<AppSettings>): void {
+  settings = { ...settings, ...patch };
+  saveSettings(settings);
 }
-
-function applyTheme(): void {
-  html.dataset.theme = theme === 'auto' ? (themeIsDark() ? 'dark' : 'light') : theme;
-  html.dataset.themeChoice = theme;
-  mustFind<HTMLButtonElement>(document, '#btn-theme').setAttribute(
-    'aria-pressed',
-    String(themeIsDark()),
-  );
-}
-
-applyTheme();
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-  if (theme === 'auto') applyTheme();
-});
 
 /* ——— DOM references —————————————————————————————————————————————— */
 
@@ -68,17 +49,53 @@ const dom = {
   hint: mustFind(document, '#hint'),
   labelProgram: mustFind(document, '#label-program'),
   labelTape: mustFind(document, '#label-tape'),
+  settingsAnchor: mustFind(document, '#settings-anchor'),
+  settingsButton: mustFind<HTMLButtonElement>(document, '#btn-settings'),
+  settingsMenu: mustFind(document, '#settings-menu'),
+  settingsTitle: mustFind(document, '#settings-title'),
+  settingsClose: mustFind<HTMLButtonElement>(document, '#btn-settings-close'),
+  settingLangLabel: mustFind(document, '#label-setting-lang'),
+  langButton: mustFind<HTMLButtonElement>(document, '#btn-lang'),
+  langLabel: mustFind(document, '#lang-label'),
+  settingThemeLabel: mustFind(document, '#label-setting-theme'),
+  themeButtons: Array.from(
+    document.querySelectorAll<HTMLButtonElement>('#theme-group [data-theme-option]'),
+  ),
+  settingSoundLabel: mustFind(document, '#label-setting-sound'),
+  soundButton: mustFind<HTMLButtonElement>(document, '#btn-sound'),
+  soundLabel: mustFind(document, '#sound-label'),
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
   helpBody: mustFind(document, '#help-body'),
   helpClose: mustFind<HTMLButtonElement>(document, '#btn-help-close'),
   helpBack: mustFind<HTMLButtonElement>(document, '#btn-help-back'),
-  langLabel: mustFind(document, '#lang-label'),
 };
+
+function themeIsDark(): boolean {
+  return (
+    settings.theme === 'dark' ||
+    (settings.theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  );
+}
+
+function applyTheme(): void {
+  html.dataset.theme =
+    settings.theme === 'auto' ? (themeIsDark() ? 'dark' : 'light') : settings.theme;
+  html.dataset.themeChoice = settings.theme;
+  for (const button of dom.themeButtons) {
+    const active = button.dataset.themeOption === settings.theme;
+    button.setAttribute('aria-pressed', String(active));
+  }
+}
+
+applyTheme();
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (settings.theme === 'auto') applyTheme();
+});
 
 /* ——— sound —————————————————————————————————————————————————————— */
 
-const sound = new StepSound(saved.sound);
+const sound = new StepSound(settings.sound);
 
 /* ——— i18n bootstrap ————————————————————————————————————————————— */
 
@@ -104,6 +121,13 @@ function syncProgramOverflow(): void {
   const view = dom.programView;
   const hasMoreBelow = view.scrollHeight - view.scrollTop - view.clientHeight > 4;
   dom.programStack.dataset.overflowBottom = String(hasMoreBelow);
+}
+
+function syncSoundControl(): void {
+  const onState = sound.isEnabled;
+  dom.soundButton.setAttribute('aria-checked', String(onState));
+  dom.soundButton.dataset.on = String(onState);
+  dom.soundLabel.textContent = onState ? m.settings.on : m.settings.off;
 }
 
 /** Apply all localized strings to the static markup. */
@@ -164,20 +188,51 @@ function localize(): void {
   hint('#btn-edit', m.hints.backToEdit);
   hint('#btn-edit-err', m.hints.backToEdit);
 
-  mustFind(document, '#btn-theme').setAttribute('title', m.controls.theme);
-  mustFind(document, '#btn-theme').setAttribute('aria-label', m.controls.theme);
-  mustFind(document, '#btn-sound').setAttribute('title', m.controls.sound);
-  mustFind(document, '#btn-sound').setAttribute('aria-label', m.controls.sound);
+  dom.settingsButton.setAttribute('title', m.controls.settings);
+  dom.settingsButton.setAttribute('aria-label', m.controls.settings);
+  dom.settingsTitle.textContent = m.settings.title;
+  dom.settingsClose.setAttribute('title', m.controls.close);
+  dom.settingsClose.setAttribute('aria-label', m.controls.close);
+
+  dom.settingLangLabel.textContent = m.settings.language;
+  dom.langLabel.textContent = m.settings.languageName;
+  dom.langButton.setAttribute('title', m.controls.language);
+  dom.langButton.setAttribute('aria-label', `${m.controls.language}: ${m.settings.languageName}`);
+
+  dom.settingThemeLabel.textContent = m.settings.theme;
+  byId('#btn-theme-auto').textContent = m.settings.themeAuto;
+  byId('#btn-theme-light').textContent = m.settings.themeLight;
+  byId('#btn-theme-dark').textContent = m.settings.themeDark;
+
+  dom.settingSoundLabel.textContent = m.settings.sound;
+  syncSoundControl();
+
   mustFind(document, '#btn-help').setAttribute('aria-label', m.controls.help);
-  mustFind(document, '#btn-lang').setAttribute('title', m.controls.language);
-  mustFind(document, '#btn-lang').setAttribute('aria-label', m.controls.language);
   dom.helpClose.setAttribute('aria-label', m.controls.close);
   dom.helpClose.setAttribute('title', m.controls.close);
-  dom.langLabel.textContent = lang === 'ru' ? 'EN' : 'RU';
 
   renderHelp(m.help);
   syncQuickLabel();
   syncHint();
+}
+
+/* ——— settings menu ——————————————————————————————————————————————— */
+
+function isSettingsOpen(): boolean {
+  return !dom.settingsMenu.hidden;
+}
+
+function openSettings(): void {
+  if (isSettingsOpen()) return;
+  dom.settingsMenu.hidden = false;
+  dom.settingsButton.setAttribute('aria-expanded', 'true');
+}
+
+function closeSettings(restoreFocus = false): void {
+  if (!isSettingsOpen()) return;
+  dom.settingsMenu.hidden = true;
+  dom.settingsButton.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) dom.settingsButton.focus();
 }
 
 /* ——— help dialog ——————————————————————————————————————————————— */
@@ -231,6 +286,7 @@ function renderHelp(content: HelpContent): void {
 }
 
 function openHelp(): void {
+  closeSettings(false);
   if (dom.helpDialog.open) return;
   dom.helpDialog.showModal();
   // Focus the dialog itself instead of the close button: screen readers
@@ -347,9 +403,22 @@ on(dom.helpDialog, 'close', () => {
   }
 });
 
-on(mustFind(document, '#btn-lang'), 'click', () => {
+on(dom.settingsButton, 'click', () => {
+  if (isSettingsOpen()) closeSettings(false);
+  else openSettings();
+});
+on(dom.settingsClose, 'click', () => closeSettings(true));
+document.addEventListener('pointerdown', (event) => {
+  if (!isSettingsOpen()) return;
+  const target = event.target;
+  if (target instanceof Node && !dom.settingsAnchor.contains(target)) {
+    closeSettings(false);
+  }
+});
+
+on(dom.langButton, 'click', () => {
   lang = lang === 'ru' ? 'en' : 'ru';
-  saveLang(lang);
+  updateSettings({ lang });
   const url = new URL(location.href);
   if (url.searchParams.has('lang')) {
     url.searchParams.set('lang', lang);
@@ -360,20 +429,21 @@ on(mustFind(document, '#btn-lang'), 'click', () => {
   localize();
 });
 
-on(mustFind(document, '#btn-theme'), 'click', () => {
-  const index = themeCandidates.indexOf(theme);
-  theme = themeCandidates[(index + 1) % themeCandidates.length] ?? 'auto';
-  saveTheme(theme);
-  applyTheme();
-});
+for (const button of dom.themeButtons) {
+  on(button, 'click', () => {
+    const choice = button.dataset.themeOption;
+    if (choice !== 'auto' && choice !== 'light' && choice !== 'dark') return;
+    const nextTheme: Theme = choice;
+    updateSettings({ theme: nextTheme });
+    applyTheme();
+  });
+}
 
-on(mustFind(document, '#btn-sound'), 'click', () => {
+on(dom.soundButton, 'click', () => {
   const next = !sound.isEnabled;
   sound.setEnabled(next);
-  saveSound(next);
-  const button = mustFind(document, '#btn-sound');
-  button.setAttribute('aria-pressed', String(next));
-  button.dataset.on = String(next);
+  updateSettings({ sound: next });
+  syncSoundControl();
   if (next) {
     sound.unlock();
     sound.tick();
@@ -453,6 +523,14 @@ on(document, 'keydown', (event) => {
 
   if (dom.helpDialog.open) return;
 
+  if (isSettingsOpen()) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeSettings(true);
+    }
+    return;
+  }
+
   const hasModifier = event.ctrlKey || event.metaKey;
 
   if (event.key === 'Enter' && !inEditable && (hasModifier || !inControl)) {
@@ -501,16 +579,10 @@ for (const button of hintTargets) {
   button.addEventListener('blur', hide);
 }
 
-// Reflect the sound preference in the markup on load.
-const soundBtn = mustFind(document, '#btn-sound');
-soundBtn.setAttribute('aria-pressed', String(sound.isEnabled));
-soundBtn.dataset.on = String(sound.isEnabled);
-
 // Hydrate saved draft, localize static DOM, and initialize toolbar state.
 controller.hydrate(saved.program, saved.tape);
 localize();
 syncRunState(false);
 
-// Legacy help links (`help-ru.html`, bookmarks) land on `#help`: open the
-// in-app help instead of a separate page.
+// Bookmarks landing on `#help` open the in-app help dialog.
 if (location.hash === '#help') openHelp();

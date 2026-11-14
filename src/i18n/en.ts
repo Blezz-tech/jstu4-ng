@@ -34,6 +34,7 @@ export const en: Messages = {
 
   controls: {
     help: 'Help (F1)',
+    settings: 'Settings',
     start: 'Start',
     step: 'Step',
     quick: 'Quick',
@@ -43,10 +44,23 @@ export const en: Messages = {
     toTu4: 'To TU4',
     unmark: 'Unmark',
     copy: 'Copy',
-    theme: 'Toggle theme',
-    sound: 'Toggle step sound',
+    theme: 'Theme',
+    sound: 'Step sound',
     language: 'Switch language',
     close: 'Close',
+  },
+
+  settings: {
+    title: 'Settings',
+    language: 'Language',
+    languageName: 'English',
+    theme: 'Theme',
+    themeAuto: 'Auto',
+    themeLight: 'Light',
+    themeDark: 'Dark',
+    sound: 'Step sound',
+    on: 'On',
+    off: 'Off',
   },
 
   hints: {

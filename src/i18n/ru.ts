@@ -34,6 +34,7 @@ export const ru: Messages = {
 
   controls: {
     help: 'Справка (F1)',
+    settings: 'Настройки',
     start: 'Старт',
     step: 'Шаг',
     quick: 'Быстро',
@@ -43,10 +44,23 @@ export const ru: Messages = {
     toTu4: 'В формат TU4',
     unmark: 'Сбросить метки',
     copy: 'Копировать',
-    theme: 'Сменить тему',
+    theme: 'Тема оформления',
     sound: 'Звук шагов',
-    language: 'Сменить язык',
+    language: 'Переключить язык',
     close: 'Закрыть',
+  },
+
+  settings: {
+    title: 'Настройки',
+    language: 'Язык',
+    languageName: 'Русский',
+    theme: 'Тема',
+    themeAuto: 'Авто',
+    themeLight: 'Светлая',
+    themeDark: 'Тёмная',
+    sound: 'Звук шагов',
+    on: 'Вкл',
+    off: 'Выкл',
   },
 
   hints: {
