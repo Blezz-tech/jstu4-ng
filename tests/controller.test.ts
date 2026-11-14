@@ -645,4 +645,84 @@ describe('AppController', () => {
     controller.restart();
     expect(el.programView.dataset.stepDir).toBe('forward');
   });
+
+  it('reuses the tape DOM incrementally across steps, stepBack, restart, and high-speed batches', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,>,1\n1, ,>,2\n2, ,>,0';
+    el.tapeInput.value = '10';
+
+    controller.start();
+    const tapeContainer = el.tapeView.firstElementChild;
+    const firstCell = el.tapeView.querySelector('.cell');
+    expect(tapeContainer).not.toBeNull();
+    expect(firstCell).not.toBeNull();
+
+    controller.step();
+    controller.step();
+    // Same tape container and existing cell nodes are reused (no full replaceChildren)
+    expect(el.tapeView.firstElementChild).toBe(tapeContainer);
+    expect(el.tapeView.querySelector('.cell')).toBe(firstCell);
+    expect(el.tapeView.querySelectorAll('.cell')).toHaveLength(5);
+
+    controller.stepBack();
+    expect(el.tapeView.firstElementChild).toBe(tapeContainer);
+    expect(el.tapeView.querySelectorAll('.cell')).toHaveLength(4);
+
+    // High-speed batching at 25x runs multiple steps in one frame and flushes DOM once
+    controller.setSpeed(25);
+    controller.toggleAutoRun();
+    vi.advanceTimersByTime(50);
+    expect(el.tapeView.firstElementChild).toBe(tapeContainer);
+    expect(el.stats.textContent).toMatch(/Выполнено операций:\s*\d+/);
+
+    controller.restart();
+    expect(el.tapeView.firstElementChild).toBe(tapeContainer);
+    expect(el.tapeView.querySelectorAll('.cell')).toHaveLength(3);
+  });
+
+  it('marks the exact offending command when OutOfTapeError occurs during a high-speed batch', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,>,1\n1, ,<,2\n2, ,<,2';
+    el.tapeInput.value = '';
+
+    controller.start();
+    // Step forward once then back so stepDir is 'reverse' before launching high-speed forward batch
+    controller.step();
+    controller.stepBack();
+    expect(el.programView.dataset.stepDir).toBe('reverse');
+
+    controller.setSpeed(25);
+    controller.toggleAutoRun();
+    vi.advanceTimersByTime(50);
+
+    expect(controller.isMachineRunning).toBe(false);
+    expect(el.programView.dataset.stepDir).toBe('forward');
+    expect(el.log.dataset.kind).toBe('error');
+    const errorNodes = el.programView.querySelectorAll('.cmd.error');
+    expect(errorNodes).toHaveLength(1);
+    expect(errorNodes[0]?.textContent).toBe('2, ,<,2');
+    expect(el.programView.querySelectorAll('.cmd.current')).toHaveLength(0);
+  });
+
+  it('positions editor cursor on the last executed command after NoSuchCommandError in a batch', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    const program = '0, ,>,1\n1, ,1,2\n2, ,#,2';
+    el.programInput.value = program;
+    el.tapeInput.value = '';
+
+    controller.start();
+    controller.setSpeed(25);
+    controller.toggleAutoRun();
+    vi.advanceTimersByTime(50);
+
+    expect(controller.isMachineRunning).toBe(false);
+    expect(el.log.dataset.kind).toBe('error');
+    expect(el.programView.querySelectorAll('.cmd.current')).toHaveLength(0);
+
+    controller.backToEdit();
+    expect(el.programInput.selectionStart).toBe(program.indexOf('1, ,1,2'));
+  });
 });

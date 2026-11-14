@@ -205,4 +205,72 @@ describe('history (SnapshotStore)', () => {
     tracker.dispose();
     vi.useRealTimers();
   });
+
+  it('synchronizes across tabs via storage events and merges before mutations without overwriting', () => {
+    const tabA = new SnapshotStore();
+    const tabB = new SnapshotStore();
+    const onTabAChange = vi.fn();
+    tabA.subscribe(onTabAChange);
+
+    // Tab B creates a snapshot; Tab A receives storage event and updates automatically
+    const fromB = tabB.create('manual', '0, ,#,0', 'fromB', 1000);
+    window.dispatchEvent(new StorageEvent('storage', { key: SNAPSHOTS_STORAGE_KEY }));
+    expect(onTabAChange).toHaveBeenCalledWith('storage');
+    expect(tabA.list().map((s) => s.id)).toEqual([fromB.id]);
+
+    // Even WITHOUT a storage event arriving first, Tab A mutating preserves Tab B's newer write
+    const secondFromB = tabB.create('manual', '0,1,0,0', 'fromB2', 2000);
+    const fromA = tabA.create('manual', '0,0,1,0', 'fromA', 3000);
+
+    expect(tabA.list().map((s) => s.id)).toEqual([fromA.id, secondFromB.id, fromB.id]);
+    expect(new SnapshotStore().list().map((s) => s.id)).toEqual([
+      fromA.id,
+      secondFromB.id,
+      fromB.id,
+    ]);
+
+    tabA.dispose();
+    tabB.dispose();
+  });
+
+  it('reports unrecoverable QuotaExceededError via onPersistError, rolls back phantom writes, and ignores sessionStorage events', () => {
+    const onPersistError = vi.fn();
+    const store = new SnapshotStore({ onPersistError });
+    const onChange = vi.fn();
+    store.subscribe(onChange);
+
+    // Events from sessionStorage must be ignored
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: SNAPSHOTS_STORAGE_KEY,
+        storageArea: window.sessionStorage,
+      }),
+    );
+    expect(onChange).not.toHaveBeenCalled();
+
+    const existing = store.create('manual', '0, ,>,0', '0', 500);
+    expect(store.list()).toHaveLength(1);
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    });
+
+    // Failed manual save rolls back in-memory list (no phantom entry)
+    store.create('manual', '0, ,#,0', '1', 1000);
+    expect(onPersistError).toHaveBeenCalledTimes(1);
+    expect(store.lastPersistOk).toBe(false);
+    expect(store.list().map((s) => s.id)).toEqual([existing.id]);
+
+    // Failed autosave returns null and rolls back
+    expect(store.maybeAutosave('0,1,0,0', '1', 1500)).toBeNull();
+    expect(store.list().map((s) => s.id)).toEqual([existing.id]);
+
+    // Failed rename and remove roll back and return null / false
+    expect(store.rename(existing.id, 'Cannot persist')).toBeNull();
+    expect(store.getById(existing.id)?.customName).toBeNull();
+    expect(store.remove(existing.id)).toBe(false);
+    expect(store.list().map((s) => s.id)).toEqual([existing.id]);
+
+    store.dispose();
+  });
 });

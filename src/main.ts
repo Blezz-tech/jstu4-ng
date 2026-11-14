@@ -3,7 +3,8 @@ import './styles/main.css';
 import { TM_VERSION } from './core/version';
 import { bindDomI18n, createI18n, detectLang, type HelpContent } from './i18n';
 import { StepSound } from './ui/audio';
-import { AppController, type LogKind, type RunControlState, type UIMode } from './ui/controller';
+import { copyTextToClipboard } from './ui/clipboard';
+import { AppController, type RunControlState, type UIMode } from './ui/controller';
 import { debounce, el, mustFind } from './ui/dom';
 import {
   AutosaveTracker,
@@ -13,6 +14,7 @@ import {
   SnapshotStore,
   type ProgramSnapshot,
 } from './ui/history';
+import { NotificationLog, type LogKind } from './ui/notifications';
 import {
   clampMaxSpeed,
   clampMinSpeed,
@@ -389,18 +391,8 @@ function closeTu4Dialog(): void {
 }
 
 async function copyTu4Output(): Promise<void> {
-  const text = dom.tu4Output.value;
-  if (text === '') return;
-
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    dom.tu4Output.focus();
-    dom.tu4Output.select();
-    const copied = document.execCommand('copy');
-    dom.tu4Output.setSelectionRange(0, 0);
-    if (!copied) return;
-  }
+  const copied = await copyTextToClipboard(dom.tu4Output.value, dom.tu4Output);
+  if (!copied) return;
 
   clearTu4Status();
   dom.tu4Status.textContent = i18n.t('tu4Dialog.copied');
@@ -457,8 +449,22 @@ function syncRunToggleLabel(): void {
 
 /* ——— wiring ————————————————————————————————————————————————————— */
 
+const notifications = new NotificationLog({
+  element: dom.log,
+  i18n,
+  onChange: (kind) => {
+    latestLogKind = kind;
+    if (kind === 'error' && !sidepanelOpen) {
+      applySidepanel(true, false);
+    } else {
+      syncSidepanelBadge();
+    }
+  },
+});
+
 const controller = new AppController({
   i18n,
+  notifications,
   initialSpeed: settings.speed,
   initialMinSpeed: settings.minSpeed,
   initialMaxSpeed: settings.maxSpeed,
@@ -475,14 +481,6 @@ const controller = new AppController({
     applyMode(mode);
   },
   onRunStateChange: syncRunState,
-  onLogChange: (kind) => {
-    latestLogKind = kind;
-    if (kind === 'error' && !sidepanelOpen) {
-      applySidepanel(true, false);
-    } else {
-      syncSidepanelBadge();
-    }
-  },
   onProgramChange: saveProgram,
   onTapeChange: saveTape,
   onTu4Converted: openTu4Dialog,
@@ -524,7 +522,26 @@ const ICON_DELETE = [
 const ICON_CHECK = ['M20 6 9 17l-5-5'];
 const ICON_CANCEL = ['M18 6 6 18', 'M6 6l12 12'];
 
-const snapshots = new SnapshotStore();
+const snapshots = new SnapshotStore({
+  onPersistError: () => {
+    notifications.show('warning', (t) => t.t('log.snapshotQuotaExceeded'));
+  },
+});
+snapshots.subscribe((source) => {
+  if (source !== 'storage') return;
+  if (activeSnapshotId !== null && snapshots.getById(activeSnapshotId) === null) {
+    activeSnapshotId = null;
+  }
+  if (pendingDeleteId !== null && snapshots.getById(pendingDeleteId) === null) {
+    closeDeleteDialog();
+  }
+  if (editingSnapshotId !== null && snapshots.getById(editingSnapshotId) === null) {
+    editingSnapshotId = null;
+  }
+  if (editingSnapshotId === null) {
+    renderHistory();
+  }
+});
 let namedOnly = settings.namedOnly ?? false;
 let confirmSnapshotDelete = settings.confirmSnapshotDelete ?? true;
 let activeSnapshotId: string | null = null;
@@ -606,7 +623,7 @@ function performDeleteSnapshot(id: string): void {
   if (!removed) return;
   if (activeSnapshotId === id) activeSnapshotId = null;
   if (editingSnapshotId === id) editingSnapshotId = null;
-  controller.notifySnapshotDeleted();
+  notifications.show('info', (t) => t.t('log.snapshotDeleted'));
   renderHistory();
 }
 
@@ -635,7 +652,10 @@ function restoreSnapshot(snapshot: ProgramSnapshot): void {
   }
   activeSnapshotId = snapshot.id;
   editingSnapshotId = null;
-  controller.loadSnapshot(snapshot.program, snapshot.tape, getSnapshotDisplayName(snapshot, i18n));
+  controller.loadDraft(snapshot.program, snapshot.tape);
+  notifications.show('info', (t) =>
+    t.t('log.snapshotRestored', { name: getSnapshotDisplayName(snapshot, t) }),
+  );
   autosave.reset(snapshot.program, snapshot.tape);
   lastCleanSaveStatus = { kind: 'idle' };
   syncSaveStatus();
@@ -647,15 +667,19 @@ function createManualSnapshot(): void {
   const program = dom.programInput.value;
   const tape = dom.tapeInput.value;
   if (program.trim() === '') {
-    controller.notifySnapshotEmpty();
+    notifications.show('warning', (t) => t.t('log.snapshotEmpty'));
     return;
   }
   const created = snapshots.create('manual', program, tape);
+  if (!snapshots.lastPersistOk) {
+    renderHistory();
+    return;
+  }
   activeSnapshotId = created.id;
   lastCleanSaveStatus = { kind: 'saved', timestamp: created.createdAt };
   autosave.reset(program, tape);
   syncSaveStatus();
-  controller.notifySnapshotSaved();
+  notifications.show('info', (t) => t.t('log.snapshotSaved'));
   renderHistory();
 }
 

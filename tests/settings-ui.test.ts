@@ -415,9 +415,10 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
 
     // Copy button copies converted code and displays confirmation inside the popup.
     tu4CopyBtn.click();
-    await Promise.resolve();
-    expect(writeText).toHaveBeenCalledWith('01, ,#,01\n00, ,>,01');
-    expect(tu4Status.textContent).toBe('Код TU4 скопирован в буфер обмена');
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('01, ,#,01\n00, ,>,01');
+      expect(tu4Status.textContent).toBe('Код TU4 скопирован в буфер обмена');
+    });
 
     // Closing the dialog clears the status and keeps original program intact.
     tu4DoneBtn.click();

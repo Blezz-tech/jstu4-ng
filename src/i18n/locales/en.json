@@ -19,7 +19,8 @@
     "snapshotSaved": "Program snapshot saved",
     "snapshotRestored": "Restored snapshot: {name}",
     "snapshotDeleted": "Snapshot deleted",
-    "snapshotEmpty": "Nothing to save: program is empty"
+    "snapshotEmpty": "Nothing to save: program is empty",
+    "snapshotQuotaExceeded": "Could not persist snapshot: browser storage quota exceeded"
   },
   "error": {
     "parseError": "Could not parse “{text}”",
