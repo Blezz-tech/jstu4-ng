@@ -160,19 +160,37 @@
                       for="input-min-speed"
                       data-i18n="settings.minSpeed"
                     ></label>
-                    <div class="setting-number">
-                      <input
-                        class="setting-number__input"
-                        id="input-min-speed"
-                        type="number"
-                        min="-1000"
-                        max="-1"
-                        step="1"
-                        value="-15"
-                        inputmode="decimal"
-                        data-i18n-attr="aria-label:settings.minSpeed"
-                      />
-                      <span class="setting-number__unit" aria-hidden="true">×</span>
+                    <div class="setting-stepper">
+                      <button
+                        class="setting-stepper__btn"
+                        id="btn-min-speed-dec"
+                        type="button"
+                        data-i18n-attr="title:settings.minSpeedDec;aria-label:settings.minSpeedDec"
+                      >
+                        −
+                      </button>
+                      <div class="setting-number">
+                        <input
+                          class="setting-number__input"
+                          id="input-min-speed"
+                          type="number"
+                          min="-1000"
+                          max="-1"
+                          step="1"
+                          value="-15"
+                          inputmode="decimal"
+                          data-i18n-attr="aria-label:settings.minSpeed"
+                        />
+                        <span class="setting-number__unit" aria-hidden="true">×</span>
+                      </div>
+                      <button
+                        class="setting-stepper__btn"
+                        id="btn-min-speed-inc"
+                        type="button"
+                        data-i18n-attr="title:settings.minSpeedInc;aria-label:settings.minSpeedInc"
+                      >
+                        +
+                      </button>
                     </div>
                   </div>
 
@@ -183,19 +201,37 @@
                       for="input-max-speed"
                       data-i18n="settings.maxSpeed"
                     ></label>
-                    <div class="setting-number">
-                      <input
-                        class="setting-number__input"
-                        id="input-max-speed"
-                        type="number"
-                        min="1"
-                        max="1000"
-                        step="1"
-                        value="25"
-                        inputmode="decimal"
-                        data-i18n-attr="aria-label:settings.maxSpeed"
-                      />
-                      <span class="setting-number__unit" aria-hidden="true">×</span>
+                    <div class="setting-stepper">
+                      <button
+                        class="setting-stepper__btn"
+                        id="btn-max-speed-dec"
+                        type="button"
+                        data-i18n-attr="title:settings.maxSpeedDec;aria-label:settings.maxSpeedDec"
+                      >
+                        −
+                      </button>
+                      <div class="setting-number">
+                        <input
+                          class="setting-number__input"
+                          id="input-max-speed"
+                          type="number"
+                          min="1"
+                          max="1000"
+                          step="1"
+                          value="25"
+                          inputmode="decimal"
+                          data-i18n-attr="aria-label:settings.maxSpeed"
+                        />
+                        <span class="setting-number__unit" aria-hidden="true">×</span>
+                      </div>
+                      <button
+                        class="setting-stepper__btn"
+                        id="btn-max-speed-inc"
+                        type="button"
+                        data-i18n-attr="title:settings.maxSpeedInc;aria-label:settings.maxSpeedInc"
+                      >
+                        +
+                      </button>
                     </div>
                   </div>
                 </div>

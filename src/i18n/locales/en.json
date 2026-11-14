@@ -74,7 +74,11 @@
     "themeDark": "Dark",
     "sound": "Step sound",
     "minSpeed": "Min speed",
+    "minSpeedDec": "Decrease min speed",
+    "minSpeedInc": "Increase min speed",
     "maxSpeed": "Max speed",
+    "maxSpeedDec": "Decrease max speed",
+    "maxSpeedInc": "Increase max speed",
     "on": "On",
     "off": "Off"
   },

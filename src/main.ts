@@ -88,7 +88,11 @@ const dom = {
   soundButton: mustFind<HTMLButtonElement>(document, '#btn-sound'),
   soundLabel: mustFind(document, '#sound-label'),
   minSpeedInput: mustFind<HTMLInputElement>(document, '#input-min-speed'),
+  minSpeedDec: mustFind<HTMLButtonElement>(document, '#btn-min-speed-dec'),
+  minSpeedInc: mustFind<HTMLButtonElement>(document, '#btn-min-speed-inc'),
   maxSpeedInput: mustFind<HTMLInputElement>(document, '#input-max-speed'),
+  maxSpeedDec: mustFind<HTMLButtonElement>(document, '#btn-max-speed-dec'),
+  maxSpeedInc: mustFind<HTMLButtonElement>(document, '#btn-max-speed-inc'),
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
   helpBody: mustFind(document, '#help-body'),
@@ -214,12 +218,16 @@ function syncSpeedControls(): void {
   if (document.activeElement !== dom.minSpeedInput) {
     dom.minSpeedInput.value = String(minSpeed);
   }
+  setButtonDisabled(dom.minSpeedDec, minSpeed <= MIN_MIN_SPEED);
+  setButtonDisabled(dom.minSpeedInc, minSpeed >= MAX_MIN_SPEED);
 
   dom.maxSpeedInput.min = String(MIN_MAX_SPEED);
   dom.maxSpeedInput.max = String(MAX_MAX_SPEED);
   if (document.activeElement !== dom.maxSpeedInput) {
     dom.maxSpeedInput.value = String(maxSpeed);
   }
+  setButtonDisabled(dom.maxSpeedDec, maxSpeed <= MIN_MAX_SPEED);
+  setButtonDisabled(dom.maxSpeedInc, maxSpeed >= MAX_MAX_SPEED);
 }
 
 /* ——— settings menu ——————————————————————————————————————————————— */
@@ -559,6 +567,75 @@ on(dom.minSpeedInput, 'blur', () => applyMinSpeedValue(dom.minSpeedInput.value, 
 on(dom.maxSpeedInput, 'input', () => applyMaxSpeedValue(dom.maxSpeedInput.value, false));
 on(dom.maxSpeedInput, 'change', () => applyMaxSpeedValue(dom.maxSpeedInput.value, true));
 on(dom.maxSpeedInput, 'blur', () => applyMaxSpeedValue(dom.maxSpeedInput.value, true));
+
+function stepMinSpeed(delta: number): void {
+  const result = controller.setMinSpeed(clampMinSpeed(controller.currentMinSpeed + delta));
+  updateSettings({ minSpeed: result.minSpeed, speed: result.speed });
+  dom.minSpeedInput.value = String(result.minSpeed);
+  syncSpeedControls();
+}
+
+function stepMaxSpeed(delta: number): void {
+  const result = controller.setMaxSpeed(clampMaxSpeed(controller.currentMaxSpeed + delta));
+  updateSettings({ maxSpeed: result.maxSpeed, speed: result.speed });
+  dom.maxSpeedInput.value = String(result.maxSpeed);
+  syncSpeedControls();
+}
+
+function bindStepperButton(button: HTMLButtonElement, onStep: () => void): void {
+  let delayId: number | null = null;
+  let repeatId: number | null = null;
+  let didRepeat = false;
+
+  const stop = (): void => {
+    if (delayId !== null) {
+      window.clearTimeout(delayId);
+      delayId = null;
+    }
+    if (repeatId !== null) {
+      window.clearInterval(repeatId);
+      repeatId = null;
+    }
+  };
+
+  on(button, 'pointerdown', (event) => {
+    if (event.button !== 0 || button.disabled) return;
+    didRepeat = false;
+    stop();
+    delayId = window.setTimeout(() => {
+      delayId = null;
+      if (button.disabled) return;
+      didRepeat = true;
+      onStep();
+      repeatId = window.setInterval(() => {
+        if (button.disabled) {
+          stop();
+          return;
+        }
+        onStep();
+      }, 65);
+    }, 380);
+  });
+
+  on(button, 'pointerup', stop);
+  on(button, 'pointercancel', stop);
+  on(button, 'pointerleave', stop);
+  on(button, 'blur', stop);
+
+  on(button, 'click', () => {
+    stop();
+    if (didRepeat) {
+      didRepeat = false;
+      return;
+    }
+    if (!button.disabled) onStep();
+  });
+}
+
+bindStepperButton(dom.minSpeedDec, () => stepMinSpeed(-1));
+bindStepperButton(dom.minSpeedInc, () => stepMinSpeed(1));
+bindStepperButton(dom.maxSpeedDec, () => stepMaxSpeed(-1));
+bindStepperButton(dom.maxSpeedInc, () => stepMaxSpeed(1));
 
 // Persist the draft as the user types (debounced).
 const persistProgram = debounce((text: string) => saveProgram(text), 400);

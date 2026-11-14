@@ -410,7 +410,7 @@ button {
   top: calc(100% + 8px);
   right: 0;
   z-index: 30;
-  width: min(300px, calc(100vw - 2 * var(--space)));
+  width: min(328px, calc(100vw - 2 * var(--space)));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -561,6 +561,49 @@ button {
   text-align: left;
 }
 
+.setting-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.setting-stepper__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    transform 0.08s ease;
+}
+
+.setting-stepper__btn:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.setting-stepper__btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.setting-stepper__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .setting-number {
   display: inline-flex;
   align-items: center;
@@ -581,7 +624,7 @@ button {
 }
 
 .setting-number__input {
-  width: 5.5ch;
+  width: 4.8ch;
   border: none;
   background: transparent;
   color: var(--text);
@@ -590,6 +633,14 @@ button {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: right;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.setting-number__input::-webkit-inner-spin-button,
+.setting-number__input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .setting-number__input:focus {

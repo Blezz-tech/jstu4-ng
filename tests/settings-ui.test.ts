@@ -330,4 +330,55 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     expect(document.querySelector<HTMLInputElement>('#input-min-speed')?.value).toBe('-20');
     expect(document.querySelector<HTMLInputElement>('#input-max-speed')?.value).toBe('30');
   });
+
+  it('adjusts minSpeed and maxSpeed with − and + stepper buttons, enforces bounds, and persists', async () => {
+    await import('../src/main');
+
+    const gearBtn = document.querySelector<HTMLButtonElement>('#btn-settings')!;
+    const minInput = document.querySelector<HTMLInputElement>('#input-min-speed')!;
+    const minDec = document.querySelector<HTMLButtonElement>('#btn-min-speed-dec')!;
+    const minInc = document.querySelector<HTMLButtonElement>('#btn-min-speed-inc')!;
+    const maxInput = document.querySelector<HTMLInputElement>('#input-max-speed')!;
+    const maxDec = document.querySelector<HTMLButtonElement>('#btn-max-speed-dec')!;
+    const maxInc = document.querySelector<HTMLButtonElement>('#btn-max-speed-inc')!;
+    const speedSlider = document.querySelector<HTMLInputElement>('#input-speed')!;
+
+    gearBtn.click();
+
+    // Min speed starts at -15: − gives -16, + returns to -15.
+    minDec.click();
+    expect(minInput.value).toBe('-16');
+    expect(speedSlider.min).toBe('-16');
+    minInc.click();
+    minInc.click();
+    expect(minInput.value).toBe('-14');
+    expect(speedSlider.min).toBe('-14');
+
+    // Max speed starts at 25: + gives 26, − returns to 25 and then 24.
+    maxInc.click();
+    expect(maxInput.value).toBe('26');
+    expect(speedSlider.max).toBe('26');
+    maxDec.click();
+    maxDec.click();
+    expect(maxInput.value).toBe('24');
+    expect(speedSlider.max).toBe('24');
+
+    // Verify boundary disabling at -1 (for minSpeed +) and 1 (for maxSpeed −).
+    minInput.value = '-1';
+    minInput.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(minInc.disabled).toBe(true);
+    expect(minDec.disabled).toBe(false);
+
+    maxInput.value = '1';
+    maxInput.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(maxDec.disabled).toBe(true);
+    expect(maxInc.disabled).toBe(false);
+
+    const stored = JSON.parse(window.localStorage.getItem('jstu4:settings') ?? '{}') as {
+      minSpeed?: number;
+      maxSpeed?: number;
+    };
+    expect(stored.minSpeed).toBe(-1);
+    expect(stored.maxSpeed).toBe(1);
+  });
 });
