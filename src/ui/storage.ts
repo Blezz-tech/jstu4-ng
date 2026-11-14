@@ -30,6 +30,9 @@ export interface AppSettings {
   readonly minSpeed: number;
   readonly maxSpeed: number;
   readonly sidepanelOpen?: boolean;
+  readonly historyOpen?: boolean;
+  readonly namedOnly?: boolean;
+  readonly confirmSnapshotDelete?: boolean;
 }
 
 export interface SavedState {
@@ -94,6 +97,14 @@ export function loadSettings(): AppSettings {
             : clampSpeed(DEFAULT_SETTINGS.speed, minSpeed, maxSpeed);
         const sidepanelOpen =
           typeof record['sidepanelOpen'] === 'boolean' ? record['sidepanelOpen'] : undefined;
+        const historyOpen =
+          typeof record['historyOpen'] === 'boolean' ? record['historyOpen'] : undefined;
+        const namedOnly =
+          typeof record['namedOnly'] === 'boolean' ? record['namedOnly'] : undefined;
+        const confirmSnapshotDelete =
+          typeof record['confirmSnapshotDelete'] === 'boolean'
+            ? record['confirmSnapshotDelete']
+            : undefined;
         return {
           lang:
             typeof record['lang'] === 'string' && isLang(record['lang']) ? record['lang'] : null,
@@ -103,6 +114,9 @@ export function loadSettings(): AppSettings {
           minSpeed,
           maxSpeed,
           ...(sidepanelOpen !== undefined ? { sidepanelOpen } : {}),
+          ...(historyOpen !== undefined ? { historyOpen } : {}),
+          ...(namedOnly !== undefined ? { namedOnly } : {}),
+          ...(confirmSnapshotDelete !== undefined ? { confirmSnapshotDelete } : {}),
         };
       }
     } catch {
