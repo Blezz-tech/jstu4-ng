@@ -535,6 +535,44 @@
       </div>
     </dialog>
 
+    <dialog class="help tu4-dialog" id="tu4-dialog" aria-labelledby="tu4-title" tabindex="-1">
+      <div class="help__inner">
+        <header class="help__header">
+          <h2 id="tu4-title" data-i18n="tu4Dialog.title"></h2>
+          <button
+            class="icon-btn"
+            id="btn-tu4-close"
+            type="button"
+            data-i18n-attr="title:controls.close;aria-label:controls.close"
+          >
+            ×
+          </button>
+        </header>
+        <div class="help__body tu4-dialog__body">
+          <p class="tu4-dialog__desc" data-i18n="tu4Dialog.description"></p>
+          <textarea
+            class="field tu4-dialog__code"
+            id="tu4-output"
+            readonly
+            spellcheck="false"
+            wrap="off"
+            data-i18n-attr="aria-label:tu4Dialog.codeLabel"
+          ></textarea>
+        </div>
+        <footer class="help__footer tu4-dialog__footer">
+          <span class="tu4-dialog__status" id="tu4-status" role="status" aria-live="polite"></span>
+          <div class="tu4-dialog__actions">
+            <button class="btn btn--primary" id="btn-tu4-copy" type="button">
+              <span class="btn__text" data-i18n="controls.copy"></span>
+            </button>
+            <button class="btn" id="btn-tu4-done" type="button">
+              <span class="btn__text" data-i18n="controls.close"></span>
+            </button>
+          </div>
+        </footer>
+      </div>
+    </dialog>
+
     <noscript>
       <p class="noscript">Для работы эмулятора нужен JavaScript. / JavaScript is required.</p>
     </noscript>

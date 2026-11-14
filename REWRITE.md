@@ -11,7 +11,7 @@
 | JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **55.7 КБ** (17.1 КБ gzip)                                                                         |
 | Языки               | ES3-стиль, глобальные `i18n`, `TM`              | TypeScript strict, ES-модули, `noUncheckedIndexedAccess`                                           |
 | Типизация           | нет                                             | 100% кода, `tsc --noEmit` в скриптах `build:*`                                                     |
-| Тесты               | нет                                             | **99 юнит/DOM (Vitest) + 29 сквозных (Playwright)**                                                |
+| Тесты               | нет                                             | **100 юнит/DOM (Vitest) + 29 сквозных (Playwright)**                                               |
 | Линт/формат         | нет                                             | ESLint 10 (typescript-eslint, type-checked) + Prettier                                             |
 | Сборка              | ручное подключение `<script>`                   | Vite 7: `build:prod` (оптимизации, без `.js.map`) и `build:dev` (с `.js.map`), работа по `file://` |
 | Доступность         | кнопки-ссылки без семантики                     | `<button>`, `<dialog>`, aria-live, `:focus-visible`, skip-link                                     |
@@ -87,7 +87,7 @@
 
 ```bash
 npm install
-npm run check      # lint + prettier + 99 юнит/DOM-тестов + production-сборка
+npm run check      # lint + prettier + 100 юнит/DOM-тестов + production-сборка
 npm run build:dev  # development-сборка с .js.map
 npm run build:prod # production-сборка без .js.map
 npm run test:e2e   # 29 сценариев Playwright в Chromium

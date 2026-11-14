@@ -80,6 +80,8 @@ export interface ControllerOptions {
   /** Persist the program draft. */
   readonly onProgramChange: (text: string) => void;
   readonly onTapeChange: (text: string) => void;
+  /** Called with converted TU4 source when "To TU4" succeeds (without mutating the editor). */
+  readonly onTu4Converted?: (converted: string) => void;
   /** Optional per-step click. */
   readonly onStepSound?: () => void;
 }
@@ -486,20 +488,23 @@ export class AppController {
     this.setLog({ type: 'copied' });
   }
 
-  /** "To TU4": convert the current program and replace the editor content. */
-  toTu4(): void {
+  /**
+   * "To TU4": convert the current program to TU4 format without modifying
+   * the editor content, and deliver the converted text via `onTu4Converted`.
+   */
+  toTu4(): string | null {
     const parsed = this.parseInput();
-    if (parsed === null) return;
+    if (parsed === null) return null;
 
     try {
       const converted = toTu4(parsed.program);
-      this.el.programInput.value = converted;
-      this.options.onProgramChange(converted);
       this.setLog({ type: 'convertedToTu4' });
+      this.options.onTu4Converted?.(converted);
+      return converted;
     } catch (error) {
       if (error instanceof RangeError) {
         this.setLog({ type: 'tooManyStates' });
-        return;
+        return null;
       }
       throw error;
     }
