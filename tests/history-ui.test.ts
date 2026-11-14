@@ -31,6 +31,13 @@ function editField(field: HTMLInputElement | HTMLTextAreaElement, value: string)
 }
 
 describe('version control UI (public/index.html + src/main.ts)', () => {
+  let mounted: { dispose(): void } | null = null;
+
+  async function boot(): Promise<void> {
+    const mod = await import('../src/main');
+    mounted = mod.app;
+  }
+
   beforeEach(() => {
     vi.resetModules();
     window.localStorage.clear();
@@ -57,6 +64,8 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
   });
 
   afterEach(() => {
+    mounted?.dispose();
+    mounted = null;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     window.localStorage.clear();
@@ -64,7 +73,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
   });
 
   it('places SVG save button right after Copy, status indicator after Save, and SVG history button right before Settings', async () => {
-    await import('../src/main');
+    await boot();
 
     const copyBtn = document.querySelector<HTMLButtonElement>('#btn-copy')!;
     const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
@@ -103,7 +112,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 14, 12, 30, 0));
 
-    await import('../src/main');
+    await boot();
 
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
     const tapeInput = document.querySelector<HTMLInputElement>('#input-tape')!;
@@ -186,7 +195,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 14, 14, 0, 5));
 
-    await import('../src/main');
+    await boot();
 
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
     const tapeInput = document.querySelector<HTMLInputElement>('#input-tape')!;
@@ -245,7 +254,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 14, 16, 10, 0));
 
-    await import('../src/main');
+    await boot();
 
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
     const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
@@ -315,5 +324,62 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     expect(deleteDialog.open).toBe(true);
     confirmDeleteBtn.click();
     expect(historyList.children).toHaveLength(0);
+  });
+
+  it('updates history live on cross-tab storage events and warns on QuotaExceededError', async () => {
+    await boot();
+
+    const historyBtn = document.querySelector<HTMLButtonElement>('#btn-history')!;
+    const historyList = document.querySelector<HTMLUListElement>('#history-list')!;
+    const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
+    const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
+    const saveStatus = document.querySelector<HTMLElement>('#save-status')!;
+    const deleteDialog = document.querySelector<HTMLDialogElement>('#delete-snapshot-dialog')!;
+    const log = document.querySelector<HTMLElement>('#log')!;
+
+    historyBtn.click();
+    expect(historyList.children).toHaveLength(0);
+
+    // Simulate another tab writing a snapshot into localStorage
+    window.localStorage.setItem(
+      SNAPSHOTS_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: 'ext-1',
+          kind: 'manual',
+          createdAt: new Date(2026, 10, 14, 18, 0, 0).getTime(),
+          customName: 'From another tab',
+          program: '0, ,#,0',
+          tape: '1',
+        },
+      ]),
+    );
+    window.dispatchEvent(new StorageEvent('storage', { key: SNAPSHOTS_STORAGE_KEY }));
+
+    expect(historyList.children).toHaveLength(1);
+    expect(historyList.textContent).toContain('From another tab');
+
+    // Open delete confirmation dialog for ext-1, then simulate another tab deleting it → dialog closes
+    historyList.querySelector<HTMLButtonElement>('.snapshot-action--delete')!.click();
+    expect(deleteDialog.open).toBe(true);
+    window.localStorage.setItem(SNAPSHOTS_STORAGE_KEY, JSON.stringify([]));
+    window.dispatchEvent(new StorageEvent('storage', { key: SNAPSHOTS_STORAGE_KEY }));
+    expect(deleteDialog.open).toBe(false);
+    expect(historyList.children).toHaveLength(0);
+
+    // Simulate storage quota failure when saving manually → warning shown, no phantom entry, stays dirty
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation((key: string) => {
+      if (key === SNAPSHOTS_STORAGE_KEY) {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      }
+    });
+    editField(programInput, '0,1,0,0');
+    expect(saveStatus.dataset.state).toBe('dirty');
+    saveBtn.click();
+
+    expect(log.dataset.kind).toBe('warning');
+    expect(log.textContent).toContain('хранилище браузера переполнено');
+    expect(historyList.children).toHaveLength(0);
+    expect(saveStatus.dataset.state).toBe('dirty');
   });
 });

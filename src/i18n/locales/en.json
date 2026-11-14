@@ -10,6 +10,7 @@
     "ready": "Ready to run: Ctrl+Enter",
     "finished": "The machine has successfully finished its work",
     "reachedInitialState": "Machine reached the initial state",
+    "reachedHistoryLimit": "Reached the undo history limit (use Restart for a full reset)",
     "restarted": "Machine restarted",
     "warningSourceAltered": "Warning: the source data was overwritten or modified",
     "warningMisposition": "Warning: the head should stop right after the result",
@@ -19,7 +20,8 @@
     "snapshotSaved": "Program snapshot saved",
     "snapshotRestored": "Restored snapshot: {name}",
     "snapshotDeleted": "Snapshot deleted",
-    "snapshotEmpty": "Nothing to save: program is empty"
+    "snapshotEmpty": "Nothing to save: program is empty",
+    "snapshotQuotaExceeded": "Could not persist snapshot: browser storage quota exceeded"
   },
   "error": {
     "parseError": "Could not parse “{text}”",

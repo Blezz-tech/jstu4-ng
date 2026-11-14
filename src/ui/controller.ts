@@ -12,13 +12,15 @@ import {
 import { MachineRun } from '../core/run';
 import { toTu4 } from '../core/tu4';
 import type { I18n } from '../i18n';
+import { copyTextToClipboard } from './clipboard';
 import { el } from './dom';
+import { NotificationLog, type LogKind } from './notifications';
 import {
   compileProgram,
   listProgram,
   renderProgram,
   renderProgramWithError,
-  renderTape,
+  TapeRenderer,
   type CompiledProgram,
 } from './render';
 import {
@@ -32,6 +34,7 @@ import {
   stepIntervalMs,
 } from './speed';
 
+export type { LogKind };
 export type UIMode = 'edit' | 'run' | 'error';
 
 /** Everything the controller needs from the page, injected by main.ts. */
@@ -44,8 +47,6 @@ export interface AppElements {
   readonly stats: HTMLElement;
   readonly controls: HTMLElement;
 }
-
-export type LogKind = 'info' | 'warning' | 'error';
 
 /** Snapshot of run-mode control availability emitted whenever execution state changes. */
 export interface RunControlState {
@@ -61,21 +62,23 @@ export interface RunControlState {
 export interface ControllerOptions {
   readonly i18n: I18n;
   readonly elements: AppElements;
+  /** Optional shared notification log; when omitted, an internal one is created for `elements.log`. */
+  readonly notifications?: NotificationLog;
   /** Initial auto-run speed multiplier (defaults to 1×). */
   readonly initialSpeed?: number;
   /** Initial minimum (reverse) speed multiplier (defaults to -15×). */
   readonly initialMinSpeed?: number;
   /** Initial maximum (forward) speed multiplier (defaults to 25×). */
   readonly initialMaxSpeed?: number;
+  /** Maximum reversible steps retained per run (defaults to `DEFAULT_MAX_HISTORY`). */
+  readonly maxHistory?: number;
   /** Called after every mode or auto-run state change so the shell can sync UI. */
   readonly onModeChange: (mode: UIMode) => void;
-  /**
-   * Called whenever the machine halts or starts running again.
-   */
+  /** Called whenever the machine halts or starts running again. */
   readonly onRunningChange?: (isRunning: boolean) => void;
   /** Called whenever run-mode button availability changes (step back/forward, run, restart). */
   readonly onRunStateChange?: (state: RunControlState) => void;
-  /** Called whenever the status notification changes (`null` when cleared). */
+  /** Called whenever the internal notification log changes (ignored when `notifications` is injected). */
   readonly onLogChange?: (kind: LogKind | null) => void;
   /** Persist the program draft. */
   readonly onProgramChange: (text: string) => void;
@@ -89,30 +92,6 @@ export interface ControllerOptions {
 const RAF_THRESHOLD_MS = 20;
 const MAX_BATCH_STEPS_PER_FRAME = 64;
 const MAX_BATCH_MS_PER_FRAME = 6;
-
-type LogDescriptor =
-  | { readonly type: 'none' }
-  | { readonly type: 'ready' }
-  | { readonly type: 'restoredDraft' }
-  | { readonly type: 'finished' }
-  | { readonly type: 'reachedInitialState' }
-  | { readonly type: 'restarted' }
-  | { readonly type: 'sourceAltered' }
-  | { readonly type: 'misplaced' }
-  | { readonly type: 'convertedToTu4' }
-  | { readonly type: 'copied' }
-  | { readonly type: 'snapshotSaved' }
-  | { readonly type: 'snapshotRestored'; readonly name: string }
-  | { readonly type: 'snapshotDeleted' }
-  | { readonly type: 'snapshotEmpty' }
-  | { readonly type: 'tooManyStates' }
-  | { readonly type: 'parseError'; readonly text: string }
-  | { readonly type: 'programIsEmpty' }
-  | { readonly type: 'ambiguousCommand'; readonly q: string; readonly a: string }
-  | { readonly type: 'targetStateDoesNotExist'; readonly w: string }
-  | { readonly type: 'initialStateDoesNotExist'; readonly q: string }
-  | { readonly type: 'headIsOutOfTape' }
-  | { readonly type: 'noSuchCommand'; readonly q: string; readonly a: string };
 
 /**
  * The tape is a sequence of single-character cells, so tabs or pasted line
@@ -132,18 +111,26 @@ function scrollElementIntoView(
 }
 
 /**
- * The whole application behaviour, framework-free: one class, explicit state,
- * DOM events in, DOM updates out.
+ * Execution controller for the Turing machine emulator: owns compile/run/error
+ * modes, stepping, high-speed frame batching, incremental tape rendering, and
+ * O(1) program listing highlights.
  */
 export class AppController {
   private readonly i18n: I18n;
   private readonly unsubscribeI18n: () => void;
   private readonly el: AppElements;
   private readonly options: ControllerOptions;
+  private readonly notifications: NotificationLog;
+  private readonly ownsNotifications: boolean;
 
   private mode: UIMode = 'edit';
   private run: MachineRun | null = null;
   private compiled: CompiledProgram | null = null;
+  private readonly tapeRenderer = new TapeRenderer();
+  private readonly commandIndex = new Map<Command, number>();
+  private commandNodes: HTMLElement[] = [];
+  private currentCommandNode: HTMLElement | null = null;
+  private errorCommandNode: HTMLElement | null = null;
   private readonly visitCounts = new Map<number, number>();
 
   private autoTimer: ReturnType<typeof setTimeout> | null = null;
@@ -159,7 +146,6 @@ export class AppController {
   private resumeAfterZeroDrag = false;
 
   private returnCursorOffset: number | null = null;
-  private lastLog: LogDescriptor = { type: 'none' };
   private hasStats = false;
   private stats = { commandsCount: 0, initialDataLength: 0, maxDataLength: 0, operationsCount: 0 };
 
@@ -167,6 +153,17 @@ export class AppController {
     this.options = options;
     this.i18n = options.i18n;
     this.el = options.elements;
+    if (options.notifications !== undefined) {
+      this.notifications = options.notifications;
+      this.ownsNotifications = false;
+    } else {
+      this.notifications = new NotificationLog({
+        element: options.elements.log,
+        i18n: options.i18n,
+        ...(options.onLogChange !== undefined ? { onChange: options.onLogChange } : {}),
+      });
+      this.ownsNotifications = true;
+    }
     this.minSpeed = clampMinSpeed(options.initialMinSpeed ?? DEFAULT_MIN_SPEED);
     this.maxSpeed = clampMaxSpeed(options.initialMaxSpeed ?? DEFAULT_MAX_SPEED);
     this.speed = clampSpeed(options.initialSpeed ?? DEFAULT_SPEED, this.minSpeed, this.maxSpeed);
@@ -198,15 +195,15 @@ export class AppController {
   }
 
   get isMachineRunning(): boolean {
-    return this.run?.isRunning ?? false;
+    return this.mode === 'run' && this.run !== null && this.run.isRunning;
   }
 
   get canStepForward(): boolean {
-    return this.mode === 'run' && (this.run?.isRunning ?? false);
+    return this.mode === 'run' && this.run !== null && this.run.isRunning;
   }
 
   get canStepBack(): boolean {
-    return this.mode === 'run' && (this.run?.canStepBack ?? false);
+    return this.mode === 'run' && this.run !== null && this.run.canStepBack;
   }
 
   get canRestart(): boolean {
@@ -257,7 +254,7 @@ export class AppController {
       if (!this.canStepInDirection(next)) {
         this.clearAutoHandles();
         if (next < 0 && this.run !== null && !this.run.canStepBack) {
-          this.setLog({ type: 'reachedInitialState' });
+          this.notifyStepBackBoundary(this.run);
         }
         this.options.onModeChange(this.mode);
       } else {
@@ -273,7 +270,7 @@ export class AppController {
         this.lastStepAt = performance.now();
         this.scheduleAutoTick(0);
       } else if (next < 0 && this.run !== null && !this.run.canStepBack) {
-        this.setLog({ type: 'reachedInitialState' });
+        this.notifyStepBackBoundary(this.run);
       }
     }
 
@@ -303,9 +300,8 @@ export class AppController {
 
   /** Re-render controller-owned localized text when the active locale changes. */
   private refreshLocalized(): void {
-    this.renderLog();
     if (this.hasStats) this.renderStats();
-    if (this.mode === 'run') this.renderTapeView();
+    if (this.mode === 'run') this.updateTapeView(false);
   }
 
   /** Restore a draft on initial startup. */
@@ -313,7 +309,9 @@ export class AppController {
     if (program !== null) this.el.programInput.value = program;
     if (tape !== null) this.el.tapeInput.value = tape;
     this.setMode('edit');
-    this.setLog(program !== null ? { type: 'restoredDraft' } : { type: 'ready' });
+    this.notifications.show('info', (i) =>
+      i.t(program !== null ? 'log.restoredDraft' : 'log.ready'),
+    );
   }
 
   // ——— user actions ————————————————————————————————————————————————
@@ -329,14 +327,19 @@ export class AppController {
 
     this.stopAutoRun();
     this.compiled = parsed;
-    this.run = new MachineRun(parsed.program, tape);
+    this.run = new MachineRun(
+      parsed.program,
+      tape,
+      this.options.maxHistory !== undefined ? { maxHistory: this.options.maxHistory } : {},
+    );
     this.visitCounts.clear();
     this.returnCursorOffset = null;
     this.options.onProgramChange(this.el.programInput.value);
     this.options.onTapeChange(tape);
 
     this.el.programView.replaceChildren(renderProgram(parsed));
-    this.renderTapeView();
+    this.indexCompiledCommands(parsed);
+    this.mountTapeView();
 
     this.stats = {
       commandsCount: parsed.commands.length,
@@ -351,7 +354,7 @@ export class AppController {
     this.el.programView.scrollTop = scrollTop;
     this.setStepDirection('forward');
     this.highlightCurrentCommand(this.run.nextCommand);
-    this.setLog({ type: 'none' });
+    this.notifications.clear();
     this.notifyRunState();
     // Move focus out of any previously active input (e.g. `#input-tape` after
     // pressing Enter) so Space/Enter/Esc hotkeys work immediately in run mode.
@@ -367,18 +370,20 @@ export class AppController {
 
     this.stopAutoRun();
     this.run.reset();
+    for (const index of this.visitCounts.keys()) {
+      this.commandNodes[index]?.classList.remove('visited');
+    }
     this.visitCounts.clear();
-    this.el.programView.querySelectorAll('.cmd.visited, .cmd.current, .cmd.error').forEach((n) => {
-      n.classList.remove('visited', 'current', 'error');
-    });
+    this.clearCurrentCommandHighlight();
+    this.clearErrorCommandHighlight();
 
     this.stats.operationsCount = 0;
     this.stats.maxDataLength = this.run.cellsUsed;
     this.renderStats();
-    this.renderTapeView();
+    this.updateTapeView(true);
     this.setStepDirection('forward');
     this.highlightCurrentCommand(this.run.nextCommand);
-    this.setLog({ type: 'restarted' });
+    this.notifications.show('info', (i) => i.t('log.restarted'));
     this.notifyRunState();
   }
 
@@ -388,7 +393,7 @@ export class AppController {
    */
   step(): boolean {
     this.stopAutoRun();
-    return this.stepForwardOnce(true);
+    return this.stepForwardOnce(true, true);
   }
 
   /**
@@ -397,7 +402,7 @@ export class AppController {
    */
   stepBack(): boolean {
     this.stopAutoRun();
-    return this.stepBackOnce(true);
+    return this.stepBackOnce(true, true);
   }
 
   /**
@@ -412,7 +417,7 @@ export class AppController {
     if (this.mode !== 'run' || this.run === null || this.speed === 0) return;
 
     if (this.speed < 0 && !this.run.canStepBack) {
-      this.setLog({ type: 'reachedInitialState' });
+      this.notifyStepBackBoundary(this.run);
       this.notifyRunState();
       return;
     }
@@ -438,13 +443,9 @@ export class AppController {
     const scrollTop = this.el.programView.scrollTop;
     const cursorOffset = this.returnCursorOffset;
 
-    this.stopAutoRun();
-    this.run = null;
-    this.compiled = null;
-    this.visitCounts.clear();
-    this.returnCursorOffset = null;
+    this.resetRunObjects();
     this.setMode('edit');
-    this.setLog({ type: 'none' });
+    this.notifications.clear();
     this.notifyRunState();
 
     const target =
@@ -465,31 +466,16 @@ export class AppController {
   /** "Unmark": pause auto-run (if active) and clear visited command marks. */
   unmark(): void {
     this.stopAutoRun();
+    for (const index of this.visitCounts.keys()) {
+      this.commandNodes[index]?.classList.remove('visited');
+    }
     this.visitCounts.clear();
-    this.el.programView.querySelectorAll('.cmd.visited').forEach((node) => {
-      node.classList.remove('visited');
-    });
   }
 
-  /**
-   * "Copy": copy the program to the clipboard. Falls back to textarea
-   * selection + `execCommand` on non-secure origins or older browsers.
-   */
+  /** "Copy": copy the program to the clipboard. */
   async copyProgram(): Promise<void> {
-    const text = this.el.programInput.value;
-    if (text === '') return;
-
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const input = this.el.programInput;
-      input.focus();
-      input.select();
-      const copied = document.execCommand('copy');
-      input.setSelectionRange(input.value.length, input.value.length);
-      if (!copied) return;
-    }
-    this.setLog({ type: 'copied' });
+    const copied = await copyTextToClipboard(this.el.programInput.value, this.el.programInput);
+    if (copied) this.notifications.show('info', (i) => i.t('log.copied'));
   }
 
   /**
@@ -502,25 +488,22 @@ export class AppController {
 
     try {
       const converted = toTu4(parsed.program);
-      this.setLog({ type: 'convertedToTu4' });
+      this.notifications.show('info', (i) => i.t('log.convertedToTu4'));
       this.options.onTu4Converted?.(converted);
       return converted;
     } catch (error) {
       if (error instanceof RangeError) {
-        this.setLog({ type: 'tooManyStates' });
+        this.notifications.show('error', (i) => i.t('error.tooManyStates'));
         return null;
       }
       throw error;
     }
   }
 
-  /** Load a saved snapshot into the editor, stopping any active run first. */
-  loadSnapshot(program: string, tape: string, displayName: string): void {
+  /** Stop any active run and replace the editor content with the given program and tape. */
+  loadDraft(program: string, tape: string): void {
     if (this.mode !== 'edit') {
-      this.stopAutoRun();
-      this.compiled = null;
-      this.run = null;
-      this.returnCursorOffset = null;
+      this.resetRunObjects();
       this.setMode('edit');
       this.notifyRunState();
     }
@@ -528,19 +511,6 @@ export class AppController {
     this.el.tapeInput.value = tape;
     this.options.onProgramChange(program);
     this.options.onTapeChange(tape);
-    this.setLog({ type: 'snapshotRestored', name: displayName });
-  }
-
-  notifySnapshotSaved(): void {
-    this.setLog({ type: 'snapshotSaved' });
-  }
-
-  notifySnapshotDeleted(): void {
-    this.setLog({ type: 'snapshotDeleted' });
-  }
-
-  notifySnapshotEmpty(): void {
-    this.setLog({ type: 'snapshotEmpty' });
   }
 
   /** Keyboard: Enter behaviour depends on the current mode. */
@@ -585,9 +555,33 @@ export class AppController {
   dispose(): void {
     this.stopAutoRun();
     this.unsubscribeI18n();
+    if (this.ownsNotifications) this.notifications.dispose();
   }
 
   // ——— internals ——————————————————————————————————————————————————
+
+  private resetRunObjects(): void {
+    this.stopAutoRun();
+    this.run = null;
+    this.compiled = null;
+    this.commandIndex.clear();
+    this.commandNodes = [];
+    this.currentCommandNode = null;
+    this.errorCommandNode = null;
+    this.visitCounts.clear();
+    this.tapeRenderer.clear();
+    this.returnCursorOffset = null;
+  }
+
+  private indexCompiledCommands(compiled: CompiledProgram): void {
+    this.commandIndex.clear();
+    compiled.commands.forEach((command, index) => {
+      this.commandIndex.set(command, index);
+    });
+    this.commandNodes = Array.from(this.el.programView.querySelectorAll<HTMLElement>('.cmd'));
+    this.currentCommandNode = null;
+    this.errorCommandNode = null;
+  }
 
   private canStepInDirection(speed: number): boolean {
     if (this.run === null || speed === 0) return false;
@@ -607,7 +601,25 @@ export class AppController {
     });
   }
 
-  private stepForwardOnce(playSound: boolean): boolean {
+  /**
+   * Synchronize all run-mode DOM surfaces (stats, tape, current command highlight)
+   * with the current `MachineRun` state. Called once per single step, or once per
+   * animation frame at the end of a high-speed batch.
+   */
+  private flushRunView(direction: 'forward' | 'reverse', clearNotification = true): void {
+    const run = this.run;
+    if (run === null) return;
+    this.stats.operationsCount = run.stepsCount;
+    this.stats.maxDataLength = run.cellsUsed;
+    this.renderStats();
+    this.updateTapeView(true);
+    this.setStepDirection(direction);
+    this.highlightCurrentCommand(run.nextCommand);
+    if (clearNotification) this.notifications.clear();
+    this.notifyRunState();
+  }
+
+  private stepForwardOnce(playSound: boolean, render: boolean): boolean {
     const run = this.run;
     if (run === null || !run.isRunning) return false;
 
@@ -615,38 +627,54 @@ export class AppController {
     try {
       run.step();
     } catch (error) {
-      this.renderTapeView();
+      this.stats.operationsCount = run.stepsCount;
+      this.stats.maxDataLength = run.cellsUsed;
+      this.renderStats();
+      this.updateTapeView(true);
+      this.setStepDirection('forward');
       this.reportRuntimeError(error);
       return false;
     }
 
-    if (executed !== undefined) this.recordVisited(executed, 1);
+    if (executed !== undefined) {
+      this.recordVisited(executed, 1);
+      this.returnCursorOffset = executed.source.offset;
+    }
 
     this.stats.operationsCount = run.stepsCount;
     this.stats.maxDataLength = run.cellsUsed;
-    this.renderStats();
-    this.renderTapeView();
-    this.setStepDirection('forward');
-    this.highlightCurrentCommand(run.nextCommand);
-    if (playSound) this.options.onStepSound?.();
 
     if (run.isRunning) {
-      this.setLog({ type: 'none' });
-      this.notifyRunState();
+      if (render) {
+        this.flushRunView('forward');
+      } else {
+        this.stepDirection = 'forward';
+      }
+      if (playSound) this.options.onStepSound?.();
       return true;
     }
 
+    this.renderStats();
+    this.updateTapeView(true);
+    this.setStepDirection('forward');
+    this.highlightCurrentCommand(run.nextCommand);
+    if (playSound) this.options.onStepSound?.();
     this.reportFinish(run);
     return false;
   }
 
-  private stepBackOnce(playSound: boolean): boolean {
+  private notifyStepBackBoundary(run: MachineRun): void {
+    const key = run.isAtStart ? 'log.reachedInitialState' : 'log.reachedHistoryLimit';
+    this.notifications.show('info', (i) => i.t(key));
+  }
+
+  private stepBackOnce(playSound: boolean, render: boolean): boolean {
     const run = this.run;
     if (run === null) return false;
 
     if (!run.canStepBack) {
       this.clearAutoHandles();
-      this.setLog({ type: 'reachedInitialState' });
+      this.notifyStepBackBoundary(run);
       this.options.onModeChange(this.mode);
       this.notifyRunState();
       return false;
@@ -656,28 +684,30 @@ export class AppController {
     if (undone === null) return false;
 
     this.recordVisited(undone, -1);
-    this.el.programView.querySelectorAll('.cmd.error').forEach((node) => {
-      node.classList.remove('error');
-    });
+    this.clearErrorCommandHighlight();
 
     this.stats.operationsCount = run.stepsCount;
     this.stats.maxDataLength = run.cellsUsed;
-    this.renderStats();
-    this.renderTapeView();
-    this.setStepDirection('reverse');
-    this.highlightCurrentCommand(run.nextCommand);
-    if (playSound) this.options.onStepSound?.();
 
-    if (run.isAtStart) {
+    if (!run.canStepBack) {
+      this.renderStats();
+      this.updateTapeView(true);
+      this.setStepDirection('reverse');
+      this.highlightCurrentCommand(run.nextCommand);
+      if (playSound) this.options.onStepSound?.();
       this.clearAutoHandles();
-      this.setLog({ type: 'reachedInitialState' });
+      this.notifyStepBackBoundary(run);
       this.options.onModeChange(this.mode);
       this.notifyRunState();
       return false;
     }
 
-    this.setLog({ type: 'none' });
-    this.notifyRunState();
+    if (render) {
+      this.flushRunView('reverse');
+    } else {
+      this.stepDirection = 'reverse';
+    }
+    if (playSound) this.options.onStepSound?.();
     return true;
   }
 
@@ -696,30 +726,31 @@ export class AppController {
     const scrollTop = this.el.programInput.scrollTop;
     this.returnCursorOffset = null;
     this.setMode('error');
-    this.setLog({ type: 'none' });
+    this.notifications.clear();
 
     if (error instanceof ParseError) {
       this.returnCursorOffset = error.data.offset;
       this.el.programView.replaceChildren(renderProgramWithError(text, error.data.offset));
-      this.setLog({ type: 'parseError', text: error.data.text });
+      const badText = error.data.text;
+      this.notifications.show('error', (i) => i.t('error.parseError', { text: badText }));
     } else if (error instanceof EmptyProgramError) {
       this.el.programView.textContent = text;
-      this.setLog({ type: 'programIsEmpty' });
+      this.notifications.show('error', (i) => i.t('error.programIsEmpty'));
     } else if (error instanceof AmbiguousCommandError) {
       this.returnCursorOffset = error.data.command.source.offset;
       this.renderProgramWithMarks(text, [error.data.command, error.data.original], 'error');
-      this.setLog({
-        type: 'ambiguousCommand',
-        q: String(error.data.command.q),
-        a: error.data.command.a,
-      });
+      const q = String(error.data.command.q);
+      const a = error.data.command.a;
+      this.notifications.show('error', (i) => i.t('error.ambiguousCommand', { q, a }));
     } else if (error instanceof NonexistentTargetStateError) {
       this.returnCursorOffset = error.data.command.source.offset;
       this.renderProgramWithMarks(text, [error.data.command], 'error');
-      this.setLog({ type: 'targetStateDoesNotExist', w: String(error.data.command.w) });
+      const w = String(error.data.command.w);
+      this.notifications.show('error', (i) => i.t('error.targetStateDoesNotExist', { w }));
     } else if (error instanceof NonexistentInitialStateError) {
       this.renderProgramWithMarks(text, [], 'error');
-      this.setLog({ type: 'initialStateDoesNotExist', q: String(error.data.state) });
+      const q = String(error.data.state);
+      this.notifications.show('error', (i) => i.t('error.initialStateDoesNotExist', { q }));
     } else {
       throw error;
     }
@@ -746,9 +777,10 @@ export class AppController {
     try {
       const listing = listProgram(text);
       this.el.programView.replaceChildren(renderProgram(listing));
+      const nodes = Array.from(this.el.programView.querySelectorAll<HTMLElement>('.cmd'));
       const offsets = new Set(commands.map((command) => command.source.offset));
       listing.commands.forEach((command, index) => {
-        if (offsets.has(command.source.offset)) this.commandNode(index)?.classList.add(className);
+        if (offsets.has(command.source.offset)) nodes[index]?.classList.add(className);
       });
     } catch (parseFailure) {
       if (!(parseFailure instanceof ParseError)) throw parseFailure;
@@ -756,39 +788,45 @@ export class AppController {
     }
   }
 
-  private renderTapeView(): void {
+  private mountTapeView(): void {
     const run = this.run;
     if (run === null) return;
     const tapeLabel = this.i18n.t('a11y.tapeViewLabel');
-    this.el.tapeView.replaceChildren(renderTape(run.tapeText, run.headPosition, tapeLabel));
-    this.el.tapeView.setAttribute('aria-label', tapeLabel);
-    scrollElementIntoView(this.el.tapeView.querySelector('.cell.current'), {
+    this.tapeRenderer.mount(this.el.tapeView, run.tapeText, run.headPosition, tapeLabel);
+    scrollElementIntoView(this.tapeRenderer.currentCell, {
       block: 'nearest',
       inline: 'nearest',
     });
   }
 
-  private commandNode(index: number): HTMLElement | null {
-    return this.el.programView.querySelector<HTMLElement>(`.cmd[data-command-id="${index}"]`);
+  private updateTapeView(scrollToHead: boolean): void {
+    const run = this.run;
+    if (run === null) return;
+    const tapeLabel = this.i18n.t('a11y.tapeViewLabel');
+    this.tapeRenderer.update(run.tapeText, run.headPosition, tapeLabel);
+    if (scrollToHead) {
+      scrollElementIntoView(this.tapeRenderer.currentCell, {
+        block: 'nearest',
+        inline: 'nearest',
+      });
+    }
   }
 
   /** Maintain O(1) execution counts per command so stepping backward restores `.visited` exactly. */
   private recordVisited(command: Command, delta: 1 | -1): void {
-    const compiled = this.compiled;
-    if (compiled === null) return;
-    const index = compiled.commands.indexOf(command);
-    if (index < 0) return;
+    const index = this.commandIndex.get(command);
+    if (index === undefined) return;
 
     const prev = this.visitCounts.get(index) ?? 0;
     const next = Math.max(0, prev + delta);
-    const node = this.commandNode(index);
+    const node = this.commandNodes[index];
 
     if (next === 0) {
       this.visitCounts.delete(index);
-      node?.classList.remove('visited');
+      if (prev > 0) node?.classList.remove('visited');
     } else {
       this.visitCounts.set(index, next);
-      node?.classList.add('visited');
+      if (prev === 0) node?.classList.add('visited');
     }
   }
 
@@ -797,21 +835,32 @@ export class AppController {
     this.el.programView.dataset.stepDir = direction;
   }
 
+  private clearCurrentCommandHighlight(): void {
+    if (this.currentCommandNode !== null) {
+      this.currentCommandNode.classList.remove('current');
+      this.currentCommandNode = null;
+    }
+  }
+
+  private clearErrorCommandHighlight(): void {
+    if (this.errorCommandNode !== null) {
+      this.errorCommandNode.classList.remove('error');
+      this.errorCommandNode = null;
+    }
+  }
+
   private highlightCurrentCommand(next: Command | undefined): void {
-    const compiled = this.compiled;
-    if (compiled === null) return;
-
-    this.el.programView.querySelectorAll('.cmd.current').forEach((node) => {
-      node.classList.remove('current');
-    });
-
+    this.clearCurrentCommandHighlight();
     if (next === undefined) return;
 
-    const index = compiled.commands.indexOf(next);
-    if (index >= 0) {
-      const current = this.commandNode(index);
-      current?.classList.add('current');
-      scrollElementIntoView(current, { block: 'nearest' });
+    const index = this.commandIndex.get(next);
+    if (index !== undefined) {
+      const current = this.commandNodes[index] ?? null;
+      if (current !== null) {
+        current.classList.add('current');
+        this.currentCommandNode = current;
+        scrollElementIntoView(current, { block: 'nearest' });
+      }
       this.returnCursorOffset = next.source.offset;
     }
   }
@@ -819,22 +868,30 @@ export class AppController {
   private reportRuntimeError(error: unknown): void {
     this.clearAutoHandles();
     if (error instanceof NoSuchCommandError) {
-      this.setLog({
-        type: 'noSuchCommand',
-        q: String(error.data.state),
-        a: error.data.symbol,
-      });
+      this.clearCurrentCommandHighlight();
+      const q = String(error.data.state);
+      const a = error.data.symbol;
+      this.notifications.show('error', (i) => i.t('error.noSuchCommand', { q, a }));
       this.options.onModeChange(this.mode);
       this.notifyRunState();
       return;
     }
     if (error instanceof OutOfTapeError) {
       // Mark the offending command as an error rather than leaving it green.
-      this.el.programView.querySelectorAll('.cmd.current').forEach((node) => {
-        node.classList.remove('current');
+      this.clearCurrentCommandHighlight();
+      this.clearErrorCommandHighlight();
+      const offendingCommand = error.data.command;
+      const index = offendingCommand !== null ? this.commandIndex.get(offendingCommand) : undefined;
+      const node = index !== undefined ? (this.commandNodes[index] ?? null) : null;
+      if (node !== null) {
         node.classList.add('error');
-      });
-      this.setLog({ type: 'headIsOutOfTape' });
+        this.errorCommandNode = node;
+        scrollElementIntoView(node, { block: 'nearest' });
+      }
+      if (offendingCommand !== null) {
+        this.returnCursorOffset = offendingCommand.source.offset;
+      }
+      this.notifications.show('error', (i) => i.t('error.headIsOutOfTape'));
       this.options.onModeChange(this.mode);
       this.notifyRunState();
       return;
@@ -846,13 +903,13 @@ export class AppController {
     this.clearAutoHandles();
     switch (run.checkNormality()) {
       case 'sourceAltered':
-        this.setLog({ type: 'sourceAltered' });
+        this.notifications.show('warning', (i) => i.t('log.warningSourceAltered'));
         break;
       case 'misplaced':
-        this.setLog({ type: 'misplaced' });
+        this.notifications.show('warning', (i) => i.t('log.warningMisposition'));
         break;
       case 'normal':
-        this.setLog({ type: 'finished' });
+        this.notifications.show('info', (i) => i.t('log.finished'));
         break;
     }
     this.options.onModeChange(this.mode);
@@ -867,8 +924,8 @@ export class AppController {
     const interval = stepIntervalMs(this.speed);
 
     if (interval < RAF_THRESHOLD_MS) {
-      // High-speed mode (|speed| > 10×): run a rate-accurate, time-budgeted
-      // batch per animation frame in either direction without freezing repaints.
+      // High-speed mode (|speed| > 10×): compute a rate-accurate, time-budgeted
+      // batch per animation frame, flushing DOM updates only once at frame end.
       let lastFrameAt = performance.now();
       let stepBudget = 0;
 
@@ -892,6 +949,7 @@ export class AppController {
         );
         const deadline = performance.now() + MAX_BATCH_MS_PER_FRAME;
         const opsBefore = this.stats.operationsCount;
+        const direction = this.speed > 0 ? 'forward' : 'reverse';
         let stepped = 0;
         let keepGoing = true;
 
@@ -900,11 +958,18 @@ export class AppController {
           stepped < targetSteps &&
           (stepped === 0 || performance.now() < deadline)
         ) {
-          keepGoing = this.speed > 0 ? this.stepForwardOnce(false) : this.stepBackOnce(false);
+          keepGoing =
+            direction === 'forward'
+              ? this.stepForwardOnce(false, false)
+              : this.stepBackOnce(false, false);
           stepped += 1;
         }
         stepBudget = Math.max(0, stepBudget - stepped);
         this.lastStepAt = performance.now();
+
+        if (stepped > 0 && keepGoing && generation === this.autoGeneration) {
+          this.flushRunView(direction);
+        }
         if (this.stats.operationsCount !== opsBefore) this.options.onStepSound?.();
 
         if (!keepGoing || generation !== this.autoGeneration) {
@@ -933,7 +998,8 @@ export class AppController {
         return;
       }
 
-      const keepGoing = this.speed > 0 ? this.stepForwardOnce(true) : this.stepBackOnce(true);
+      const keepGoing =
+        this.speed > 0 ? this.stepForwardOnce(true, true) : this.stepBackOnce(true, true);
       if (!keepGoing || generation !== this.autoGeneration) {
         this.options.onModeChange(this.mode);
         return;
@@ -979,111 +1045,6 @@ export class AppController {
       fragment.append(row);
     });
     this.el.stats.replaceChildren(fragment);
-  }
-
-  private setLog(descriptor: LogDescriptor): void {
-    this.lastLog = descriptor;
-    this.renderLog();
-  }
-
-  private renderLog(): void {
-    const d = this.lastLog;
-    let text: string | null = null;
-    let kind: LogKind = 'info';
-
-    switch (d.type) {
-      case 'none':
-        text = null;
-        break;
-      case 'ready':
-        text = this.i18n.t('log.ready');
-        kind = 'info';
-        break;
-      case 'restoredDraft':
-        text = this.i18n.t('log.restoredDraft');
-        kind = 'info';
-        break;
-      case 'finished':
-        text = this.i18n.t('log.finished');
-        kind = 'info';
-        break;
-      case 'reachedInitialState':
-        text = this.i18n.t('log.reachedInitialState');
-        kind = 'info';
-        break;
-      case 'restarted':
-        text = this.i18n.t('log.restarted');
-        kind = 'info';
-        break;
-      case 'sourceAltered':
-        text = this.i18n.t('log.warningSourceAltered');
-        kind = 'warning';
-        break;
-      case 'misplaced':
-        text = this.i18n.t('log.warningMisposition');
-        kind = 'warning';
-        break;
-      case 'convertedToTu4':
-        text = this.i18n.t('log.convertedToTu4');
-        kind = 'info';
-        break;
-      case 'copied':
-        text = this.i18n.t('log.copied');
-        kind = 'info';
-        break;
-      case 'snapshotSaved':
-        text = this.i18n.t('log.snapshotSaved');
-        kind = 'info';
-        break;
-      case 'snapshotRestored':
-        text = this.i18n.t('log.snapshotRestored', { name: d.name });
-        kind = 'info';
-        break;
-      case 'snapshotDeleted':
-        text = this.i18n.t('log.snapshotDeleted');
-        kind = 'info';
-        break;
-      case 'snapshotEmpty':
-        text = this.i18n.t('log.snapshotEmpty');
-        kind = 'warning';
-        break;
-      case 'tooManyStates':
-        text = this.i18n.t('error.tooManyStates');
-        kind = 'error';
-        break;
-      case 'parseError':
-        text = this.i18n.t('error.parseError', { text: d.text });
-        kind = 'error';
-        break;
-      case 'programIsEmpty':
-        text = this.i18n.t('error.programIsEmpty');
-        kind = 'error';
-        break;
-      case 'ambiguousCommand':
-        text = this.i18n.t('error.ambiguousCommand', { q: d.q, a: d.a });
-        kind = 'error';
-        break;
-      case 'targetStateDoesNotExist':
-        text = this.i18n.t('error.targetStateDoesNotExist', { w: d.w });
-        kind = 'error';
-        break;
-      case 'initialStateDoesNotExist':
-        text = this.i18n.t('error.initialStateDoesNotExist', { q: d.q });
-        kind = 'error';
-        break;
-      case 'headIsOutOfTape':
-        text = this.i18n.t('error.headIsOutOfTape');
-        kind = 'error';
-        break;
-      case 'noSuchCommand':
-        text = this.i18n.t('error.noSuchCommand', { q: d.q, a: d.a });
-        kind = 'error';
-        break;
-    }
-
-    this.el.log.textContent = text ?? '';
-    this.el.log.dataset.kind = text === null ? '' : kind;
-    this.options.onLogChange?.(text === null ? null : kind);
   }
 
   private setMode(mode: UIMode): void {

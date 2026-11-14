@@ -3,6 +3,18 @@ import type { Program } from './program';
 import { findTransition } from './program';
 import { NoSuchCommandError, OutOfTapeError } from './errors';
 
+/** Default maximum number of reversible steps kept in memory per run. */
+export const DEFAULT_MAX_HISTORY = 100_000;
+
+export interface MachineRunOptions {
+  /**
+   * Maximum number of steps retained in the undo ring buffer (default:
+   * {@link DEFAULT_MAX_HISTORY}). Bounds memory usage during infinite loops
+   * while preserving O(1) `step()` and `stepBack()`.
+   */
+  readonly maxHistory?: number;
+}
+
 /** A tape symbol read at a position; an empty cell reads as a space. */
 export function symbolAt(tape: readonly string[], index: number): string {
   return tape[index] ?? ' ';
@@ -21,11 +33,14 @@ interface StepRecord {
  * One machine run. The tape is a plain array of single-character cells,
  * mutable — all mutations go through {@link step}, {@link stepBack}, and
  * {@link reset}, so the run is a deterministic, reversible state machine
- * that is trivial to unit-test.
+ * with bounded O(1) undo history that is trivial to unit-test.
  */
 export class MachineRun {
   private readonly tape: string[];
-  private readonly history: StepRecord[] = [];
+  private readonly maxHistory: number;
+  private readonly history: (StepRecord | undefined)[] = [];
+  private historyHead = 0;
+  private historySize = 0;
   private state: StateId;
   private position: number;
   private running = true;
@@ -36,7 +51,15 @@ export class MachineRun {
   constructor(
     private readonly program: Program,
     tapeText: string,
+    options: MachineRunOptions = {},
   ) {
+    const limit = options.maxHistory ?? DEFAULT_MAX_HISTORY;
+    this.maxHistory = Number.isFinite(limit)
+      ? Math.max(0, Math.floor(limit))
+      : limit === Number.POSITIVE_INFINITY
+        ? Number.POSITIVE_INFINITY
+        : DEFAULT_MAX_HISTORY;
+
     // Trailing whitespace is not a part of the data: the machine starts
     // immediately after the last visible symbol (original behaviour).
     const normalised = tapeText.replace(/\s+$/, '');
@@ -55,6 +78,41 @@ export class MachineRun {
     return findTransition(this.program, this.state, symbolAt(this.tape, this.position));
   }
 
+  private pushHistory(record: StepRecord): void {
+    if (this.maxHistory === 0) return;
+    if (!Number.isFinite(this.maxHistory)) {
+      this.history.push(record);
+      this.historySize += 1;
+      return;
+    }
+    if (this.historySize < this.maxHistory) {
+      const writeIdx = (this.historyHead + this.historySize) % this.maxHistory;
+      this.history[writeIdx] = record;
+      this.historySize += 1;
+      return;
+    }
+    // Buffer is full: overwrite the oldest record in O(1).
+    this.history[this.historyHead] = record;
+    this.historyHead = (this.historyHead + 1) % this.maxHistory;
+  }
+
+  private popHistory(): StepRecord | undefined {
+    if (this.historySize === 0) return undefined;
+    if (!Number.isFinite(this.maxHistory)) {
+      this.historySize -= 1;
+      return this.history.pop();
+    }
+    this.historySize -= 1;
+    const readIdx = (this.historyHead + this.historySize) % this.maxHistory;
+    const record = this.history[readIdx];
+    this.history[readIdx] = undefined;
+    if (this.historySize === 0) {
+      this.historyHead = 0;
+      this.history.length = 0;
+    }
+    return record;
+  }
+
   get isRunning(): boolean {
     return this.running;
   }
@@ -64,7 +122,22 @@ export class MachineRun {
   }
 
   get canStepBack(): boolean {
-    return this.history.length > 0;
+    return this.historySize > 0;
+  }
+
+  /** Number of steps currently retained in the undo buffer. */
+  get historyLength(): number {
+    return this.historySize;
+  }
+
+  /** Configured maximum undo history capacity. */
+  get historyLimit(): number {
+    return this.maxHistory;
+  }
+
+  /** True when earlier steps were evicted because total steps exceeded {@link historyLimit}. */
+  get isHistoryTruncated(): boolean {
+    return this.steps > this.historySize;
   }
 
   get currentState(): StateId {
@@ -146,7 +219,7 @@ export class MachineRun {
         break;
     }
 
-    this.history.push({
+    this.pushHistory({
       command,
       prevState,
       prevPosition,
@@ -171,10 +244,11 @@ export class MachineRun {
    * state, cell count, and active running status (including recovering from a
    * normal halt or a runtime error after at least one step).
    *
-   * @returns the undone command (now again {@link nextCommand}), or `null` at step 0
+   * @returns the undone command (now again {@link nextCommand}), or `null` when
+   *   no undo history remains (at step 0 or at the history buffer boundary)
    */
   stepBack(): Command | null {
-    const record = this.history.pop();
+    const record = this.popHistory();
     if (record === undefined) return null;
 
     this.tape.length = record.prevTapeLength;
@@ -196,6 +270,8 @@ export class MachineRun {
     this.tape.length = 0;
     this.tape.push(...Array.from(this.initialTapeText), ' ');
     this.history.length = 0;
+    this.historyHead = 0;
+    this.historySize = 0;
     this.state = this.program.initialState;
     this.position = this.initialTapeText.length;
     this.running = true;

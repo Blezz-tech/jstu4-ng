@@ -25,6 +25,13 @@ function stubMatchMedia(prefersDark = false): void {
 }
 
 describe('settings menu & run speed UI (public/index.html + src/main.ts)', () => {
+  let mounted: { dispose(): void } | null = null;
+
+  async function boot(): Promise<void> {
+    const mod = await import('../src/main');
+    mounted = mod.app;
+  }
+
   beforeEach(() => {
     vi.resetModules();
     window.localStorage.clear();
@@ -54,6 +61,8 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
   });
 
   afterEach(() => {
+    mounted?.dispose();
+    mounted = null;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     window.localStorage.clear();
@@ -61,7 +70,7 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
   });
 
   it('toggles the settings menu via the gear button, closes on Escape and outside pointerdown', async () => {
-    await import('../src/main');
+    await boot();
 
     const gearBtn = document.querySelector<HTMLButtonElement>('#btn-settings')!;
     const menu = document.querySelector<HTMLElement>('#settings-menu')!;
@@ -88,7 +97,7 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
   });
 
   it('switches language with a button, theme, sound, minSpeed, and maxSpeed and persists all to localStorage', async () => {
-    await import('../src/main');
+    await boot();
 
     const gearBtn = document.querySelector<HTMLButtonElement>('#btn-settings')!;
     const langBtn = document.querySelector<HTMLButtonElement>('#btn-lang')!;
@@ -152,7 +161,7 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
 
   it('supports media-player Play/Stop, ←/→ step arrows, yellow reverse highlight, zero-bar stop, and restart', async () => {
     vi.useFakeTimers();
-    await import('../src/main');
+    await boot();
 
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
     const programView = document.querySelector<HTMLElement>('#display-program')!;
@@ -250,7 +259,7 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
   });
 
   it('houses #log, #stats, and #hint inside a collapsible right-hand #sidepanel toggled next to ?', async () => {
-    await import('../src/main');
+    await boot();
 
     const appShell = document.querySelector<HTMLElement>('#app-shell')!;
     const helpBtn = document.querySelector<HTMLButtonElement>('#btn-help')!;
@@ -317,7 +326,7 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
       }),
     );
 
-    await import('../src/main');
+    await boot();
 
     expect(document.documentElement.lang).toBe('en');
     expect(document.documentElement.dataset.theme).toBe('dark');
@@ -334,7 +343,7 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
   });
 
   it('adjusts minSpeed and maxSpeed with − and + stepper buttons, enforces bounds, and persists', async () => {
-    await import('../src/main');
+    await boot();
 
     const gearBtn = document.querySelector<HTMLButtonElement>('#btn-settings')!;
     const minInput = document.querySelector<HTMLInputElement>('#input-min-speed')!;
@@ -391,7 +400,7 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
       configurable: true,
     });
 
-    await import('../src/main');
+    await boot();
 
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
     const toTu4Btn = document.querySelector<HTMLButtonElement>('#btn-totu4')!;
@@ -415,9 +424,10 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
 
     // Copy button copies converted code and displays confirmation inside the popup.
     tu4CopyBtn.click();
-    await Promise.resolve();
-    expect(writeText).toHaveBeenCalledWith('01, ,#,01\n00, ,>,01');
-    expect(tu4Status.textContent).toBe('Код TU4 скопирован в буфер обмена');
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('01, ,#,01\n00, ,>,01');
+      expect(tu4Status.textContent).toBe('Код TU4 скопирован в буфер обмена');
+    });
 
     // Closing the dialog clears the status and keeps original program intact.
     tu4DoneBtn.click();
