@@ -78,9 +78,7 @@
     "minSpeedInc": "Increase min speed",
     "maxSpeed": "Max speed",
     "maxSpeedDec": "Decrease max speed",
-    "maxSpeedInc": "Increase max speed",
-    "on": "On",
-    "off": "Off"
+    "maxSpeedInc": "Increase max speed"
   },
   "hints": {
     "start": "Parse the program and run it (Ctrl+Enter)",

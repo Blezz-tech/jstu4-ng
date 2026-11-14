@@ -86,7 +86,6 @@ const dom = {
     document.querySelectorAll<HTMLButtonElement>('#theme-group [data-theme-option]'),
   ),
   soundButton: mustFind<HTMLButtonElement>(document, '#btn-sound'),
-  soundLabel: mustFind(document, '#sound-label'),
   minSpeedInput: mustFind<HTMLInputElement>(document, '#input-min-speed'),
   minSpeedDec: mustFind<HTMLButtonElement>(document, '#btn-min-speed-dec'),
   minSpeedInc: mustFind<HTMLButtonElement>(document, '#btn-min-speed-inc'),
@@ -186,7 +185,6 @@ function syncSoundControl(): void {
   const onState = sound.isEnabled;
   dom.soundButton.setAttribute('aria-checked', String(onState));
   dom.soundButton.dataset.on = String(onState);
-  dom.soundLabel.textContent = i18n.t(onState ? 'settings.on' : 'settings.off');
 }
 
 function syncLangAria(): void {

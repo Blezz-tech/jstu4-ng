@@ -113,11 +113,12 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     expect(document.documentElement.dataset.themeChoice).toBe('dark');
     expect(darkBtn.getAttribute('aria-pressed')).toBe('true');
 
-    // Sound switch toggles ON.
+    // Sound switch toggles ON (toggle switch relies on aria-checked, no redundant On/Off text).
     expect(soundBtn.getAttribute('aria-checked')).toBe('false');
+    expect(soundBtn.textContent?.trim()).toBe('');
     soundBtn.click();
     expect(soundBtn.getAttribute('aria-checked')).toBe('true');
-    expect(soundBtn.textContent?.trim()).toBe('On');
+    expect(soundBtn.textContent?.trim()).toBe('');
 
     // Min & Max speed in settings default to -15 and 25 and update the slider bounds.
     expect(minSpeedInput.value).toBe('-15');
