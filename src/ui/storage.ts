@@ -31,7 +31,7 @@ export interface AppSettings {
   readonly maxSpeed: number;
   readonly sidepanelOpen?: boolean;
   readonly historyOpen?: boolean;
-  readonly showAutosaves?: boolean;
+  readonly namedOnly?: boolean;
   readonly confirmSnapshotDelete?: boolean;
 }
 
@@ -99,8 +99,8 @@ export function loadSettings(): AppSettings {
           typeof record['sidepanelOpen'] === 'boolean' ? record['sidepanelOpen'] : undefined;
         const historyOpen =
           typeof record['historyOpen'] === 'boolean' ? record['historyOpen'] : undefined;
-        const showAutosaves =
-          typeof record['showAutosaves'] === 'boolean' ? record['showAutosaves'] : undefined;
+        const namedOnly =
+          typeof record['namedOnly'] === 'boolean' ? record['namedOnly'] : undefined;
         const confirmSnapshotDelete =
           typeof record['confirmSnapshotDelete'] === 'boolean'
             ? record['confirmSnapshotDelete']
@@ -115,7 +115,7 @@ export function loadSettings(): AppSettings {
           maxSpeed,
           ...(sidepanelOpen !== undefined ? { sidepanelOpen } : {}),
           ...(historyOpen !== undefined ? { historyOpen } : {}),
-          ...(showAutosaves !== undefined ? { showAutosaves } : {}),
+          ...(namedOnly !== undefined ? { namedOnly } : {}),
           ...(confirmSnapshotDelete !== undefined ? { confirmSnapshotDelete } : {}),
         };
       }

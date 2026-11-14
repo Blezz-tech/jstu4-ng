@@ -30,7 +30,10 @@
         hidden
       >
         <header class="sidepanel__header">
-          <h2 class="sidepanel__title" id="history-title" data-i18n="history.title"></h2>
+          <div class="historypanel__title-wrap">
+            <h2 class="sidepanel__title" id="history-title" data-i18n="history.title"></h2>
+            <span class="historypanel__count" id="history-count">0</span>
+          </div>
           <button
             class="icon-btn sidepanel__close"
             id="btn-history-close"
@@ -52,16 +55,16 @@
         <div class="historypanel__toolbar">
           <span
             class="historypanel__filter-label"
-            id="label-show-autosaves"
-            data-i18n="history.showAutosaves"
+            id="label-named-only"
+            data-i18n="history.namedOnly"
           ></span>
           <button
             class="switch"
-            id="btn-show-autosaves"
+            id="btn-named-only"
             type="button"
             role="switch"
-            aria-checked="true"
-            aria-labelledby="label-show-autosaves"
+            aria-checked="false"
+            aria-labelledby="label-named-only"
           >
             <span class="switch__track" aria-hidden="true">
               <span class="switch__thumb"></span>
@@ -70,37 +73,18 @@
         </div>
 
         <div class="sidepanel__body historypanel__body">
-          <section class="historypanel__section">
-            <div class="historypanel__section-head">
-              <h3 class="sidepanel__heading" data-i18n="history.namedSection"></h3>
-              <span class="historypanel__count" id="history-named-count">0</span>
-            </div>
-            <ul class="snapshot-list" id="history-named-list"></ul>
-            <p
-              class="sidepanel__empty historypanel__empty"
-              id="history-named-empty"
-              data-i18n="history.emptyNamed"
-            ></p>
-          </section>
-
-          <section class="historypanel__section">
-            <div class="historypanel__section-head">
-              <h3 class="sidepanel__heading" data-i18n="history.unnamedSection"></h3>
-              <span class="historypanel__count" id="history-unnamed-count">0</span>
-            </div>
-            <ul class="snapshot-list" id="history-unnamed-list"></ul>
-            <p
-              class="sidepanel__empty historypanel__empty"
-              id="history-unnamed-empty"
-              data-i18n="history.emptyUnnamed"
-            ></p>
-          </section>
+          <ul class="snapshot-list" id="history-list"></ul>
+          <p class="sidepanel__empty historypanel__empty" id="history-empty"></p>
         </div>
       </aside>
 
       <div class="app">
         <header class="topbar">
-          <div class="topbar__lead">
+          <h1 class="title">
+            <span class="title__text" id="app-title" data-i18n="app.title"></span>
+            <span class="title__version" id="app-version"></span>
+          </h1>
+          <nav class="topbar__actions" aria-label="UI">
             <button
               class="icon-btn icon-btn--history"
               id="btn-history"
@@ -109,7 +93,7 @@
               aria-controls="history-panel"
               data-i18n-attr="title:controls.history;aria-label:controls.history"
             >
-              <svg viewBox="0 0 28 20" width="24" height="18" aria-hidden="true" focusable="false">
+              <svg viewBox="0 0 28 20" width="22" height="16" aria-hidden="true" focusable="false">
                 <path
                   fill="none"
                   stroke="currentColor"
@@ -184,12 +168,6 @@
                 />
               </svg>
             </button>
-            <h1 class="title">
-              <span class="title__text" id="app-title" data-i18n="app.title"></span>
-              <span class="title__version" id="app-version"></span>
-            </h1>
-          </div>
-          <nav class="topbar__actions" aria-label="UI">
             <div class="settings-anchor" id="settings-anchor">
               <button
                 class="icon-btn"

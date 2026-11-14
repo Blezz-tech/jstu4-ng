@@ -491,68 +491,75 @@ test('unmark followed by step leaves only one current command', async ({ page })
   await expect(page.locator('.cmd.current')).toHaveCount(1);
 });
 
-test('version control panel saves, renames, filters autosaves, restores, and confirms deletion', async ({
+test('version control panel saves, renames, filters named-only, restores, and confirms deletion', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1366, height: 820 });
   await page.goto('/');
 
-  // Save button sits right after Copy and left history panel opens from the top-left button
+  // History button sits immediately to the left of Settings; save button sits after Copy
+  const historyBox = (await page.locator('#btn-history').boundingBox())!;
+  const settingsBox = (await page.locator('#btn-settings').boundingBox())!;
+  expect(historyBox.x + historyBox.width).toBeLessThanOrEqual(settingsBox.x + 2);
+
   await expect(page.locator('#btn-save')).toBeVisible();
   await expect(page.locator('#history-panel')).toBeHidden();
   await page.locator('#btn-history').click();
   await expect(page.locator('#history-panel')).toBeVisible();
 
-  // Manual save in RU creates an unnamed entry with "Сохранено пользователем"
+  // Manual save in RU creates an entry with "Сохранено пользователем" in the unified list
   await page.locator('#input-program').fill('0, ,#,0');
   await page.locator('#input-tape').fill('v1');
   await page.locator('#btn-save').click();
-  await expect(page.locator('#history-unnamed-list .snapshot-item')).toHaveCount(1);
-  await expect(page.locator('#history-unnamed-list')).toContainText('Сохранено пользователем');
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(1);
+  await expect(page.locator('#history-list')).toContainText('Сохранено пользователем');
 
-  // Rename moves it into the Named section while preserving the original timestamp
+  // Rename preserves the original creation timestamp
   const originalTitle =
-    (await page.locator('#history-unnamed-list .snapshot-item__title').first().textContent()) ?? '';
+    (await page.locator('#history-list .snapshot-item__title').first().textContent()) ?? '';
   const originalTimestamp = originalTitle.split(' ')[0] ?? '';
-  await page.locator('#history-unnamed-list .snapshot-action--rename').first().click();
-  const editInput = page.locator('#history-unnamed-list .snapshot-item__input');
+  await page.locator('#history-list .snapshot-action--rename').first().click();
+  const editInput = page.locator('#history-list .snapshot-item__input');
   await editInput.fill('Baseline v1');
   await editInput.press('Enter');
 
-  await expect(page.locator('#history-named-list .snapshot-item')).toHaveCount(1);
-  await expect(page.locator('#history-unnamed-list .snapshot-item')).toHaveCount(0);
-  await expect(page.locator('#history-named-list')).toContainText('Baseline v1');
-  await expect(page.locator('#history-named-list')).toContainText(originalTimestamp);
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(1);
+  await expect(page.locator('#history-list')).toContainText('Baseline v1');
+  await expect(page.locator('#history-list')).toContainText(originalTimestamp);
 
-  // Edit code and restore the named snapshot → unsaved edits become an autosave
+  // Edit code and restore the named snapshot → unsaved edits become an autosave in the same list
   await page.locator('#input-program').fill('0,1,0,0');
   await page.locator('#input-tape').fill('v2');
-  await page.locator('#history-named-list .snapshot-item__load').first().click();
+  await page.locator('#history-list .snapshot-item__load').first().click();
   await expect(page.locator('#input-program')).toHaveValue('0, ,#,0');
   await expect(page.locator('#input-tape')).toHaveValue('v1');
-  await expect(page.locator('#history-unnamed-list .snapshot-item')).toHaveCount(1);
-  await expect(page.locator('#history-unnamed-list')).toContainText('автосохранение');
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(2);
+  await expect(page.locator('#history-list')).toContainText('автосохранение');
 
-  // Toggle autosaves switch OFF hides the autosave
-  await page.locator('#btn-show-autosaves').click();
-  await expect(page.locator('#btn-show-autosaves')).toHaveAttribute('aria-checked', 'false');
-  await expect(page.locator('#history-unnamed-list .snapshot-item')).toHaveCount(0);
+  // Toggle "Named only" ON → shows only the named snapshot
+  await page.locator('#btn-named-only').click();
+  await expect(page.locator('#btn-named-only')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(1);
+  await expect(page.locator('#history-list')).toContainText('Baseline v1');
+  await expect(page.locator('#history-list')).not.toContainText('автосохранение');
 
-  // Toggle back ON and reload — everything persists in localStorage
-  await page.locator('#btn-show-autosaves').click();
+  // Toggle back OFF and reload — everything persists in localStorage
+  await page.locator('#btn-named-only').click();
   await page.reload();
   await expect(page.locator('#history-panel')).toBeVisible();
-  await expect(page.locator('#history-named-list .snapshot-item')).toHaveCount(1);
-  await expect(page.locator('#history-unnamed-list .snapshot-item')).toHaveCount(1);
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(2);
 
   // Deleting shows confirmation dialog with snapshot name and "do not show again" checkbox
-  await page.locator('#history-named-list .snapshot-action--delete').first().click();
+  await page
+    .locator('#history-list .snapshot-item[data-named="true"] .snapshot-action--delete')
+    .first()
+    .click();
   await expect(page.locator('#delete-snapshot-dialog')).toBeVisible();
   await expect(page.locator('#delete-snapshot-name')).toHaveText('Baseline v1');
   await page.locator('#chk-skip-delete-confirm').check();
   await page.locator('#btn-confirm-delete-snapshot').click();
   await expect(page.locator('#delete-snapshot-dialog')).toBeHidden();
-  await expect(page.locator('#history-named-list .snapshot-item')).toHaveCount(0);
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(1);
 
   // Re-enable confirmation in Settings
   await page.locator('#btn-settings').click();
@@ -565,8 +572,8 @@ test('version control panel saves, renames, filters autosaves, restores, and con
   await page.keyboard.press('Escape');
 
   // Next delete shows confirmation dialog again
-  await page.locator('#history-unnamed-list .snapshot-action--delete').first().click();
+  await page.locator('#history-list .snapshot-action--delete').first().click();
   await expect(page.locator('#delete-snapshot-dialog')).toBeVisible();
   await page.locator('#btn-confirm-delete-snapshot').click();
-  await expect(page.locator('#history-unnamed-list .snapshot-item')).toHaveCount(0);
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(0);
 });

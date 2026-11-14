@@ -149,16 +149,13 @@ export class SnapshotStore {
     return this.snapshots;
   }
 
-  /** Snapshots explicitly named by the user (`customName !== null`), newest-first. */
-  getNamed(): readonly ProgramSnapshot[] {
-    return this.snapshots.filter((s) => s.customName !== null);
-  }
-
-  /** Unnamed manual saves and (optionally) timed autosaves, newest-first. */
-  getUnnamed(includeAutosaves: boolean): readonly ProgramSnapshot[] {
-    return this.snapshots.filter(
-      (s) => s.customName === null && (includeAutosaves || s.kind !== 'autosave'),
-    );
+  /**
+   * Snapshots visible under the current filter, ordered newest-first:
+   * - `namedOnly === true` → only user-named snapshots (`customName !== null`).
+   * - `namedOnly === false` → all snapshots (named, unnamed manual saves, and autosaves).
+   */
+  getVisible(namedOnly: boolean): readonly ProgramSnapshot[] {
+    return namedOnly ? this.snapshots.filter((s) => s.customName !== null) : this.snapshots;
   }
 
   getById(id: string): ProgramSnapshot | null {

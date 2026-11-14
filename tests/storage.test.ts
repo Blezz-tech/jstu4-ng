@@ -55,13 +55,13 @@ describe('storage', () => {
       ...DEFAULT_SETTINGS,
       sidepanelOpen: false,
       historyOpen: true,
-      showAutosaves: false,
+      namedOnly: true,
       confirmSnapshotDelete: false,
     });
     const loadedFlags = loadSettings();
     expect(loadedFlags.sidepanelOpen).toBe(false);
     expect(loadedFlags.historyOpen).toBe(true);
-    expect(loadedFlags.showAutosaves).toBe(false);
+    expect(loadedFlags.namedOnly).toBe(true);
     expect(loadedFlags.confirmSnapshotDelete).toBe(false);
   });
 

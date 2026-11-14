@@ -205,18 +205,8 @@ button {
   gap: calc(var(--space) * 0.75);
 }
 
-.topbar__lead {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
 .icon-btn--history {
-  flex: none;
-  padding: 0 7px;
-  border-color: var(--border);
-  color: var(--text-muted);
+  padding: 0 6px;
 }
 
 .icon-btn--sidepanel {
@@ -1507,6 +1497,13 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   display: none;
 }
 
+.historypanel__title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .historypanel__toolbar {
   display: flex;
   align-items: center;
@@ -1525,20 +1522,7 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
 }
 
 .historypanel__body {
-  gap: 16px;
-}
-
-.historypanel__section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.historypanel__section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
 .historypanel__count {

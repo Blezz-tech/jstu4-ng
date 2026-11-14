@@ -73,11 +73,9 @@
   },
   "history": {
     "title": "Version control",
-    "showAutosaves": "Autosaves",
-    "namedSection": "Named",
-    "unnamedSection": "Unnamed",
+    "namedOnly": "Named only",
+    "emptyAll": "No saves yet",
     "emptyNamed": "No named saves yet",
-    "emptyUnnamed": "No unnamed saves yet",
     "autosaveSuffix": "autosave",
     "manualSuffix": "Saved by user",
     "rename": "Rename",

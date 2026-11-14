@@ -58,12 +58,13 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     document.body.innerHTML = '';
   });
 
-  it('places SVG save button right after Copy and toggles the left history panel via SVG top button', async () => {
+  it('places SVG save button right after Copy and places SVG history button right before Settings', async () => {
     await import('../src/main');
 
     const copyBtn = document.querySelector<HTMLButtonElement>('#btn-copy')!;
     const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
     const historyBtn = document.querySelector<HTMLButtonElement>('#btn-history')!;
+    const settingsAnchor = document.querySelector<HTMLElement>('#settings-anchor')!;
     const historyPanel = document.querySelector<HTMLElement>('#history-panel')!;
     const shell = document.querySelector<HTMLElement>('#app-shell')!;
 
@@ -71,6 +72,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     expect(saveBtn.dataset.mode).toBe('edit');
     expect(saveBtn.querySelector('svg')).not.toBeNull();
     expect(historyBtn.querySelector('svg')).not.toBeNull();
+    expect(historyBtn.nextElementSibling).toBe(settingsAnchor);
 
     expect(historyPanel.hidden).toBe(true);
     expect(shell.dataset.history).toBe('closed');
@@ -89,7 +91,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     expect(shell.dataset.history).toBe('closed');
   });
 
-  it('creates manual saves, timed autosaves, toggles autosave visibility, and switches locale dynamically', async () => {
+  it('creates manual saves and timed autosaves in one unified list, filters named-only, and switches locale dynamically', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 14, 12, 30, 0));
 
@@ -99,8 +101,9 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     const tapeInput = document.querySelector<HTMLInputElement>('#input-tape')!;
     const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
     const historyBtn = document.querySelector<HTMLButtonElement>('#btn-history')!;
-    const autosavesSwitch = document.querySelector<HTMLButtonElement>('#btn-show-autosaves')!;
-    const unnamedList = document.querySelector<HTMLUListElement>('#history-unnamed-list')!;
+    const namedOnlySwitch = document.querySelector<HTMLButtonElement>('#btn-named-only')!;
+    const historyList = document.querySelector<HTMLUListElement>('#history-list')!;
+    const historyEmpty = document.querySelector<HTMLElement>('#history-empty')!;
     const langBtn = document.querySelector<HTMLButtonElement>('#btn-lang')!;
 
     historyBtn.click();
@@ -110,42 +113,44 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     tapeInput.value = '101';
     saveBtn.click();
 
-    expect(unnamedList.children).toHaveLength(1);
-    expect(unnamedList.textContent).toContain('2026-11-14-12-30-00 Сохранено пользователем');
+    expect(historyList.children).toHaveLength(1);
+    expect(historyList.textContent).toContain('2026-11-14-12-30-00 Сохранено пользователем');
 
     // Every action button inside snapshot item uses SVG
-    for (const btn of unnamedList.querySelectorAll('.snapshot-action')) {
+    for (const btn of historyList.querySelectorAll('.snapshot-action')) {
       expect(btn.querySelector('svg')).not.toBeNull();
     }
 
-    // Edit program and advance timer → timed autosave created
+    // Edit program and advance timer → timed autosave created in the same list
     programInput.value = '0, ,>,1\n1, ,#,1';
     vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS);
 
-    expect(unnamedList.children).toHaveLength(2);
-    expect(unnamedList.textContent).toContain('2026-11-14-12-30-30 автосохранение');
+    expect(historyList.children).toHaveLength(2);
+    expect(historyList.textContent).toContain('2026-11-14-12-30-30 автосохранение');
 
     // Advancing timer again with no changes → no duplicate autosave
     vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS);
-    expect(unnamedList.children).toHaveLength(2);
+    expect(historyList.children).toHaveLength(2);
 
-    // Toggle autosaves switch OFF (no text inside switch, blue pill switch)
-    expect(autosavesSwitch.getAttribute('aria-checked')).toBe('true');
-    expect(autosavesSwitch.textContent?.trim()).toBe('');
-    autosavesSwitch.click();
-    expect(autosavesSwitch.getAttribute('aria-checked')).toBe('false');
-    expect(unnamedList.children).toHaveLength(1);
-    expect(unnamedList.textContent).toContain('Сохранено пользователем');
-    expect(unnamedList.textContent).not.toContain('автосохранение');
+    // Named-only switch starts OFF (shows all: named + unnamed)
+    expect(namedOnlySwitch.getAttribute('aria-checked')).toBe('false');
+    expect(namedOnlySwitch.textContent?.trim()).toBe('');
 
-    // Toggle back ON and switch UI language RU -> EN
-    autosavesSwitch.click();
+    // Toggle named-only ON → hides all unnamed saves (manual & autosave)
+    namedOnlySwitch.click();
+    expect(namedOnlySwitch.getAttribute('aria-checked')).toBe('true');
+    expect(historyList.children).toHaveLength(0);
+    expect(historyEmpty.textContent).toContain('Нет именованных сохранений');
+
+    // Toggle back OFF and switch UI language RU -> EN
+    namedOnlySwitch.click();
     langBtn.click();
-    expect(unnamedList.textContent).toContain('2026-11-14-12-30-30 autosave');
-    expect(unnamedList.textContent).toContain('2026-11-14-12-30-00 Saved by user');
+    expect(historyList.children).toHaveLength(2);
+    expect(historyList.textContent).toContain('2026-11-14-12-30-30 autosave');
+    expect(historyList.textContent).toContain('2026-11-14-12-30-00 Saved by user');
   });
 
-  it('renames a snapshot without changing its creation time, separates named from unnamed, and restores snapshots', async () => {
+  it('renames a snapshot without changing its creation time, keeps it visible under named-only, and restores snapshots', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 14, 14, 0, 5));
 
@@ -155,8 +160,8 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     const tapeInput = document.querySelector<HTMLInputElement>('#input-tape')!;
     const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
     const historyBtn = document.querySelector<HTMLButtonElement>('#btn-history')!;
-    const namedList = document.querySelector<HTMLUListElement>('#history-named-list')!;
-    const unnamedList = document.querySelector<HTMLUListElement>('#history-unnamed-list')!;
+    const namedOnlySwitch = document.querySelector<HTMLButtonElement>('#btn-named-only')!;
+    const historyList = document.querySelector<HTMLUListElement>('#history-list')!;
 
     historyBtn.click();
 
@@ -168,18 +173,17 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     vi.advanceTimersByTime(5 * 60 * 1000);
 
     // Trigger inline rename
-    unnamedList.querySelector<HTMLButtonElement>('.snapshot-action--rename')!.click();
-    const editInput = unnamedList.querySelector<HTMLInputElement>('.snapshot-item__input')!;
+    historyList.querySelector<HTMLButtonElement>('.snapshot-action--rename')!.click();
+    const editInput = historyList.querySelector<HTMLInputElement>('.snapshot-item__input')!;
     editInput.value = 'Initial algorithm';
     editInput
       .closest('form')!
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
-    // Moved into Named section with original timestamp preserved
-    expect(namedList.children).toHaveLength(1);
-    expect(unnamedList.children).toHaveLength(0);
-    expect(namedList.textContent).toContain('Initial algorithm');
-    expect(namedList.textContent).toContain('2026-11-14-14-00-05');
+    // Remains in the unified list with original timestamp preserved
+    expect(historyList.children).toHaveLength(1);
+    expect(historyList.textContent).toContain('Initial algorithm');
+    expect(historyList.textContent).toContain('2026-11-14-14-00-05');
 
     const persisted = JSON.parse(window.localStorage.getItem(SNAPSHOTS_STORAGE_KEY)!) as {
       createdAt: number;
@@ -191,12 +195,18 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     // Modify editor, then restore the named snapshot (current edits are safety-autosaved)
     programInput.value = '0,1,0,0';
     tapeInput.value = 'modified';
-    namedList.querySelector<HTMLButtonElement>('.snapshot-item__load')!.click();
+    historyList.querySelector<HTMLButtonElement>('.snapshot-item__load')!.click();
 
     expect(programInput.value).toBe('0, ,#,0');
     expect(tapeInput.value).toBe('first');
-    // Unsaved modification was preserved as an autosave in unnamed list
-    expect(unnamedList.children).toHaveLength(1);
+    // Both the named snapshot and the safety autosave are shown together when named-only is OFF
+    expect(historyList.children).toHaveLength(2);
+
+    // Turning named-only ON shows strictly the named snapshot
+    namedOnlySwitch.click();
+    expect(historyList.children).toHaveLength(1);
+    expect(historyList.textContent).toContain('Initial algorithm');
+    expect(historyList.textContent).not.toContain('автосохранение');
   });
 
   it('confirms deletion with snapshot name, supports "do not show again", and re-enables via Settings', async () => {
@@ -208,7 +218,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
     const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
     const historyBtn = document.querySelector<HTMLButtonElement>('#btn-history')!;
-    const unnamedList = document.querySelector<HTMLUListElement>('#history-unnamed-list')!;
+    const historyList = document.querySelector<HTMLUListElement>('#history-list')!;
     const deleteDialog = document.querySelector<HTMLDialogElement>('#delete-snapshot-dialog')!;
     const deleteTargetName = document.querySelector<HTMLElement>('#delete-snapshot-name')!;
     const skipCheckbox = document.querySelector<HTMLInputElement>('#chk-skip-delete-confirm')!;
@@ -233,10 +243,10 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     programInput.value = '0,0,1,0';
     saveBtn.click();
 
-    expect(unnamedList.children).toHaveLength(3);
+    expect(historyList.children).toHaveLength(3);
 
     // Click delete on newest snapshot → dialog opens with exact snapshot name
-    unnamedList.querySelector<HTMLButtonElement>('.snapshot-action--delete')!.click();
+    historyList.querySelector<HTMLButtonElement>('.snapshot-action--delete')!.click();
     expect(deleteDialog.open).toBe(true);
     expect(deleteTargetName.textContent).toBe('2026-11-14-16-10-02 Сохранено пользователем');
 
@@ -244,24 +254,24 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     skipCheckbox.checked = true;
     cancelDeleteBtn.click();
     expect(deleteDialog.open).toBe(false);
-    expect(unnamedList.children).toHaveLength(3);
+    expect(historyList.children).toHaveLength(3);
     expect(confirmDeleteSettingSwitch.getAttribute('aria-checked')).toBe('true');
 
     // Delete again, check "do not show again", and confirm
-    unnamedList.querySelector<HTMLButtonElement>('.snapshot-action--delete')!.click();
+    historyList.querySelector<HTMLButtonElement>('.snapshot-action--delete')!.click();
     expect(deleteDialog.open).toBe(true);
     expect(skipCheckbox.checked).toBe(false);
     skipCheckbox.checked = true;
     confirmDeleteBtn.click();
 
     expect(deleteDialog.open).toBe(false);
-    expect(unnamedList.children).toHaveLength(2);
+    expect(historyList.children).toHaveLength(2);
     expect(confirmDeleteSettingSwitch.getAttribute('aria-checked')).toBe('false');
 
     // Deleting the next snapshot skips the dialog immediately
-    unnamedList.querySelector<HTMLButtonElement>('.snapshot-action--delete')!.click();
+    historyList.querySelector<HTMLButtonElement>('.snapshot-action--delete')!.click();
     expect(deleteDialog.open).toBe(false);
-    expect(unnamedList.children).toHaveLength(1);
+    expect(historyList.children).toHaveLength(1);
 
     // Re-enable delete confirmation in Settings
     settingsBtn.click();
@@ -269,9 +279,9 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     expect(confirmDeleteSettingSwitch.getAttribute('aria-checked')).toBe('true');
 
     // Deleting the last snapshot opens the confirmation dialog again
-    unnamedList.querySelector<HTMLButtonElement>('.snapshot-action--delete')!.click();
+    historyList.querySelector<HTMLButtonElement>('.snapshot-action--delete')!.click();
     expect(deleteDialog.open).toBe(true);
     confirmDeleteBtn.click();
-    expect(unnamedList.children).toHaveLength(0);
+    expect(historyList.children).toHaveLength(0);
   });
 });

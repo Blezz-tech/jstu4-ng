@@ -73,11 +73,9 @@
   },
   "history": {
     "title": "Контроль версий",
-    "showAutosaves": "Автосохранения",
-    "namedSection": "Именованные",
-    "unnamedSection": "Без имени",
+    "namedOnly": "Только именованные",
+    "emptyAll": "Сохранений пока нет",
     "emptyNamed": "Нет именованных сохранений",
-    "emptyUnnamed": "Нет неименованных сохранений",
     "autosaveSuffix": "автосохранение",
     "manualSuffix": "Сохранено пользователем",
     "rename": "Переименовать",

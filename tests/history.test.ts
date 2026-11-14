@@ -36,7 +36,7 @@ describe('history (SnapshotStore)', () => {
     expect(getSnapshotDisplayName(manualSnap, en)).toBe('2026-11-14-15-22-09 Saved by user');
   });
 
-  it('separates named and unnamed snapshots and preserves createdAt on rename', () => {
+  it('filters named-only vs all snapshots in one chronological list and preserves createdAt on rename', () => {
     const t1 = new Date(2026, 10, 14, 10, 0, 0).getTime();
     const t2 = new Date(2026, 10, 14, 10, 1, 0).getTime();
     const t3 = new Date(2026, 10, 14, 10, 2, 0).getTime();
@@ -46,25 +46,21 @@ describe('history (SnapshotStore)', () => {
     const sManual = store.create('manual', '0, ,>,1\n1, ,#,1', '10', t2);
     const sAuto2 = store.create('autosave', '0,1,0,0', '11', t3);
 
-    expect(store.getNamed()).toHaveLength(0);
-    expect(store.getUnnamed(true)).toHaveLength(3);
-    expect(store.getUnnamed(false).map((s) => s.id)).toEqual([sManual.id]);
+    expect(store.getVisible(true)).toHaveLength(0);
+    expect(store.getVisible(false).map((s) => s.id)).toEqual([sAuto2.id, sManual.id, sAuto.id]);
 
     // Reject blank rename
     expect(store.rename(sAuto.id, '   ')).toBeNull();
-    expect(store.getNamed()).toHaveLength(0);
+    expect(store.getVisible(true)).toHaveLength(0);
 
-    // Rename autosave — createdAt stays strictly unchanged and it moves to named
+    // Rename autosave — createdAt stays strictly unchanged and order stays chronological
     const renamed = store.rename(sAuto.id, '  Working baseline  ');
     expect(renamed).not.toBeNull();
     expect(renamed?.customName).toBe('Working baseline');
     expect(renamed?.createdAt).toBe(t1);
 
-    expect(store.getNamed().map((s) => s.id)).toEqual([sAuto.id]);
-    expect(store.getUnnamed(true).map((s) => s.id)).toEqual([sAuto2.id, sManual.id]);
-    // Hiding autosaves still keeps the renamed autosave in the named section
-    expect(store.getNamed().map((s) => s.id)).toEqual([sAuto.id]);
-    expect(store.getUnnamed(false).map((s) => s.id)).toEqual([sManual.id]);
+    expect(store.getVisible(true).map((s) => s.id)).toEqual([sAuto.id]);
+    expect(store.getVisible(false).map((s) => s.id)).toEqual([sAuto2.id, sManual.id, sAuto.id]);
 
     // Rename again — createdAt still unchanged
     const renamedAgain = store.rename(sAuto.id, 'Final version');

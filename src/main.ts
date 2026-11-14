@@ -104,11 +104,10 @@ const dom = {
   historyBackdrop: mustFind<HTMLElement>(document, '#history-backdrop'),
   historyButton: mustFind<HTMLButtonElement>(document, '#btn-history'),
   historyClose: mustFind<HTMLButtonElement>(document, '#btn-history-close'),
-  showAutosavesButton: mustFind<HTMLButtonElement>(document, '#btn-show-autosaves'),
-  historyNamedList: mustFind<HTMLUListElement>(document, '#history-named-list'),
-  historyNamedCount: mustFind<HTMLElement>(document, '#history-named-count'),
-  historyUnnamedList: mustFind<HTMLUListElement>(document, '#history-unnamed-list'),
-  historyUnnamedCount: mustFind<HTMLElement>(document, '#history-unnamed-count'),
+  namedOnlyButton: mustFind<HTMLButtonElement>(document, '#btn-named-only'),
+  historyList: mustFind<HTMLUListElement>(document, '#history-list'),
+  historyCount: mustFind<HTMLElement>(document, '#history-count'),
+  historyEmpty: mustFind<HTMLElement>(document, '#history-empty'),
   saveButton: mustFind<HTMLButtonElement>(document, '#btn-save'),
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
@@ -524,14 +523,14 @@ const ICON_CHECK = ['M20 6 9 17l-5-5'];
 const ICON_CANCEL = ['M18 6 6 18', 'M6 6l12 12'];
 
 const snapshots = new SnapshotStore();
-let showAutosaves = settings.showAutosaves ?? true;
+let namedOnly = settings.namedOnly ?? false;
 let confirmSnapshotDelete = settings.confirmSnapshotDelete ?? true;
 let activeSnapshotId: string | null = null;
 let editingSnapshotId: string | null = null;
 let pendingDeleteId: string | null = null;
 
-function syncShowAutosavesControl(): void {
-  dom.showAutosavesButton.setAttribute('aria-checked', String(showAutosaves));
+function syncNamedOnlyControl(): void {
+  dom.namedOnlyButton.setAttribute('aria-checked', String(namedOnly));
 }
 
 function syncConfirmDeleteControl(): void {
@@ -733,14 +732,11 @@ function renderSnapshotItem(snapshot: ProgramSnapshot): HTMLLIElement {
 }
 
 function renderHistory(): void {
-  const named = snapshots.getNamed();
-  const unnamed = snapshots.getUnnamed(showAutosaves);
+  const visible = snapshots.getVisible(namedOnly);
 
-  dom.historyNamedCount.textContent = String(named.length);
-  dom.historyUnnamedCount.textContent = String(unnamed.length);
-
-  dom.historyNamedList.replaceChildren(...named.map(renderSnapshotItem));
-  dom.historyUnnamedList.replaceChildren(...unnamed.map(renderSnapshotItem));
+  dom.historyCount.textContent = String(visible.length);
+  dom.historyEmpty.textContent = i18n.t(namedOnly ? 'history.emptyNamed' : 'history.emptyAll');
+  dom.historyList.replaceChildren(...visible.map(renderSnapshotItem));
 
   if (dom.deleteDialog.open && pendingDeleteId !== null) {
     const target = snapshots.getById(pendingDeleteId);
@@ -763,7 +759,7 @@ window.setInterval(() => {
 // dynamic controls whenever the active locale changes.
 function syncDynamicI18n(): void {
   syncSoundControl();
-  syncShowAutosavesControl();
+  syncNamedOnlyControl();
   syncConfirmDeleteControl();
   syncLangAria();
   renderHelp(i18n.help);
@@ -854,10 +850,10 @@ on(dom.historyClose, 'click', () => {
   dom.historyButton.focus();
 });
 on(dom.historyBackdrop, 'click', () => applyHistoryPanel(false, false));
-on(dom.showAutosavesButton, 'click', () => {
-  showAutosaves = !showAutosaves;
-  updateSettings({ showAutosaves });
-  syncShowAutosavesControl();
+on(dom.namedOnlyButton, 'click', () => {
+  namedOnly = !namedOnly;
+  updateSettings({ namedOnly });
+  syncNamedOnlyControl();
   renderHistory();
 });
 
