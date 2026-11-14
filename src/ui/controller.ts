@@ -168,6 +168,8 @@ export class AppController {
     this.compiled = parsed;
     this.run = new MachineRun(parsed.program, tape);
     this.returnCursorOffset = null;
+    this.options.onProgramChange(this.el.programInput.value);
+    this.options.onTapeChange(tape);
 
     this.el.programView.replaceChildren(renderProgram(parsed));
     this.renderTapeView();
@@ -294,10 +296,10 @@ export class AppController {
   }
 
   /** Keyboard: Enter behaviour depends on the current mode. */
-  handleEnter(): void {
+  handleEnter(withModifier = false): void {
     switch (this.mode) {
       case 'edit':
-        this.start();
+        if (withModifier) this.start();
         break;
       case 'run':
         if (this.isQuickRunning) this.stopQuick();
@@ -407,6 +409,9 @@ export class AppController {
 
     this.el.programView.scrollTop = scrollTop;
     scrollElementIntoView(this.el.programView.querySelector('mark.error, .cmd.error'));
+    // Move focus out of `#input-tape` (e.g. if error was triggered by pressing
+    // Enter in the tape input) so Enter/Escape immediately return to edit mode.
+    this.el.programView.focus({ preventScroll: true });
   }
 
   /**
@@ -524,6 +529,7 @@ export class AppController {
         this.quickRaf = null;
 
         const deadline = performance.now() + MAX_BATCH_MS_PER_FRAME;
+        const opsBefore = this.stats.operationsCount;
         let stepped = 0;
         let keepGoing = true;
         while (
@@ -534,7 +540,7 @@ export class AppController {
           keepGoing = this.stepOnce(false);
           stepped += 1;
         }
-        if (stepped > 0) this.options.onStepSound?.();
+        if (this.stats.operationsCount > opsBefore) this.options.onStepSound?.();
 
         if (!keepGoing || generation !== this.quickGeneration) {
           this.options.onModeChange(this.mode);

@@ -8,10 +8,10 @@
 | Метрика             | v2.3                                            | v3.0                                                               |
 | ------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
 | Рантайм-зависимости | jQuery 1.6.4, HotMilk/Milk, `jquery-plugins.js` | **0**                                                              |
-| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **37.4 КБ** (12.1 КБ gzip)                                         |
+| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **37.9 КБ** (12.2 КБ gzip)                                         |
 | Языки               | ES3-стиль, глобальные `i18n`, `TM`              | TypeScript strict, ES-модули, `noUncheckedIndexedAccess`           |
 | Типизация           | нет                                             | 100% кода, `tsc --noEmit` в скрипте `build`                        |
-| Тесты               | нет                                             | **52 юнит/DOM (Vitest) + 25 сквозных (Playwright)**                |
+| Тесты               | нет                                             | **55 юнит/DOM (Vitest) + 25 сквозных (Playwright)**                |
 | Линт/формат         | нет                                             | ESLint 10 (typescript-eslint, type-checked) + Prettier             |
 | Сборка              | ручное подключение `<script>`                   | Vite 7, хешированные ассеты, sourcemaps                            |
 | Доступность         | кнопки-ссылки без семантики                     | `<button>`, `<dialog>`, aria-live, `:focus-visible`, skip-link     |
@@ -84,7 +84,7 @@
 
 ```bash
 npm install
-npm run check      # lint + prettier + 52 юнит/DOM-теста + сборка
+npm run check      # lint + prettier + 55 юнит/DOM-тестов + сборка
 npm run test:e2e   # 25 сценариев Playwright в Chromium
 npm run dev        # живой предпросмотр
 ```

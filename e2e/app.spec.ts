@@ -249,14 +249,19 @@ test('starting with Enter in the tape field hides #input-tape so run hotkeys wor
   await expect(page.locator('#input-tape')).toBeVisible();
 });
 
-test('error mode keeps #input-tape visible and hides #display-tape', async ({ page }) => {
+test('error mode keeps #input-tape visible, hides #display-tape, and Escape exits after Enter in tape', async ({
+  page,
+}) => {
   await page.goto('/');
   await page.locator('#input-program').fill('???');
   await page.locator('#input-tape').fill('101');
-  await page.locator('#btn-start').click();
+  await page.locator('#input-tape').press('Enter');
 
   await expect(page.locator('#input-tape')).toBeVisible();
   await expect(page.locator('#display-tape')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#input-program')).toBeVisible();
+  await expect(page.locator('#input-program')).toBeFocused();
 });
 
 test('switching language preserves edited program and active run', async ({ page }) => {

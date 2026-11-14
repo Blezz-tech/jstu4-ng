@@ -83,6 +83,21 @@ const sound = new StepSound(saved.sound);
 /* ——— i18n bootstrap ————————————————————————————————————————————— */
 
 let m: Messages = messages(lang);
+let activeHintButton: HTMLButtonElement | null = null;
+
+/** Keep the hint bar in sync with the hovered/focused visible button. */
+function syncHint(): void {
+  if (
+    activeHintButton === null ||
+    activeHintButton.disabled ||
+    activeHintButton.offsetParent === null
+  ) {
+    activeHintButton = null;
+    dom.hint.textContent = '';
+    return;
+  }
+  dom.hint.textContent = activeHintButton.dataset.hint ?? '';
+}
 
 /** Show the bottom scroll fade only when the listing actually overflows below. */
 function syncProgramOverflow(): void {
@@ -162,6 +177,7 @@ function localize(): void {
 
   renderHelp(m.help);
   syncQuickLabel();
+  syncHint();
 }
 
 /* ——— help dialog ——————————————————————————————————————————————— */
@@ -233,6 +249,7 @@ function applyMode(mode: UIMode): void {
   document.body.dataset.mode = mode;
   dom.skipLink.href = mode === 'edit' ? '#input-program' : '#display-program';
   syncQuickLabel();
+  syncHint();
   requestAnimationFrame(syncProgramOverflow);
 }
 
@@ -249,6 +266,7 @@ function syncRunState(isRunning: boolean): void {
   step.setAttribute('aria-disabled', String(!isRunning));
   quick.setAttribute('aria-disabled', String(!isRunning));
   document.body.dataset.running = String(isRunning);
+  syncHint();
 }
 
 function syncQuickLabel(): void {
@@ -261,6 +279,7 @@ function syncQuickLabel(): void {
   quick.setAttribute('title', hint);
   quick.setAttribute('data-hint', hint);
   quick.setAttribute('aria-pressed', String(running));
+  syncHint();
 }
 
 /* ——— wiring ————————————————————————————————————————————————————— */
@@ -354,6 +373,10 @@ const persistTape = debounce((text: string) => saveTape(text), 400);
 
 on(dom.programInput, 'input', () => persistProgram(dom.programInput.value));
 on(dom.tapeInput, 'input', () => persistTape(dom.tapeInput.value));
+window.addEventListener('pagehide', () => {
+  saveProgram(dom.programInput.value);
+  saveTape(dom.tapeInput.value);
+});
 
 on(dom.tapeInput, 'keydown', (event) => {
   if (event.key === 'Enter') {
@@ -410,11 +433,15 @@ on(document, 'keydown', (event) => {
 
   if (dom.helpDialog.open) return;
 
-  if (event.key === 'Enter' && !inEditable && !inControl) {
-    event.preventDefault();
-    sound.unlock();
-    controller.handleEnter();
-    syncQuickLabel();
+  const hasModifier = event.ctrlKey || event.metaKey;
+
+  if (event.key === 'Enter' && !inEditable && (hasModifier || !inControl)) {
+    if (controller.currentMode !== 'edit' || hasModifier) {
+      event.preventDefault();
+      sound.unlock();
+      controller.handleEnter(hasModifier);
+      syncQuickLabel();
+    }
     return;
   }
   if (event.key === ' ' && !inEditable && !inControl) {
@@ -424,7 +451,7 @@ on(document, 'keydown', (event) => {
     syncQuickLabel();
     return;
   }
-  if (event.key === 'Escape' && !inEditable) {
+  if (event.key === 'Escape' && (!inEditable || controller.currentMode === 'error')) {
     controller.handleEscape();
     syncQuickLabel();
   }
@@ -434,10 +461,12 @@ on(document, 'keydown', (event) => {
 const hintTargets = Array.from(dom.controls.querySelectorAll<HTMLButtonElement>('.btn'));
 for (const button of hintTargets) {
   const show = (): void => {
-    dom.hint.textContent = button.dataset.hint ?? '';
+    activeHintButton = button;
+    syncHint();
   };
   const hide = (): void => {
-    dom.hint.textContent = '';
+    if (activeHintButton === button) activeHintButton = null;
+    syncHint();
   };
   button.addEventListener('mouseenter', show);
   button.addEventListener('focus', show);

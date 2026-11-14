@@ -237,4 +237,78 @@ describe('AppController', () => {
     expect(sounds).toHaveBeenCalledTimes(2);
     expect(el.stats.textContent).toContain('Cells used: 4');
   });
+
+  it('moves focus out of #input-tape on compile error so Escape/Enter work immediately', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '???';
+    el.tapeInput.value = '101';
+    el.tapeInput.focus();
+    expect(document.activeElement).toBe(el.tapeInput);
+
+    controller.start();
+    expect(controller.currentMode).toBe('error');
+    expect(document.activeElement).toBe(el.programView);
+
+    controller.handleEnter();
+    expect(controller.currentMode).toBe('edit');
+    expect(document.activeElement).toBe(el.programInput);
+  });
+
+  it('requires modifier for handleEnter in edit mode and flushes program/tape on start()', () => {
+    const el = setupDom();
+    const savedPrograms: string[] = [];
+    const savedTapes: string[] = [];
+    const controller = new AppController({
+      messages: messages('en'),
+      elements: el,
+      onModeChange: () => undefined,
+      onProgramChange: (p) => savedPrograms.push(p),
+      onTapeChange: (t) => savedTapes.push(t),
+    });
+    el.programInput.value = '0, ,#,0';
+    el.tapeInput.value = 'a\tb';
+
+    controller.handleEnter(false);
+    expect(controller.currentMode).toBe('edit');
+
+    controller.handleEnter(true);
+    expect(controller.currentMode).toBe('run');
+    expect(savedPrograms).toEqual(['0, ,#,0']);
+    expect(savedTapes).toEqual(['a b']);
+  });
+
+  it('does not play step sound in max-speed rAF batch when the very first step throws', () => {
+    const el = setupDom();
+    const sounds = vi.fn();
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+
+    try {
+      const controller = makeController(el, { onStepSound: sounds });
+      el.programInput.value = '0, ,<,0';
+      el.tapeInput.value = '';
+      controller.start();
+
+      // Advance to speed index 3 (max rAF batch) before timers fire.
+      controller.quick();
+      controller.quick();
+      controller.quick();
+      controller.quick();
+      expect(controller.isQuickAtMaxSpeed).toBe(true);
+
+      const cb = rafCallbacks.pop();
+      expect(cb).toBeDefined();
+      cb?.(performance.now());
+
+      expect(controller.isMachineRunning).toBe(false);
+      expect(sounds).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
