@@ -11,7 +11,7 @@ import {
 } from '../core/errors';
 import { MachineRun } from '../core/run';
 import { toTu4 } from '../core/tu4';
-import type { Messages } from '../i18n';
+import type { I18n } from '../i18n';
 import {
   compileProgram,
   listProgram,
@@ -45,7 +45,7 @@ export interface AppElements {
 export type LogKind = 'info' | 'warning' | 'error';
 
 export interface ControllerOptions {
-  readonly messages: Messages;
+  readonly i18n: I18n;
   readonly elements: AppElements;
   /** Initial auto-run speed multiplier (defaults to 1×). */
   readonly initialSpeed?: number;
@@ -109,7 +109,8 @@ function scrollElementIntoView(
  * DOM events in, DOM updates out.
  */
 export class AppController {
-  private m: Messages;
+  private readonly i18n: I18n;
+  private readonly unsubscribeI18n: () => void;
   private readonly el: AppElements;
   private readonly options: ControllerOptions;
 
@@ -131,10 +132,11 @@ export class AppController {
 
   constructor(options: ControllerOptions) {
     this.options = options;
-    this.m = options.messages;
+    this.i18n = options.i18n;
     this.el = options.elements;
     this.maxSpeed = clampMaxSpeed(options.initialMaxSpeed ?? DEFAULT_MAX_SPEED);
     this.speed = clampSpeed(options.initialSpeed ?? DEFAULT_SPEED, this.maxSpeed);
+    this.unsubscribeI18n = this.i18n.subscribe(() => this.refreshLocalized());
   }
 
   get currentMode(): UIMode {
@@ -184,9 +186,8 @@ export class AppController {
     return { maxSpeed: this.maxSpeed, speed: this.speed };
   }
 
-  /** Switch UI language in place without dropping the draft or active run. */
-  setMessages(messages: Messages): void {
-    this.m = messages;
+  /** Re-render controller-owned localized text when the active locale changes. */
+  private refreshLocalized(): void {
     this.renderLog();
     if (this.hasStats) this.renderStats();
     if (this.mode === 'run') this.renderTapeView();
@@ -386,6 +387,7 @@ export class AppController {
 
   dispose(): void {
     this.stopAutoRun();
+    this.unsubscribeI18n();
   }
 
   // ——— internals ——————————————————————————————————————————————————
@@ -496,10 +498,9 @@ export class AppController {
   private renderTapeView(): void {
     const run = this.run;
     if (run === null) return;
-    this.el.tapeView.replaceChildren(
-      renderTape(run.tapeText, run.headPosition, this.m.a11y.tapeViewLabel),
-    );
-    this.el.tapeView.setAttribute('aria-label', this.m.a11y.tapeViewLabel);
+    const tapeLabel = this.i18n.t('a11y.tapeViewLabel');
+    this.el.tapeView.replaceChildren(renderTape(run.tapeText, run.headPosition, tapeLabel));
+    this.el.tapeView.setAttribute('aria-label', tapeLabel);
     scrollElementIntoView(this.el.tapeView.querySelector('.cell.current'), {
       block: 'nearest',
       inline: 'nearest',
@@ -655,7 +656,7 @@ export class AppController {
   }
 
   private renderStats(): void {
-    this.el.stats.textContent = this.m.stats(this.stats);
+    this.el.stats.textContent = this.i18n.t('stats.summary', this.stats);
   }
 
   private setLog(descriptor: LogDescriptor): void {
@@ -673,63 +674,63 @@ export class AppController {
         text = null;
         break;
       case 'ready':
-        text = this.m.log.ready;
+        text = this.i18n.t('log.ready');
         kind = 'info';
         break;
       case 'restoredDraft':
-        text = this.m.log.restoredDraft;
+        text = this.i18n.t('log.restoredDraft');
         kind = 'info';
         break;
       case 'finished':
-        text = this.m.log.finished;
+        text = this.i18n.t('log.finished');
         kind = 'info';
         break;
       case 'sourceAltered':
-        text = this.m.log.warningSourceAltered;
+        text = this.i18n.t('log.warningSourceAltered');
         kind = 'warning';
         break;
       case 'misplaced':
-        text = this.m.log.warningMisposition;
+        text = this.i18n.t('log.warningMisposition');
         kind = 'warning';
         break;
       case 'convertedToTu4':
-        text = this.m.log.convertedToTu4;
+        text = this.i18n.t('log.convertedToTu4');
         kind = 'info';
         break;
       case 'copied':
-        text = this.m.log.copied;
+        text = this.i18n.t('log.copied');
         kind = 'info';
         break;
       case 'tooManyStates':
-        text = this.m.error.tooManyStates;
+        text = this.i18n.t('error.tooManyStates');
         kind = 'error';
         break;
       case 'parseError':
-        text = this.m.error.parseError(d.text);
+        text = this.i18n.t('error.parseError', { text: d.text });
         kind = 'error';
         break;
       case 'programIsEmpty':
-        text = this.m.error.programIsEmpty;
+        text = this.i18n.t('error.programIsEmpty');
         kind = 'error';
         break;
       case 'ambiguousCommand':
-        text = this.m.error.ambiguousCommand(d.q, d.a);
+        text = this.i18n.t('error.ambiguousCommand', { q: d.q, a: d.a });
         kind = 'error';
         break;
       case 'targetStateDoesNotExist':
-        text = this.m.error.targetStateDoesNotExist(d.w);
+        text = this.i18n.t('error.targetStateDoesNotExist', { w: d.w });
         kind = 'error';
         break;
       case 'initialStateDoesNotExist':
-        text = this.m.error.initialStateDoesNotExist(d.q);
+        text = this.i18n.t('error.initialStateDoesNotExist', { q: d.q });
         kind = 'error';
         break;
       case 'headIsOutOfTape':
-        text = this.m.error.headIsOutOfTape;
+        text = this.i18n.t('error.headIsOutOfTape');
         kind = 'error';
         break;
       case 'noSuchCommand':
-        text = this.m.error.noSuchCommand(d.q, d.a);
+        text = this.i18n.t('error.noSuchCommand', { q: d.q, a: d.a });
         kind = 'error';
         break;
     }

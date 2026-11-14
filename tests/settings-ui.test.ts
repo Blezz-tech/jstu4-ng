@@ -184,6 +184,26 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     expect(stored.speed).toBe(2.5);
   });
 
+  it('places #statusbar (with #log and #stats) above the workspace right below .topbar', async () => {
+    await import('../src/main');
+
+    const topbar = document.querySelector('.topbar')!;
+    const statusbar = document.querySelector('#statusbar')!;
+    const workspace = document.querySelector('.workspace')!;
+    const log = document.querySelector('#log')!;
+    const stats = document.querySelector('#stats')!;
+
+    expect(statusbar.contains(log)).toBe(true);
+    expect(statusbar.contains(stats)).toBe(true);
+    expect(
+      topbar.compareDocumentPosition(statusbar) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      statusbar.compareDocumentPosition(workspace) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(document.documentElement.dir).toBe('ltr');
+  });
+
   it('restores saved settings from localStorage on load', async () => {
     window.localStorage.setItem(
       'jstu4:settings',
