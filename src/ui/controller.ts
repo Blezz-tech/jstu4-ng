@@ -20,6 +20,14 @@ import {
   renderTape,
   type CompiledProgram,
 } from './render';
+import {
+  BASE_STEPS_PER_SECOND,
+  clampMaxSpeed,
+  clampSpeed,
+  DEFAULT_MAX_SPEED,
+  DEFAULT_SPEED,
+  stepIntervalMs,
+} from './speed';
 
 export type UIMode = 'edit' | 'run' | 'error';
 
@@ -39,11 +47,15 @@ export type LogKind = 'info' | 'warning' | 'error';
 export interface ControllerOptions {
   readonly messages: Messages;
   readonly elements: AppElements;
-  /** Called after every mode or quick-run state change so the shell can sync UI. */
+  /** Initial auto-run speed multiplier (defaults to 1×). */
+  readonly initialSpeed?: number;
+  /** Initial maximum auto-run speed multiplier (defaults to 10×). */
+  readonly initialMaxSpeed?: number;
+  /** Called after every mode or auto-run state change so the shell can sync UI. */
   readonly onModeChange: (mode: UIMode) => void;
   /**
    * Called whenever the machine halts or starts running again, so the toolbar
-   * can disable "Step"/"Quick" instead of leaving them looking usable.
+   * can disable "Step"/"Run" instead of leaving them looking usable.
    */
   readonly onRunningChange?: (isRunning: boolean) => void;
   /** Persist the program draft. */
@@ -53,7 +65,7 @@ export interface ControllerOptions {
   readonly onStepSound?: () => void;
 }
 
-const QUICK_INTERVALS_MS = [70, 30, 10, 0] as const;
+const RAF_THRESHOLD_MS = 20;
 const MAX_BATCH_STEPS_PER_FRAME = 64;
 const MAX_BATCH_MS_PER_FRAME = 6;
 
@@ -105,10 +117,12 @@ export class AppController {
   private run: MachineRun | null = null;
   private compiled: CompiledProgram | null = null;
 
-  private quickTimer: ReturnType<typeof setTimeout> | null = null;
-  private quickRaf: number | null = null;
-  private quickIndex = 0;
-  private quickGeneration = 0;
+  private autoTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoRaf: number | null = null;
+  private autoGeneration = 0;
+  private lastStepAt = 0;
+  private maxSpeed: number;
+  private speed: number;
 
   private returnCursorOffset: number | null = null;
   private lastLog: LogDescriptor = { type: 'none' };
@@ -119,22 +133,55 @@ export class AppController {
     this.options = options;
     this.m = options.messages;
     this.el = options.elements;
+    this.maxSpeed = clampMaxSpeed(options.initialMaxSpeed ?? DEFAULT_MAX_SPEED);
+    this.speed = clampSpeed(options.initialSpeed ?? DEFAULT_SPEED, this.maxSpeed);
   }
 
   get currentMode(): UIMode {
     return this.mode;
   }
 
-  get isQuickRunning(): boolean {
-    return this.quickTimer !== null || this.quickRaf !== null;
+  get isAutoRunning(): boolean {
+    return this.autoTimer !== null || this.autoRaf !== null;
   }
 
-  get isQuickAtMaxSpeed(): boolean {
-    return this.isQuickRunning && this.quickIndex >= QUICK_INTERVALS_MS.length - 1;
+  get currentSpeed(): number {
+    return this.speed;
+  }
+
+  get currentMaxSpeed(): number {
+    return this.maxSpeed;
   }
 
   get isMachineRunning(): boolean {
     return this.run?.isRunning ?? false;
+  }
+
+  /** Change auto-run speed multiplier (`0.5×` .. `currentMaxSpeed`). */
+  setSpeed(value: number): number {
+    const next = clampSpeed(value, this.maxSpeed);
+    if (next === this.speed) return next;
+    this.speed = next;
+
+    if (this.isAutoRunning) {
+      this.clearAutoHandles();
+      const remaining = Math.max(
+        0,
+        Math.round(stepIntervalMs(this.speed) - (performance.now() - this.lastStepAt)),
+      );
+      this.scheduleAutoTick(remaining);
+    }
+    return next;
+  }
+
+  /** Change the upper bound for the speed slider and clamp current speed if needed. */
+  setMaxSpeed(value: number): { readonly maxSpeed: number; readonly speed: number } {
+    this.maxSpeed = clampMaxSpeed(value);
+    const clampedSpeed = clampSpeed(this.speed, this.maxSpeed);
+    if (clampedSpeed !== this.speed) {
+      this.setSpeed(clampedSpeed);
+    }
+    return { maxSpeed: this.maxSpeed, speed: this.speed };
   }
 
   /** Switch UI language in place without dropping the draft or active run. */
@@ -164,7 +211,7 @@ export class AppController {
     const tape = coerceTape(this.el.tapeInput.value);
     if (tape !== this.el.tapeInput.value) this.el.tapeInput.value = tape;
 
-    this.stopQuick();
+    this.stopAutoRun();
     this.compiled = parsed;
     this.run = new MachineRun(parsed.program, tape);
     this.returnCursorOffset = null;
@@ -194,28 +241,36 @@ export class AppController {
   }
 
   /**
-   * "Step": leave quick mode (if active) and execute one command.
+   * "Step": pause auto-run (if active) and execute one command.
    * Returns whether the machine keeps running.
    */
   step(): boolean {
-    this.stopQuick();
+    this.stopAutoRun();
     return this.stepOnce(true);
   }
 
   /**
-   * "Quick": start automatic execution; repeated clicks speed it up through
-   * the speed tiers and wrap back to the initial speed at maximum.
+   * "Run / Stop": toggle automatic execution at the current speed.
+   * Stopping pauses the run in place (without resetting or leaving run mode),
+   * just like pressing Step does before advancing.
    */
-  quick(): void {
+  toggleAutoRun(): void {
     if (!this.isMachineRunning) return;
-
-    if (this.isQuickRunning) {
-      this.stopQuick();
-      this.quickIndex = (this.quickIndex + 1) % QUICK_INTERVALS_MS.length;
-    } else {
-      this.quickIndex = 0;
+    if (this.isAutoRunning) {
+      this.stopAutoRun();
+      return;
     }
-    this.scheduleQuickTick();
+    this.lastStepAt = performance.now();
+    this.scheduleAutoTick();
+  }
+
+  /** Pause automatic execution without discarding the current run state. */
+  stopAutoRun(): void {
+    const wasRunning = this.isAutoRunning;
+    this.clearAutoHandles();
+    if (wasRunning) {
+      this.options.onModeChange(this.mode);
+    }
   }
 
   /** "Back to edit": stop everything and return to the editable fields. */
@@ -224,7 +279,7 @@ export class AppController {
     const scrollTop = this.el.programView.scrollTop;
     const cursorOffset = this.returnCursorOffset;
 
-    this.stopQuick();
+    this.stopAutoRun();
     this.run = null;
     this.compiled = null;
     this.returnCursorOffset = null;
@@ -247,9 +302,9 @@ export class AppController {
     }
   }
 
-  /** "Unmark": stop quick mode (if active) and clear visited command marks. */
+  /** "Unmark": pause auto-run (if active) and clear visited command marks. */
   unmark(): void {
-    this.stopQuick();
+    this.stopAutoRun();
     this.el.programView.querySelectorAll('.cmd.visited').forEach((node) => {
       node.classList.remove('visited');
     });
@@ -302,8 +357,7 @@ export class AppController {
         if (withModifier) this.start();
         break;
       case 'run':
-        if (this.isQuickRunning) this.stopQuick();
-        else if (this.isMachineRunning) this.quick();
+        if (this.isMachineRunning) this.toggleAutoRun();
         else this.backToEdit('tape');
         break;
       case 'error':
@@ -320,8 +374,8 @@ export class AppController {
   handleEscape(): void {
     if (this.mode === 'edit') return;
     if (this.mode === 'run') {
-      if (this.isQuickRunning) {
-        this.stopQuick();
+      if (this.isAutoRunning) {
+        this.stopAutoRun();
         return;
       }
       this.backToEdit('tape');
@@ -331,7 +385,7 @@ export class AppController {
   }
 
   dispose(): void {
-    this.stopQuick();
+    this.stopAutoRun();
   }
 
   // ——— internals ——————————————————————————————————————————————————
@@ -479,7 +533,7 @@ export class AppController {
   }
 
   private reportRuntimeError(error: unknown): void {
-    this.stopQuick();
+    this.stopAutoRun();
     this.options.onRunningChange?.(false);
     if (error instanceof NoSuchCommandError) {
       this.setLog({
@@ -502,7 +556,7 @@ export class AppController {
   }
 
   private reportFinish(run: MachineRun): void {
-    this.stopQuick();
+    this.stopAutoRun();
     this.options.onRunningChange?.(false);
     switch (run.checkNormality()) {
       case 'sourceAltered':
@@ -517,74 +571,86 @@ export class AppController {
     }
   }
 
-  private scheduleQuickTick(): void {
-    const generation = ++this.quickGeneration;
-    const interval = QUICK_INTERVALS_MS[this.quickIndex] ?? 0;
+  private scheduleAutoTick(initialDelayMs?: number): void {
+    const generation = ++this.autoGeneration;
+    const interval = stepIntervalMs(this.speed);
 
-    if (interval === 0) {
-      // Fastest tier: run a time-budgeted batch per animation frame so execution
-      // is genuinely faster than the 10 ms tier without freezing repaints or
-      // piling up timers in background tabs.
-      const frame = (): void => {
-        if (generation !== this.quickGeneration) return;
-        this.quickRaf = null;
+    if (interval < RAF_THRESHOLD_MS) {
+      // High-speed mode (> 10×): run a rate-accurate, time-budgeted batch per
+      // animation frame so speeds beyond browser timer resolution scale smoothly
+      // without freezing repaints or piling up timers in background tabs.
+      let lastFrameAt = performance.now();
+      let stepBudget = 0;
 
+      const frame = (now: number): void => {
+        if (generation !== this.autoGeneration) return;
+        this.autoRaf = null;
+
+        const elapsedMs = Math.max(0, Math.min(100, now - lastFrameAt));
+        lastFrameAt = now;
+        stepBudget += (elapsedMs * BASE_STEPS_PER_SECOND * this.speed) / 1000;
+
+        const targetSteps = Math.min(
+          MAX_BATCH_STEPS_PER_FRAME,
+          Math.max(1, Math.floor(stepBudget)),
+        );
         const deadline = performance.now() + MAX_BATCH_MS_PER_FRAME;
         const opsBefore = this.stats.operationsCount;
         let stepped = 0;
         let keepGoing = true;
+
         while (
           keepGoing &&
-          stepped < MAX_BATCH_STEPS_PER_FRAME &&
+          stepped < targetSteps &&
           (stepped === 0 || performance.now() < deadline)
         ) {
           keepGoing = this.stepOnce(false);
           stepped += 1;
         }
+        stepBudget = Math.max(0, stepBudget - stepped);
+        this.lastStepAt = performance.now();
         if (this.stats.operationsCount > opsBefore) this.options.onStepSound?.();
 
-        if (!keepGoing || generation !== this.quickGeneration) {
+        if (!keepGoing || generation !== this.autoGeneration) {
           this.options.onModeChange(this.mode);
           return;
         }
 
-        this.quickRaf = requestAnimationFrame(frame);
+        this.autoRaf = requestAnimationFrame(frame);
       };
 
-      this.quickRaf = requestAnimationFrame(frame);
+      this.autoRaf = requestAnimationFrame(frame);
       this.options.onModeChange(this.mode);
       return;
     }
 
     const tick = (): void => {
-      if (generation !== this.quickGeneration) return;
-      this.quickTimer = null;
+      if (generation !== this.autoGeneration) return;
+      this.autoTimer = null;
+      this.lastStepAt = performance.now();
 
-      if (!this.stepOnce(true) || generation !== this.quickGeneration) {
+      if (!this.stepOnce(true) || generation !== this.autoGeneration) {
         this.options.onModeChange(this.mode);
         return;
       }
 
-      this.quickTimer = setTimeout(tick, interval);
+      this.autoTimer = setTimeout(tick, Math.round(stepIntervalMs(this.speed)));
     };
 
-    this.quickTimer = setTimeout(tick, interval);
+    const delay = initialDelayMs ?? Math.round(interval);
+    this.autoTimer = setTimeout(tick, delay);
     this.options.onModeChange(this.mode);
   }
 
-  private stopQuick(): void {
-    const wasRunning = this.isQuickRunning;
-    this.quickGeneration += 1;
-    if (this.quickTimer !== null) {
-      clearTimeout(this.quickTimer);
-      this.quickTimer = null;
+  private clearAutoHandles(): void {
+    this.autoGeneration += 1;
+    if (this.autoTimer !== null) {
+      clearTimeout(this.autoTimer);
+      this.autoTimer = null;
     }
-    if (this.quickRaf !== null) {
-      cancelAnimationFrame(this.quickRaf);
-      this.quickRaf = null;
-    }
-    if (wasRunning) {
-      this.options.onModeChange(this.mode);
+    if (this.autoRaf !== null) {
+      cancelAnimationFrame(this.autoRaf);
+      this.autoRaf = null;
     }
   }
 

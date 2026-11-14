@@ -7,6 +7,15 @@ import { StepSound } from './ui/audio';
 import { AppController, type UIMode } from './ui/controller';
 import { debounce, el, mustFind } from './ui/dom';
 import {
+  clampMaxSpeed,
+  DEFAULT_MAX_SPEED,
+  formatSpeed,
+  MAX_MAX_SPEED,
+  MIN_MAX_SPEED,
+  MIN_SPEED,
+  SPEED_STEP,
+} from './ui/speed';
+import {
   loadState,
   saveProgram,
   saveSettings,
@@ -49,6 +58,11 @@ const dom = {
   hint: mustFind(document, '#hint'),
   labelProgram: mustFind(document, '#label-program'),
   labelTape: mustFind(document, '#label-tape'),
+  runToggleButton: mustFind<HTMLButtonElement>(document, '#btn-run-toggle'),
+  speedControl: mustFind(document, '#speed-control'),
+  speedLabel: mustFind(document, '#label-speed'),
+  speedInput: mustFind<HTMLInputElement>(document, '#input-speed'),
+  speedValue: mustFind(document, '#speed-value'),
   settingsAnchor: mustFind(document, '#settings-anchor'),
   settingsButton: mustFind<HTMLButtonElement>(document, '#btn-settings'),
   settingsMenu: mustFind(document, '#settings-menu'),
@@ -64,6 +78,8 @@ const dom = {
   settingSoundLabel: mustFind(document, '#label-setting-sound'),
   soundButton: mustFind<HTMLButtonElement>(document, '#btn-sound'),
   soundLabel: mustFind(document, '#sound-label'),
+  settingMaxSpeedLabel: mustFind(document, '#label-setting-max-speed'),
+  maxSpeedInput: mustFind<HTMLInputElement>(document, '#input-max-speed'),
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
   helpBody: mustFind(document, '#help-body'),
@@ -100,20 +116,17 @@ const sound = new StepSound(settings.sound);
 /* ——— i18n bootstrap ————————————————————————————————————————————— */
 
 let m: Messages = messages(lang);
-let activeHintButton: HTMLButtonElement | null = null;
+let activeHintTarget: HTMLElement | null = null;
 
-/** Keep the hint bar in sync with the hovered/focused visible button. */
+/** Keep the hint bar in sync with the hovered/focused visible control. */
 function syncHint(): void {
-  if (
-    activeHintButton === null ||
-    activeHintButton.disabled ||
-    activeHintButton.offsetParent === null
-  ) {
-    activeHintButton = null;
+  const isDisabled = activeHintTarget instanceof HTMLButtonElement && activeHintTarget.disabled;
+  if (activeHintTarget === null || isDisabled || activeHintTarget.offsetParent === null) {
+    activeHintTarget = null;
     dom.hint.textContent = '';
     return;
   }
-  dom.hint.textContent = activeHintButton.dataset.hint ?? '';
+  dom.hint.textContent = activeHintTarget.dataset.hint ?? '';
 }
 
 /** Show the bottom scroll fade only when the listing actually overflows below. */
@@ -128,6 +141,25 @@ function syncSoundControl(): void {
   dom.soundButton.setAttribute('aria-checked', String(onState));
   dom.soundButton.dataset.on = String(onState);
   dom.soundLabel.textContent = onState ? m.settings.on : m.settings.off;
+}
+
+function syncSpeedControls(): void {
+  const maxSpeed = controller.currentMaxSpeed;
+  const speed = controller.currentSpeed;
+  const formatted = formatSpeed(speed);
+
+  dom.speedInput.min = String(MIN_SPEED);
+  dom.speedInput.max = String(maxSpeed);
+  dom.speedInput.step = String(SPEED_STEP);
+  dom.speedInput.value = String(speed);
+  dom.speedInput.setAttribute('aria-valuetext', formatted);
+  dom.speedValue.textContent = formatted;
+
+  dom.maxSpeedInput.min = String(MIN_MAX_SPEED);
+  dom.maxSpeedInput.max = String(MAX_MAX_SPEED);
+  if (document.activeElement !== dom.maxSpeedInput) {
+    dom.maxSpeedInput.value = String(maxSpeed);
+  }
 }
 
 /** Apply all localized strings to the static markup. */
@@ -164,7 +196,7 @@ function localize(): void {
   text('#btn-totu4', m.controls.toTu4);
   text('#btn-copy', m.controls.copy);
   text('#btn-step', m.controls.step);
-  text('#btn-quick', m.controls.quick);
+  text('#btn-run-toggle', m.controls.run);
   text('#btn-unmark', m.controls.unmark);
   text('#btn-edit', m.controls.backToEdit);
   text('#btn-edit-err', m.controls.backToEdit);
@@ -173,7 +205,7 @@ function localize(): void {
   title('#btn-totu4', m.hints.toTu4);
   title('#btn-copy', m.hints.copy);
   title('#btn-step', m.hints.step);
-  title('#btn-quick', m.hints.quick);
+  title('#btn-run-toggle', m.hints.run);
   title('#btn-unmark', m.hints.unmark);
   title('#btn-edit', m.hints.backToEdit);
   title('#btn-edit-err', m.hints.backToEdit);
@@ -183,10 +215,15 @@ function localize(): void {
   hint('#btn-totu4', m.hints.toTu4);
   hint('#btn-copy', m.hints.copy);
   hint('#btn-step', m.hints.step);
-  hint('#btn-quick', m.hints.quick);
+  hint('#btn-run-toggle', m.hints.run);
   hint('#btn-unmark', m.hints.unmark);
   hint('#btn-edit', m.hints.backToEdit);
   hint('#btn-edit-err', m.hints.backToEdit);
+
+  dom.speedLabel.textContent = m.controls.speed;
+  dom.speedControl.setAttribute('title', m.hints.speed);
+  dom.speedControl.setAttribute('data-hint', m.hints.speed);
+  dom.speedInput.setAttribute('aria-label', m.controls.speed);
 
   dom.settingsButton.setAttribute('title', m.controls.settings);
   dom.settingsButton.setAttribute('aria-label', m.controls.settings);
@@ -207,12 +244,16 @@ function localize(): void {
   dom.settingSoundLabel.textContent = m.settings.sound;
   syncSoundControl();
 
+  dom.settingMaxSpeedLabel.textContent = m.settings.maxSpeed;
+  dom.maxSpeedInput.setAttribute('aria-label', m.settings.maxSpeed);
+
   mustFind(document, '#btn-help').setAttribute('aria-label', m.controls.help);
   dom.helpClose.setAttribute('aria-label', m.controls.close);
   dom.helpClose.setAttribute('title', m.controls.close);
 
   renderHelp(m.help);
-  syncQuickLabel();
+  syncRunToggleLabel();
+  syncSpeedControls();
   syncHint();
 }
 
@@ -226,6 +267,7 @@ function openSettings(): void {
   if (isSettingsOpen()) return;
   dom.settingsMenu.hidden = false;
   dom.settingsButton.setAttribute('aria-expanded', 'true');
+  syncSpeedControls();
 }
 
 function closeSettings(restoreFocus = false): void {
@@ -304,37 +346,36 @@ function applyMode(mode: UIMode): void {
   dom.controls.dataset.mode = mode;
   document.body.dataset.mode = mode;
   dom.skipLink.href = mode === 'edit' ? '#input-program' : '#display-program';
-  syncQuickLabel();
+  syncRunToggleLabel();
   syncHint();
   requestAnimationFrame(syncProgramOverflow);
 }
 
 /**
- * Step and Quick only make sense while the machine is running. Once it halts
+ * Step and Run/Stop only make sense while the machine is running. Once it halts
  * (finishes or hits a runtime error) the buttons stay visible — the mode is
  * still "run" — but are disabled and dimmed instead of silently doing nothing.
  */
 function syncRunState(isRunning: boolean): void {
   const step = mustFind<HTMLButtonElement>(document, '#btn-step');
-  const quick = mustFind<HTMLButtonElement>(document, '#btn-quick');
+  const toggle = dom.runToggleButton;
   step.disabled = !isRunning;
-  quick.disabled = !isRunning;
+  toggle.disabled = !isRunning;
   step.setAttribute('aria-disabled', String(!isRunning));
-  quick.setAttribute('aria-disabled', String(!isRunning));
+  toggle.setAttribute('aria-disabled', String(!isRunning));
   document.body.dataset.running = String(isRunning);
-  syncQuickLabel();
+  syncRunToggleLabel();
 }
 
-function syncQuickLabel(): void {
-  const quick = mustFind<HTMLButtonElement>(document, '#btn-quick');
-  const running = controller.isQuickRunning;
-  const atMax = controller.isQuickAtMaxSpeed;
-  const label = !running ? m.controls.quick : atMax ? m.controls.slow : m.controls.faster;
-  const hint = !running ? m.hints.quick : atMax ? m.hints.slow : m.hints.faster;
-  quick.querySelector('.btn__text')!.textContent = label;
-  quick.setAttribute('title', hint);
-  quick.setAttribute('data-hint', hint);
-  quick.setAttribute('aria-pressed', String(running));
+function syncRunToggleLabel(): void {
+  const toggle = dom.runToggleButton;
+  const running = controller.isAutoRunning;
+  const label = running ? m.controls.stop : m.controls.run;
+  const hint = running ? m.hints.stop : m.hints.run;
+  toggle.querySelector('.btn__text')!.textContent = label;
+  toggle.setAttribute('title', hint);
+  toggle.setAttribute('data-hint', hint);
+  toggle.setAttribute('aria-pressed', String(running));
   syncHint();
 }
 
@@ -342,6 +383,8 @@ function syncQuickLabel(): void {
 
 const controller = new AppController({
   messages: m,
+  initialSpeed: settings.speed,
+  initialMaxSpeed: settings.maxSpeed,
   elements: {
     programInput: dom.programInput,
     tapeInput: dom.tapeInput,
@@ -375,16 +418,21 @@ on(mustFind(document, '#btn-start'), 'click', () => {
 on(mustFind(document, '#btn-step'), 'click', () => {
   sound.unlock();
   controller.step();
-  syncQuickLabel();
+  syncRunToggleLabel();
 });
-on(mustFind(document, '#btn-quick'), 'click', () => {
+on(dom.runToggleButton, 'click', () => {
   sound.unlock();
-  controller.quick();
-  syncQuickLabel();
+  controller.toggleAutoRun();
+  syncRunToggleLabel();
+});
+on(dom.speedInput, 'input', () => {
+  const nextSpeed = controller.setSpeed(Number(dom.speedInput.value));
+  updateSettings({ speed: nextSpeed });
+  syncSpeedControls();
 });
 on(mustFind(document, '#btn-unmark'), 'click', () => {
   controller.unmark();
-  syncQuickLabel();
+  syncRunToggleLabel();
 });
 on(mustFind(document, '#btn-edit'), 'click', () => controller.backToEdit('program'));
 on(mustFind(document, '#btn-edit-err'), 'click', () => controller.backToEdit('program'));
@@ -450,6 +498,29 @@ on(dom.soundButton, 'click', () => {
   }
 });
 
+function applyMaxSpeedValue(rawValue: string, normalizeInput: boolean): void {
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed) || rawValue.trim() === '') {
+    if (!normalizeInput) return;
+    const result = controller.setMaxSpeed(DEFAULT_MAX_SPEED);
+    updateSettings({ maxSpeed: result.maxSpeed, speed: result.speed });
+    dom.maxSpeedInput.value = String(result.maxSpeed);
+    syncSpeedControls();
+    return;
+  }
+
+  if (!normalizeInput && (parsed < MIN_MAX_SPEED || parsed > MAX_MAX_SPEED)) return;
+
+  const result = controller.setMaxSpeed(clampMaxSpeed(parsed));
+  updateSettings({ maxSpeed: result.maxSpeed, speed: result.speed });
+  if (normalizeInput) dom.maxSpeedInput.value = String(result.maxSpeed);
+  syncSpeedControls();
+}
+
+on(dom.maxSpeedInput, 'input', () => applyMaxSpeedValue(dom.maxSpeedInput.value, false));
+on(dom.maxSpeedInput, 'change', () => applyMaxSpeedValue(dom.maxSpeedInput.value, true));
+on(dom.maxSpeedInput, 'blur', () => applyMaxSpeedValue(dom.maxSpeedInput.value, true));
+
 // Persist the draft as the user types (debounced).
 const persistProgram = debounce((text: string) => saveProgram(text), 400);
 const persistTape = debounce((text: string) => saveTape(text), 400);
@@ -504,7 +575,7 @@ on(document, 'keydown', (event) => {
 
   const target = event.target;
   const inEditable =
-    target instanceof HTMLInputElement ||
+    (target instanceof HTMLInputElement && target.type !== 'range') ||
     target instanceof HTMLTextAreaElement ||
     (target instanceof HTMLElement && target.isContentEditable);
 
@@ -538,7 +609,7 @@ on(document, 'keydown', (event) => {
       event.preventDefault();
       sound.unlock();
       controller.handleEnter(hasModifier);
-      syncQuickLabel();
+      syncRunToggleLabel();
     }
     return;
   }
@@ -553,30 +624,30 @@ on(document, 'keydown', (event) => {
     event.preventDefault();
     sound.unlock();
     controller.handleSpace();
-    syncQuickLabel();
+    syncRunToggleLabel();
     return;
   }
   if (event.key === 'Escape' && (!inEditable || controller.currentMode === 'error')) {
     controller.handleEscape();
-    syncQuickLabel();
+    syncRunToggleLabel();
   }
 });
 
-// Hint bar: show the hint of the hovered/focused button.
-const hintTargets = Array.from(dom.controls.querySelectorAll<HTMLButtonElement>('.btn'));
-for (const button of hintTargets) {
+// Hint bar: show the hint of the hovered/focused toolbar control.
+const hintTargets = Array.from(dom.controls.querySelectorAll<HTMLElement>('.btn, .speed-control'));
+for (const control of hintTargets) {
   const show = (): void => {
-    activeHintButton = button;
+    activeHintTarget = control;
     syncHint();
   };
   const hide = (): void => {
-    if (activeHintButton === button) activeHintButton = null;
+    if (activeHintTarget === control) activeHintTarget = null;
     syncHint();
   };
-  button.addEventListener('mouseenter', show);
-  button.addEventListener('focus', show);
-  button.addEventListener('mouseleave', hide);
-  button.addEventListener('blur', hide);
+  control.addEventListener('mouseenter', show);
+  control.addEventListener('focusin', show);
+  control.addEventListener('mouseleave', hide);
+  control.addEventListener('focusout', hide);
 }
 
 // Hydrate saved draft, localize static DOM, and initialize toolbar state.

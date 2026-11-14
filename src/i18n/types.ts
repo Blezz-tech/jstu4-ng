@@ -55,9 +55,9 @@ export interface Messages {
     readonly settings: string;
     readonly start: string;
     readonly step: string;
-    readonly quick: string;
-    readonly faster: string;
-    readonly slow: string;
+    readonly run: string;
+    readonly stop: string;
+    readonly speed: string;
     readonly backToEdit: string;
     readonly toTu4: string;
     readonly unmark: string;
@@ -77,6 +77,7 @@ export interface Messages {
     readonly themeLight: string;
     readonly themeDark: string;
     readonly sound: string;
+    readonly maxSpeed: string;
     readonly on: string;
     readonly off: string;
   };
@@ -84,9 +85,9 @@ export interface Messages {
   readonly hints: {
     readonly start: string;
     readonly step: string;
-    readonly quick: string;
-    readonly faster: string;
-    readonly slow: string;
+    readonly run: string;
+    readonly stop: string;
+    readonly speed: string;
     readonly backToEdit: string;
     readonly toTu4: string;
     readonly unmark: string;

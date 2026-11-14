@@ -508,6 +508,48 @@ button {
   text-align: left;
 }
 
+.setting-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.setting-number:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.setting-number__input {
+  width: 5.5ch;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.setting-number__input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.setting-number__unit {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
 /* ——— workspace ————————————————————————————————————————————————————— */
 
 .workspace {
@@ -800,15 +842,51 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
 .toolbar__buttons {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
-/* Mode visibility: each button declares which mode it belongs to. */
+/* Mode visibility: each direct toolbar control declares which mode it belongs to. */
 
-#controls[data-mode='edit'] .btn:not([data-mode='edit']),
-#controls[data-mode='run'] .btn:not([data-mode='run']),
-#controls[data-mode='error'] .btn:not([data-mode='error']) {
+#controls[data-mode='edit'] > :not([data-mode='edit']),
+#controls[data-mode='run'] > :not([data-mode='run']),
+#controls[data-mode='error'] > :not([data-mode='error']) {
   display: none;
+}
+
+.speed-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.speed-control__label {
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.speed-control__slider {
+  width: 112px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.speed-control__value {
+  min-width: 4.5ch;
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-align: right;
 }
 
 .toolbar__status {
@@ -983,6 +1061,16 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
 
   .toolbar__buttons .btn {
     flex: 1 1 auto;
+  }
+
+  .speed-control {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .speed-control__slider {
+    flex: 1 1 auto;
+    width: auto;
   }
 
   .hint {

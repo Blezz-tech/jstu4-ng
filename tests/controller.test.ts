@@ -117,40 +117,61 @@ describe('AppController', () => {
     expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(0);
   });
 
-  it('stops quick mode when step() or Escape is called, and cycles speeds properly', () => {
+  it('toggles auto-run on/off (pausing in place), respects speed changes, and stops on step/Escape', () => {
     const el = setupDom();
     const controller = makeController(el);
     el.programInput.value = '0, ,>,0';
     el.tapeInput.value = '';
 
     controller.start();
-    expect(controller.isQuickRunning).toBe(false);
+    expect(controller.isAutoRunning).toBe(false);
+    expect(controller.currentSpeed).toBe(1);
+    expect(controller.currentMaxSpeed).toBe(10);
 
-    controller.quick(); // speed 0 (70 ms)
-    expect(controller.isQuickRunning).toBe(true);
-    expect(controller.isQuickAtMaxSpeed).toBe(false);
+    // Start auto-run at default 1× (200 ms/step).
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    vi.advanceTimersByTime(600);
+    expect(el.stats.textContent).toContain('Выполнено операций: 3');
 
-    controller.quick(); // speed 1 (30 ms)
-    controller.quick(); // speed 2 (10 ms)
-    controller.quick(); // speed 3 (max rAF batch)
-    expect(controller.isQuickAtMaxSpeed).toBe(true);
+    // Second toggleAutoRun() pauses (Stop) without resetting or leaving run mode.
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(false);
+    expect(controller.currentMode).toBe('run');
+    expect(controller.isMachineRunning).toBe(true);
+    vi.advanceTimersByTime(600);
+    expect(el.stats.textContent).toContain('Выполнено операций: 3');
 
-    controller.quick(); // wraps back to speed 0
-    expect(controller.isQuickRunning).toBe(true);
-    expect(controller.isQuickAtMaxSpeed).toBe(false);
+    // Resume at 0.5× (400 ms/step), then speed up dynamically to 10× (20 ms/step).
+    controller.setSpeed(0.5);
+    expect(controller.currentSpeed).toBe(0.5);
+    controller.toggleAutoRun();
+    vi.advanceTimersByTime(400);
+    expect(el.stats.textContent).toContain('Выполнено операций: 4');
 
-    // First Escape stops quick mode without leaving run mode.
+    controller.setSpeed(10);
+    expect(controller.currentSpeed).toBe(10);
+    vi.advanceTimersByTime(100);
+    expect(el.stats.textContent).toContain('Выполнено операций: 9');
+
+    // First Escape pauses auto-run without leaving run mode.
     controller.handleEscape();
-    expect(controller.isQuickRunning).toBe(false);
+    expect(controller.isAutoRunning).toBe(false);
     expect(controller.currentMode).toBe('run');
 
-    // Restart quick, then step() must cancel quick mode.
-    controller.quick();
-    expect(controller.isQuickRunning).toBe(true);
-    controller.step();
-    expect(controller.isQuickRunning).toBe(false);
+    // Lowering maxSpeed clamps current speed.
+    const clamped = controller.setMaxSpeed(4);
+    expect(clamped).toEqual({ maxSpeed: 4, speed: 4 });
+    expect(controller.currentSpeed).toBe(4);
 
-    // Second Escape (now not in quick mode) returns to edit.
+    // Restart auto-run, then step() must pause it and advance by 1.
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    controller.step();
+    expect(controller.isAutoRunning).toBe(false);
+    expect(el.stats.textContent).toContain('Выполнено операций: 10');
+
+    // Second Escape (now paused) returns to edit.
     controller.handleEscape();
     expect(controller.currentMode).toBe('edit');
   });
@@ -312,25 +333,25 @@ describe('AppController', () => {
     expect(el.programInput.scrollTop).toBe(120);
   });
 
-  it('reports isQuickRunning === false when onRunningChange(false) fires on quick halt', () => {
+  it('reports isAutoRunning === false when onRunningChange(false) fires on auto-run halt', () => {
     const el = setupDom();
-    const seenQuickDuringHalt: boolean[] = [];
+    const seenAutoDuringHalt: boolean[] = [];
     const controller = makeController(el, {
       onRunningChange: (isRunning) => {
-        if (!isRunning) seenQuickDuringHalt.push(controller.isQuickRunning);
+        if (!isRunning) seenAutoDuringHalt.push(controller.isAutoRunning);
       },
     });
     el.programInput.value = '0, ,>,1\n1, ,#,1';
     el.tapeInput.value = '';
 
     controller.start();
-    controller.quick();
-    expect(controller.isQuickRunning).toBe(true);
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
 
     vi.advanceTimersByTime(500);
     expect(controller.isMachineRunning).toBe(false);
-    expect(controller.isQuickRunning).toBe(false);
-    expect(seenQuickDuringHalt).toEqual([false]);
+    expect(controller.isAutoRunning).toBe(false);
+    expect(seenAutoDuringHalt).toEqual([false]);
   });
 
   it('StepSound.tick() swallows Web Audio errors without interrupting execution', () => {
@@ -349,7 +370,7 @@ describe('AppController', () => {
     }
   });
 
-  it('does not play step sound in max-speed rAF batch when the very first step throws', () => {
+  it('does not play step sound in high-speed rAF batch when the very first step throws', () => {
     const el = setupDom();
     const sounds = vi.fn();
     const rafCallbacks: FrameRequestCallback[] = [];
@@ -363,14 +384,13 @@ describe('AppController', () => {
       const controller = makeController(el, { onStepSound: sounds });
       el.programInput.value = '0, ,<,0';
       el.tapeInput.value = '';
+      controller.setMaxSpeed(50);
+      controller.setSpeed(50);
       controller.start();
 
-      // Advance to speed index 3 (max rAF batch) before timers fire.
-      controller.quick();
-      controller.quick();
-      controller.quick();
-      controller.quick();
-      expect(controller.isQuickAtMaxSpeed).toBe(true);
+      // Speed > 10× schedules a requestAnimationFrame batch.
+      controller.toggleAutoRun();
+      expect(controller.isAutoRunning).toBe(true);
 
       const cb = rafCallbacks.pop();
       expect(cb).toBeDefined();

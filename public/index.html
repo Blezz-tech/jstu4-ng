@@ -132,6 +132,29 @@
                     <span class="switch__text" id="sound-label">Выкл</span>
                   </button>
                 </div>
+
+                <div class="setting-row">
+                  <label
+                    class="setting-row__label"
+                    id="label-setting-max-speed"
+                    for="input-max-speed"
+                  >
+                    Макс. скорость
+                  </label>
+                  <div class="setting-number">
+                    <input
+                      class="setting-number__input"
+                      id="input-max-speed"
+                      type="number"
+                      min="1"
+                      max="1000"
+                      step="1"
+                      value="10"
+                      inputmode="decimal"
+                    />
+                    <span class="setting-number__unit" aria-hidden="true">×</span>
+                  </div>
+                </div>
               </div>
             </section>
           </div>
@@ -189,9 +212,22 @@
           <button class="btn btn--primary" id="btn-step" type="button" data-mode="run">
             <span class="btn__text">Шаг</span>
           </button>
-          <button class="btn" id="btn-quick" type="button" data-mode="run">
-            <span class="btn__text">Быстро</span>
+          <button class="btn" id="btn-run-toggle" type="button" data-mode="run">
+            <span class="btn__text">Запуск</span>
           </button>
+          <label class="speed-control" id="speed-control" data-mode="run" for="input-speed">
+            <span class="speed-control__label" id="label-speed">Скорость</span>
+            <input
+              class="speed-control__slider"
+              id="input-speed"
+              type="range"
+              min="0.5"
+              max="10"
+              step="0.5"
+              value="1"
+            />
+            <output class="speed-control__value" id="speed-value" for="input-speed">1×</output>
+          </label>
           <button class="btn" id="btn-unmark" type="button" data-mode="run">
             <span class="btn__text">Сбросить метки</span>
           </button>

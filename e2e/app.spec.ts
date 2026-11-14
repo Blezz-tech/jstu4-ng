@@ -44,21 +44,70 @@ test('runs the swap example step by step', async ({ page }) => {
   await expect(page.locator('#log')).toContainText('Внимание');
 });
 
-test('quick run finishes the program by itself', async ({ page }) => {
+test('auto-run (Запуск/Стоп) finishes the program and supports pausing + speed slider', async ({
+  page,
+}) => {
   await page.goto('/');
   // Overwrite the first '1' with '0', then stop right after the result.
   await page.locator('#input-program').fill('0, ,<,a  a,1,0,a  a,0,>,b  b,0,>,b  b,1,>,b  b, ,#,b');
   await page.locator('#input-tape').fill('111');
   await page.locator('#btn-start').click();
-  await page.locator('#btn-quick').click();
+
+  // Default speed is 1× (range 0.5× to 10×), button says "Запуск".
+  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
+  await expect(page.locator('#speed-value')).toHaveText('1×');
+  await expect(page.locator('#input-speed')).toHaveAttribute('min', '0.5');
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '10');
+
+  // Raise speed to 10× via the slider.
+  await page.locator('#input-speed').fill('10');
+  await expect(page.locator('#speed-value')).toHaveText('10×');
+
+  await page.locator('#btn-run-toggle').click();
   // The overwritten source cell triggers the v2.3-compatible warning, and the
   // run really stops (the log is only written when the machine halts).
   await expect(page.locator('#log')).toContainText('Внимание', { timeout: 5_000 });
-  await expect(page.locator('#btn-quick')).toBeDisabled();
-  await expect(page.locator('#btn-quick')).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator('#btn-quick')).toContainText('Быстро');
+  await expect(page.locator('#btn-run-toggle')).toBeDisabled();
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
   await expect(page.locator('#display-tape')).toContainText('110');
   await expect(page.locator('#stats')).toContainText('Выполнено операций');
+});
+
+test('Запуск turns into Стоп to pause execution and max speed can be overridden in settings', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('#input-program').fill('0, ,>,0');
+  await page.locator('#input-tape').fill('');
+  await page.locator('#btn-start').click();
+
+  // Start auto-run: button switches from Запуск to Стоп.
+  await page.locator('#btn-run-toggle').click();
+  await expect(page.locator('#btn-run-toggle')).toContainText('Стоп');
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'true');
+
+  // Clicking Стоп pauses execution without leaving run mode.
+  await page.locator('#btn-run-toggle').click();
+  await expect(page.locator('#btn-run-toggle')).toContainText('Запуск');
+  await expect(page.locator('#btn-run-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#btn-step')).toBeEnabled();
+
+  // Change max speed in settings and verify the slider range & persistence.
+  await page.locator('#btn-settings').click();
+  await page.locator('#input-max-speed').fill('25');
+  await page.locator('#input-max-speed').press('Tab');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
+
+  await page.locator('#input-speed').fill('20');
+  await expect(page.locator('#speed-value')).toHaveText('20×');
+
+  await page.reload();
+  await page.locator('#input-program').fill('0, ,>,0');
+  await page.locator('#btn-start').click();
+  await expect(page.locator('#input-speed')).toHaveAttribute('max', '25');
+  await expect(page.locator('#speed-value')).toHaveText('20×');
 });
 
 test('reports parse errors and highlights the offender', async ({ page }) => {
@@ -268,7 +317,7 @@ test('copy puts the program on the clipboard', async ({ page, context }) => {
   expect(clipboard).toBe('0, ,#,0');
 });
 
-test('Step and Quick are disabled once the machine halts', async ({ page }) => {
+test('Step and Run/Stop are disabled once the machine halts', async ({ page }) => {
   await page.goto('/');
   await page.locator('#input-program').fill('0, ,#,0');
   await page.locator('#input-tape').fill('abc');
@@ -277,7 +326,7 @@ test('Step and Quick are disabled once the machine halts', async ({ page }) => {
   await expect(page.locator('#btn-step')).toBeEnabled();
   await page.locator('#btn-step').click();
   await expect(page.locator('#btn-step')).toBeDisabled();
-  await expect(page.locator('#btn-quick')).toBeDisabled();
+  await expect(page.locator('#btn-run-toggle')).toBeDisabled();
   await expect(page.locator('body')).toHaveAttribute('data-running', 'false');
 });
 

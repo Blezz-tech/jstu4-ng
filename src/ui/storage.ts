@@ -1,4 +1,5 @@
 import { isLang, type Lang } from '../i18n';
+import { clampMaxSpeed, clampSpeed, DEFAULT_MAX_SPEED, DEFAULT_SPEED } from './speed';
 
 const PREFIX = 'jstu4:';
 const KEYS = {
@@ -18,6 +19,8 @@ export interface AppSettings {
   readonly lang: Lang | null;
   readonly theme: Theme;
   readonly sound: boolean;
+  readonly speed: number;
+  readonly maxSpeed: number;
 }
 
 export interface SavedState {
@@ -30,6 +33,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lang: null,
   theme: 'auto',
   sound: false,
+  speed: DEFAULT_SPEED,
+  maxSpeed: DEFAULT_MAX_SPEED,
 };
 
 function isTheme(value: unknown): value is Theme {
@@ -65,11 +70,21 @@ export function loadSettings(): AppSettings {
       const parsed: unknown = JSON.parse(raw);
       if (typeof parsed === 'object' && parsed !== null) {
         const record = parsed as Record<string, unknown>;
+        const maxSpeed =
+          typeof record['maxSpeed'] === 'number'
+            ? clampMaxSpeed(record['maxSpeed'])
+            : DEFAULT_SETTINGS.maxSpeed;
+        const speed =
+          typeof record['speed'] === 'number'
+            ? clampSpeed(record['speed'], maxSpeed)
+            : Math.min(DEFAULT_SETTINGS.speed, maxSpeed);
         return {
           lang:
             typeof record['lang'] === 'string' && isLang(record['lang']) ? record['lang'] : null,
           theme: isTheme(record['theme']) ? record['theme'] : DEFAULT_SETTINGS.theme,
           sound: typeof record['sound'] === 'boolean' ? record['sound'] : DEFAULT_SETTINGS.sound,
+          speed,
+          maxSpeed,
         };
       }
     } catch {
@@ -83,6 +98,8 @@ export function loadSettings(): AppSettings {
     lang: isLang(legacyLang) ? legacyLang : DEFAULT_SETTINGS.lang,
     theme: isTheme(legacyTheme) ? legacyTheme : DEFAULT_SETTINGS.theme,
     sound: read(KEYS.legacySound) === '1',
+    speed: DEFAULT_SETTINGS.speed,
+    maxSpeed: DEFAULT_SETTINGS.maxSpeed,
   };
 }
 
