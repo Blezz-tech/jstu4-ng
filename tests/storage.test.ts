@@ -20,12 +20,38 @@ describe('storage', () => {
   });
 
   it('persists and loads settings as JSON in jstu4:settings', () => {
-    saveSettings({ lang: 'en', theme: 'dark', sound: true });
+    saveSettings({ lang: 'en', theme: 'dark', sound: true, speed: 2.5, maxSpeed: 25 });
 
     const raw = window.localStorage.getItem('jstu4:settings');
     expect(raw).not.toBeNull();
-    expect(JSON.parse(raw!)).toEqual({ lang: 'en', theme: 'dark', sound: true });
-    expect(loadSettings()).toEqual({ lang: 'en', theme: 'dark', sound: true });
+    expect(JSON.parse(raw!)).toEqual({
+      lang: 'en',
+      theme: 'dark',
+      sound: true,
+      speed: 2.5,
+      maxSpeed: 25,
+    });
+    expect(loadSettings()).toEqual({
+      lang: 'en',
+      theme: 'dark',
+      sound: true,
+      speed: 2.5,
+      maxSpeed: 25,
+    });
+  });
+
+  it('clamps stored speed to stored maxSpeed and sanitizes out-of-range values', () => {
+    window.localStorage.setItem(
+      'jstu4:settings',
+      JSON.stringify({ lang: 'ru', theme: 'auto', sound: false, speed: 50, maxSpeed: 8 }),
+    );
+    expect(loadSettings()).toEqual({
+      lang: 'ru',
+      theme: 'auto',
+      sound: false,
+      speed: 8,
+      maxSpeed: 8,
+    });
   });
 
   it('migrates legacy per-key preferences when jstu4:settings is absent', () => {
@@ -33,13 +59,19 @@ describe('storage', () => {
     window.localStorage.setItem('jstu4:theme', 'light');
     window.localStorage.setItem('jstu4:sound', '1');
 
-    expect(loadSettings()).toEqual({ lang: 'en', theme: 'light', sound: true });
+    expect(loadSettings()).toEqual({
+      lang: 'en',
+      theme: 'light',
+      sound: true,
+      speed: 1,
+      maxSpeed: 10,
+    });
   });
 
   it('sanitizes invalid or corrupted values in jstu4:settings', () => {
     window.localStorage.setItem(
       'jstu4:settings',
-      JSON.stringify({ lang: 'de', theme: 'sepia', sound: 'yes' }),
+      JSON.stringify({ lang: 'de', theme: 'sepia', sound: 'yes', speed: 'fast', maxSpeed: 'lots' }),
     );
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
 
@@ -50,12 +82,12 @@ describe('storage', () => {
   it('loads saved program, tape, and settings together via loadState()', () => {
     saveProgram('0, ,#,0');
     saveTape('101');
-    saveSettings({ lang: 'ru', theme: 'light', sound: true });
+    saveSettings({ lang: 'ru', theme: 'light', sound: true, speed: 3, maxSpeed: 20 });
 
     expect(loadState()).toEqual({
       program: '0, ,#,0',
       tape: '101',
-      settings: { lang: 'ru', theme: 'light', sound: true },
+      settings: { lang: 'ru', theme: 'light', sound: true, speed: 3, maxSpeed: 20 },
     });
 
     // Clearing program/tape removes the keys instead of storing empty strings.
@@ -73,7 +105,9 @@ describe('storage', () => {
       throw new Error('quota');
     });
 
-    expect(() => saveSettings({ lang: 'en', theme: 'dark', sound: true })).not.toThrow();
+    expect(() =>
+      saveSettings({ lang: 'en', theme: 'dark', sound: true, speed: 2, maxSpeed: 10 }),
+    ).not.toThrow();
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
   });
 });

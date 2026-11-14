@@ -8,10 +8,10 @@
 | Метрика             | v2.3                                            | v3.0                                                               |
 | ------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
 | Рантайм-зависимости | jQuery 1.6.4, HotMilk/Milk, `jquery-plugins.js` | **0**                                                              |
-| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **40.6 КБ** (13.0 КБ gzip)                                         |
+| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **44.0 КБ** (14.0 КБ gzip)                                         |
 | Языки               | ES3-стиль, глобальные `i18n`, `TM`              | TypeScript strict, ES-модули, `noUncheckedIndexedAccess`           |
 | Типизация           | нет                                             | 100% кода, `tsc --noEmit` в скрипте `build`                        |
-| Тесты               | нет                                             | **69 юнит/DOM (Vitest) + 28 сквозных (Playwright)**                |
+| Тесты               | нет                                             | **75 юнит/DOM (Vitest) + 29 сквозных (Playwright)**                |
 | Линт/формат         | нет                                             | ESLint 10 (typescript-eslint, type-checked) + Prettier             |
 | Сборка              | ручное подключение `<script>`                   | Vite 7, хешированные ассеты, sourcemaps                            |
 | Доступность         | кнопки-ссылки без семантики                     | `<button>`, `<dialog>`, aria-live, `:focus-visible`, skip-link     |
@@ -84,7 +84,7 @@
 
 ```bash
 npm install
-npm run check      # lint + prettier + 69 юнит/DOM-тестов + сборка
-npm run test:e2e   # 28 сценариев Playwright в Chromium
+npm run check      # lint + prettier + 75 юнит/DOM-тестов + сборка
+npm run test:e2e   # 29 сценариев Playwright в Chromium
 npm run dev        # живой предпросмотр
 ```
