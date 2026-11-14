@@ -508,9 +508,13 @@ test('version control panel saves, renames, filters named-only, restores, and co
   await expect(page.locator('#history-panel')).toBeVisible();
 
   // Manual save in RU creates an entry with "Сохранено пользователем" in the unified list
+  await expect(page.locator('#save-status')).toBeHidden();
   await page.locator('#input-program').fill('0, ,#,0');
   await page.locator('#input-tape').fill('v1');
+  await expect(page.locator('#save-status')).toBeVisible();
+  await expect(page.locator('#save-status')).toContainText('Не сохранено');
   await page.locator('#btn-save').click();
+  await expect(page.locator('#save-status')).toContainText('Сохранено в');
   await expect(page.locator('#history-list .snapshot-item')).toHaveCount(1);
   await expect(page.locator('#history-list')).toContainText('Сохранено пользователем');
 
@@ -576,4 +580,26 @@ test('version control panel saves, renames, filters named-only, restores, and co
   await expect(page.locator('#delete-snapshot-dialog')).toBeVisible();
   await page.locator('#btn-confirm-delete-snapshot').click();
   await expect(page.locator('#history-list .snapshot-item')).toHaveCount(0);
+});
+
+test('closing or reloading the tab autosaves unsaved edits once and stays idle without edits', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('#btn-history').click();
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(0);
+
+  // Reload without making edits → zero autosaves
+  await page.reload();
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(0);
+
+  // Make edits without clicking Save, then reload (fires beforeunload/pagehide) → 1 autosave
+  await page.locator('#input-program').fill('0, ,>,1\n1, ,#,1');
+  await page.reload();
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(1);
+  await expect(page.locator('#history-list')).toContainText('автосохранение');
+
+  // Reloading again without editing → still 1 autosave (no duplicate)
+  await page.reload();
+  await expect(page.locator('#history-list .snapshot-item')).toHaveCount(1);
 });

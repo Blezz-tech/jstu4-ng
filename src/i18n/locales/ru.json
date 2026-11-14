@@ -84,7 +84,11 @@
     "renameSave": "Сохранить имя",
     "renameCancel": "Отменить переименование",
     "renamePlaceholder": "Имя сохранения",
-    "linesCount": "{count, plural, one {# строка} few {# строки} many {# строк} other {# строк}}"
+    "linesCount": "{count, plural, one {# строка} few {# строки} many {# строк} other {# строк}}",
+    "statusUnsaved": "Не сохранено",
+    "statusUnsavedHint": "Автосохранение каждые 5 мин при редактировании и при закрытии вкладки",
+    "statusSaved": "Сохранено в {time}",
+    "statusAutosaved": "Автосохранено в {time}"
   },
   "deleteDialog": {
     "title": "Удалить сохранение?",

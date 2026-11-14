@@ -1470,13 +1470,60 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   margin-left: auto;
 }
 
-/* ——— toolbar icon-only & danger buttons ———————————————————————————— */
+/* ——— toolbar icon-only, save status & danger buttons ——————————————— */
 
 .btn--icon-only {
   width: 38px;
   min-width: 38px;
   height: 36px;
   padding: 0;
+}
+
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.save-status[data-state='idle'] {
+  display: none;
+}
+
+.save-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.save-status[data-state='dirty'] {
+  color: var(--warn);
+}
+
+.save-status[data-state='dirty']::before {
+  background: var(--warn);
+}
+
+.save-status[data-state='saved'] {
+  color: var(--ok);
+}
+
+.save-status[data-state='saved']::before {
+  background: var(--ok);
+}
+
+.save-status[data-state='autosaved'] {
+  color: var(--text-muted);
+}
+
+.save-status[data-state='autosaved']::before {
+  background: var(--accent);
 }
 
 .btn--danger {

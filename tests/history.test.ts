@@ -2,6 +2,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createI18n } from '../src/i18n';
 import {
+  AUTOSAVE_INTERVAL_MS,
+  AutosaveTracker,
+  formatSaveClock,
   formatSnapshotTimestamp,
   getSnapshotDisplayName,
   SNAPSHOTS_STORAGE_KEY,
@@ -140,5 +143,66 @@ describe('history (SnapshotStore)', () => {
     }[];
     // Oldest unnamed autosave ('p1') was pruned to fit
     expect(saved.map((entry) => entry.program)).toEqual(['p3', 'p2']);
+  });
+
+  it('AutosaveTracker autosaves every 5 minutes only during active edits, cancels on revert, and flushes once on tab close', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 14, 9, 5, 0));
+
+    expect(formatSaveClock(new Date(2026, 10, 14, 9, 5, 0).getTime())).toBe('09:05');
+
+    const store = new SnapshotStore();
+    let current = { program: '0, ,#,0', tape: '1' };
+    const onAutosave = vi.fn();
+    const onDirtyChange = vi.fn();
+    const tracker = new AutosaveTracker({
+      store,
+      readState: () => current,
+      onAutosave,
+      onDirtyChange,
+    });
+    tracker.reset(current.program, current.tape);
+
+    // Idle for 15 minutes → zero autosaves
+    vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS * 3);
+    expect(store.list()).toHaveLength(0);
+    expect(tracker.isDirty).toBe(false);
+    expect(tracker.flush()).toBeNull();
+
+    // Edit and revert before 5 min → timer cancelled, zero autosaves
+    current = { program: '0, ,>,0', tape: '1' };
+    tracker.markEdited(current.program, current.tape);
+    expect(tracker.isDirty).toBe(true);
+    current = { program: '0, ,#,0', tape: '1' };
+    tracker.markEdited(current.program, current.tape);
+    expect(tracker.isDirty).toBe(false);
+    vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS * 2);
+    expect(store.list()).toHaveLength(0);
+
+    // Real edit → autosaves exactly once after 5 minutes, then sleeps
+    current = { program: '0,1,0,0', tape: '10' };
+    tracker.markEdited(current.program, current.tape);
+    vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS - 1);
+    expect(store.list()).toHaveLength(0);
+    vi.advanceTimersByTime(1);
+    expect(store.list()).toHaveLength(1);
+    expect(onAutosave).toHaveBeenCalledTimes(1);
+    expect(tracker.isDirty).toBe(false);
+
+    // Idle for another 15 minutes → still only 1 autosave
+    vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS * 3);
+    expect(store.list()).toHaveLength(1);
+
+    // Edit and close tab (flush called twice for beforeunload + pagehide) → strictly 1 autosave
+    current = { program: '0,0,1,0', tape: '10' };
+    tracker.markEdited(current.program, current.tape);
+    const flushedFirst = tracker.flush();
+    const flushedSecond = tracker.flush();
+    expect(flushedFirst).not.toBeNull();
+    expect(flushedSecond).toBeNull();
+    expect(store.list()).toHaveLength(2);
+
+    tracker.dispose();
+    vi.useRealTimers();
   });
 });

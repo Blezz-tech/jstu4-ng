@@ -84,7 +84,11 @@
     "renameSave": "Save name",
     "renameCancel": "Cancel rename",
     "renamePlaceholder": "Snapshot name",
-    "linesCount": "{count, plural, one {# line} other {# lines}}"
+    "linesCount": "{count, plural, one {# line} other {# lines}}",
+    "statusUnsaved": "Unsaved",
+    "statusUnsavedHint": "Autosaves every 5 min while editing and when closing the tab",
+    "statusSaved": "Saved at {time}",
+    "statusAutosaved": "Autosaved at {time}"
   },
   "deleteDialog": {
     "title": "Delete snapshot?",

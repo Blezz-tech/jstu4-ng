@@ -25,6 +25,11 @@ function stubMatchMedia(): void {
   );
 }
 
+function editField(field: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+  field.value = value;
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 describe('version control UI (public/index.html + src/main.ts)', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -58,17 +63,20 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     document.body.innerHTML = '';
   });
 
-  it('places SVG save button right after Copy and places SVG history button right before Settings', async () => {
+  it('places SVG save button right after Copy, status indicator after Save, and SVG history button right before Settings', async () => {
     await import('../src/main');
 
     const copyBtn = document.querySelector<HTMLButtonElement>('#btn-copy')!;
     const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
+    const saveStatus = document.querySelector<HTMLElement>('#save-status')!;
     const historyBtn = document.querySelector<HTMLButtonElement>('#btn-history')!;
     const settingsAnchor = document.querySelector<HTMLElement>('#settings-anchor')!;
     const historyPanel = document.querySelector<HTMLElement>('#history-panel')!;
     const shell = document.querySelector<HTMLElement>('#app-shell')!;
 
     expect(copyBtn.nextElementSibling).toBe(saveBtn);
+    expect(saveBtn.nextElementSibling).toBe(saveStatus);
+    expect(saveStatus.dataset.state).toBe('idle');
     expect(saveBtn.dataset.mode).toBe('edit');
     expect(saveBtn.querySelector('svg')).not.toBeNull();
     expect(historyBtn.querySelector('svg')).not.toBeNull();
@@ -91,7 +99,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     expect(shell.dataset.history).toBe('closed');
   });
 
-  it('creates manual saves and timed autosaves in one unified list, filters named-only, and switches locale dynamically', async () => {
+  it('creates manual saves, 5-minute edit-driven autosaves, tab-close autosaves, filters named-only, and switches locale', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 14, 12, 30, 0));
 
@@ -100,6 +108,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
     const tapeInput = document.querySelector<HTMLInputElement>('#input-tape')!;
     const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
+    const saveStatus = document.querySelector<HTMLElement>('#save-status')!;
     const historyBtn = document.querySelector<HTMLButtonElement>('#btn-history')!;
     const namedOnlySwitch = document.querySelector<HTMLButtonElement>('#btn-named-only')!;
     const historyList = document.querySelector<HTMLUListElement>('#history-list')!;
@@ -108,11 +117,22 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
 
     historyBtn.click();
 
-    // Manual save in RU
-    programInput.value = '0, ,#,0';
-    tapeInput.value = '101';
-    saveBtn.click();
+    // Without edits, waiting 10 minutes or closing tab creates zero autosaves
+    vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS * 2);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(historyList.children).toHaveLength(0);
+    expect(saveStatus.dataset.state).toBe('idle');
 
+    // Edit & manual save in RU
+    vi.setSystemTime(new Date(2026, 10, 14, 12, 30, 0));
+    editField(programInput, '0, ,#,0');
+    editField(tapeInput, '101');
+    expect(saveStatus.dataset.state).toBe('dirty');
+    expect(saveStatus.textContent).toBe('Не сохранено');
+
+    saveBtn.click();
+    expect(saveStatus.dataset.state).toBe('saved');
+    expect(saveStatus.textContent).toBe('Сохранено в 12:30');
     expect(historyList.children).toHaveLength(1);
     expect(historyList.textContent).toContain('2026-11-14-12-30-00 Сохранено пользователем');
 
@@ -121,16 +141,27 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
       expect(btn.querySelector('svg')).not.toBeNull();
     }
 
-    // Edit program and advance timer → timed autosave created in the same list
-    programInput.value = '0, ,>,1\n1, ,#,1';
+    // Edit program → after 5 minutes an autosave is created
+    editField(programInput, '0, ,>,1\n1, ,#,1');
+    expect(saveStatus.dataset.state).toBe('dirty');
     vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS);
 
     expect(historyList.children).toHaveLength(2);
-    expect(historyList.textContent).toContain('2026-11-14-12-30-30 автосохранение');
+    expect(historyList.textContent).toContain('2026-11-14-12-35-00 автосохранение');
+    expect(saveStatus.dataset.state).toBe('autosaved');
+    expect(saveStatus.textContent).toBe('Автосохранено в 12:35');
 
-    // Advancing timer again with no changes → no duplicate autosave
-    vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS);
+    // Advancing timer again with no further edits → no duplicate autosave
+    vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS * 3);
     expect(historyList.children).toHaveLength(2);
+
+    // Edit and close tab before 5 minutes elapse → synchronous autosave on unload (deduped across beforeunload + pagehide)
+    editField(programInput, '0,1,0,0');
+    vi.advanceTimersByTime(60_000);
+    window.dispatchEvent(new Event('beforeunload'));
+    window.dispatchEvent(new Event('pagehide'));
+    expect(historyList.children).toHaveLength(3);
+    expect(saveStatus.dataset.state).toBe('autosaved');
 
     // Named-only switch starts OFF (shows all: named + unnamed)
     expect(namedOnlySwitch.getAttribute('aria-checked')).toBe('false');
@@ -145,9 +176,10 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     // Toggle back OFF and switch UI language RU -> EN
     namedOnlySwitch.click();
     langBtn.click();
-    expect(historyList.children).toHaveLength(2);
-    expect(historyList.textContent).toContain('2026-11-14-12-30-30 autosave');
+    expect(historyList.children).toHaveLength(3);
+    expect(historyList.textContent).toContain('2026-11-14-12-35-00 autosave');
     expect(historyList.textContent).toContain('2026-11-14-12-30-00 Saved by user');
+    expect(saveStatus.textContent).toContain('Autosaved at');
   });
 
   it('renames a snapshot without changing its creation time, keeps it visible under named-only, and restores snapshots', async () => {
@@ -165,8 +197,8 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
 
     historyBtn.click();
 
-    programInput.value = '0, ,#,0';
-    tapeInput.value = 'first';
+    editField(programInput, '0, ,#,0');
+    editField(tapeInput, 'first');
     saveBtn.click();
 
     // Advance time by 5 minutes before renaming
@@ -192,9 +224,9 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     expect(persisted[0]?.customName).toBe('Initial algorithm');
     expect(persisted[0]?.createdAt).toBe(new Date(2026, 10, 14, 14, 0, 5).getTime());
 
-    // Modify editor, then restore the named snapshot (current edits are safety-autosaved)
-    programInput.value = '0,1,0,0';
-    tapeInput.value = 'modified';
+    // Modify editor, then restore the named snapshot (unsaved edits are safety-autosaved)
+    editField(programInput, '0,1,0,0');
+    editField(tapeInput, 'modified');
     historyList.querySelector<HTMLButtonElement>('.snapshot-item__load')!.click();
 
     expect(programInput.value).toBe('0, ,#,0');
@@ -234,13 +266,13 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     historyBtn.click();
 
     // Create 3 snapshots
-    programInput.value = '0, ,#,0';
+    editField(programInput, '0, ,#,0');
     saveBtn.click();
     vi.advanceTimersByTime(1000);
-    programInput.value = '0,1,0,0';
+    editField(programInput, '0,1,0,0');
     saveBtn.click();
     vi.advanceTimersByTime(1000);
-    programInput.value = '0,0,1,0';
+    editField(programInput, '0,0,1,0');
     saveBtn.click();
 
     expect(historyList.children).toHaveLength(3);

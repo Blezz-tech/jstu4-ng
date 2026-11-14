@@ -6,7 +6,8 @@ import { StepSound } from './ui/audio';
 import { AppController, type LogKind, type RunControlState, type UIMode } from './ui/controller';
 import { debounce, el, mustFind } from './ui/dom';
 import {
-  AUTOSAVE_INTERVAL_MS,
+  AutosaveTracker,
+  formatSaveClock,
   formatSnapshotTimestamp,
   getSnapshotDisplayName,
   SnapshotStore,
@@ -109,6 +110,7 @@ const dom = {
   historyCount: mustFind<HTMLElement>(document, '#history-count'),
   historyEmpty: mustFind<HTMLElement>(document, '#history-empty'),
   saveButton: mustFind<HTMLButtonElement>(document, '#btn-save'),
+  saveStatus: mustFind<HTMLElement>(document, '#save-status'),
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
   helpBody: mustFind(document, '#help-body'),
@@ -529,6 +531,58 @@ let activeSnapshotId: string | null = null;
 let editingSnapshotId: string | null = null;
 let pendingDeleteId: string | null = null;
 
+type CleanSaveStatus =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'saved'; readonly timestamp: number }
+  | { readonly kind: 'autosaved'; readonly timestamp: number };
+
+let lastCleanSaveStatus: CleanSaveStatus = { kind: 'idle' };
+
+const autosave = new AutosaveTracker({
+  store: snapshots,
+  readState: () => ({
+    program: dom.programInput.value,
+    tape: dom.tapeInput.value,
+  }),
+  onAutosave: (created) => {
+    activeSnapshotId = created.id;
+    lastCleanSaveStatus = { kind: 'autosaved', timestamp: created.createdAt };
+    syncSaveStatus();
+    if (editingSnapshotId === null) renderHistory();
+  },
+  onDirtyChange: () => {
+    syncSaveStatus();
+  },
+});
+
+function syncSaveStatus(): void {
+  if (autosave.isDirty) {
+    dom.saveStatus.dataset.state = 'dirty';
+    dom.saveStatus.textContent = i18n.t('history.statusUnsaved');
+    dom.saveStatus.title = i18n.t('history.statusUnsavedHint');
+    return;
+  }
+  if (lastCleanSaveStatus.kind === 'saved') {
+    dom.saveStatus.dataset.state = 'saved';
+    dom.saveStatus.textContent = i18n.t('history.statusSaved', {
+      time: formatSaveClock(lastCleanSaveStatus.timestamp),
+    });
+    dom.saveStatus.title = '';
+    return;
+  }
+  if (lastCleanSaveStatus.kind === 'autosaved') {
+    dom.saveStatus.dataset.state = 'autosaved';
+    dom.saveStatus.textContent = i18n.t('history.statusAutosaved', {
+      time: formatSaveClock(lastCleanSaveStatus.timestamp),
+    });
+    dom.saveStatus.title = '';
+    return;
+  }
+  dom.saveStatus.dataset.state = 'idle';
+  dom.saveStatus.textContent = '';
+  dom.saveStatus.title = '';
+}
+
 function syncNamedOnlyControl(): void {
   dom.namedOnlyButton.setAttribute('aria-checked', String(namedOnly));
 }
@@ -573,14 +627,18 @@ function restoreSnapshot(snapshot: ProgramSnapshot): void {
   const currentProgram = dom.programInput.value;
   const currentTape = dom.tapeInput.value;
   if (
+    autosave.isDirty &&
     currentProgram.trim() !== '' &&
     (currentProgram !== snapshot.program || currentTape !== snapshot.tape)
   ) {
-    snapshots.maybeAutosave(currentProgram, currentTape);
+    autosave.flush();
   }
   activeSnapshotId = snapshot.id;
   editingSnapshotId = null;
   controller.loadSnapshot(snapshot.program, snapshot.tape, getSnapshotDisplayName(snapshot, i18n));
+  autosave.reset(snapshot.program, snapshot.tape);
+  lastCleanSaveStatus = { kind: 'idle' };
+  syncSaveStatus();
   renderHistory();
   if (isNarrowViewport()) applyHistoryPanel(false, false);
 }
@@ -594,6 +652,9 @@ function createManualSnapshot(): void {
   }
   const created = snapshots.create('manual', program, tape);
   activeSnapshotId = created.id;
+  lastCleanSaveStatus = { kind: 'saved', timestamp: created.createdAt };
+  autosave.reset(program, tape);
+  syncSaveStatus();
   controller.notifySnapshotSaved();
   renderHistory();
 }
@@ -746,21 +807,13 @@ function renderHistory(): void {
   }
 }
 
-window.setInterval(() => {
-  if (controller.currentMode !== 'edit') return;
-  const created = snapshots.maybeAutosave(dom.programInput.value, dom.tapeInput.value);
-  if (created !== null) {
-    activeSnapshotId = created.id;
-    if (editingSnapshotId === null) renderHistory();
-  }
-}, AUTOSAVE_INTERVAL_MS);
-
 // Declaratively bind all `data-i18n` / `data-i18n-attr` nodes, plus sync the
 // dynamic controls whenever the active locale changes.
 function syncDynamicI18n(): void {
   syncSoundControl();
   syncNamedOnlyControl();
   syncConfirmDeleteControl();
+  syncSaveStatus();
   syncLangAria();
   renderHelp(i18n.help);
   renderHistory();
@@ -1050,16 +1103,26 @@ bindStepperButton(dom.minSpeedInc, () => stepMinSpeed(1));
 bindStepperButton(dom.maxSpeedDec, () => stepMaxSpeed(-1));
 bindStepperButton(dom.maxSpeedInc, () => stepMaxSpeed(1));
 
-// Persist the draft as the user types (debounced).
+// Persist the draft as the user types (debounced) and notify autosave tracker.
 const persistProgram = debounce((text: string) => saveProgram(text), 400);
 const persistTape = debounce((text: string) => saveTape(text), 400);
 
-on(dom.programInput, 'input', () => persistProgram(dom.programInput.value));
-on(dom.tapeInput, 'input', () => persistTape(dom.tapeInput.value));
-window.addEventListener('pagehide', () => {
+on(dom.programInput, 'input', () => {
+  persistProgram(dom.programInput.value);
+  autosave.markEdited(dom.programInput.value, dom.tapeInput.value);
+});
+on(dom.tapeInput, 'input', () => {
+  persistTape(dom.tapeInput.value);
+  autosave.markEdited(dom.programInput.value, dom.tapeInput.value);
+});
+
+function handleTabClosing(): void {
   saveProgram(dom.programInput.value);
   saveTape(dom.tapeInput.value);
-});
+  autosave.flush();
+}
+window.addEventListener('beforeunload', handleTabClosing);
+window.addEventListener('pagehide', handleTabClosing);
 
 on(dom.tapeInput, 'keydown', (event) => {
   if (event.key === 'Enter') {
@@ -1208,6 +1271,8 @@ for (const control of hintTargets) {
 
 // Hydrate saved draft and initialize toolbar state.
 controller.hydrate(saved.program, saved.tape);
+autosave.reset(dom.programInput.value, dom.tapeInput.value);
+syncSaveStatus();
 syncRunState({
   isRunning: false,
   isAutoRunning: false,
