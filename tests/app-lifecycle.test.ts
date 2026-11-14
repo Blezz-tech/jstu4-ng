@@ -219,4 +219,34 @@ describe('mountApp lifecycle & shell modules', () => {
     expect(fn).toHaveBeenCalledTimes(1);
     expect(fn).toHaveBeenCalledWith('second');
   });
+
+  it('renders #help-body lazily on open and clears its DOM on close', () => {
+    const app = mountApp(document);
+
+    const helpBtn = document.querySelector<HTMLButtonElement>('#btn-help')!;
+    const helpClose = document.querySelector<HTMLButtonElement>('#btn-help-close')!;
+    const helpDialog = document.querySelector<HTMLDialogElement>('#help-dialog')!;
+    const helpBody = document.querySelector<HTMLElement>('#help-body')!;
+
+    // Closed initially → #help-body has no DOM nodes
+    expect(helpDialog.open).toBe(false);
+    expect(helpBody.children).toHaveLength(0);
+
+    // Opening builds the help DOM
+    helpBtn.click();
+    expect(helpDialog.open).toBe(true);
+    expect(helpBody.children.length).toBeGreaterThan(0);
+
+    // Closing releases #help-body DOM nodes
+    helpClose.click();
+    expect(helpDialog.open).toBe(false);
+    expect(helpBody.children).toHaveLength(0);
+
+    // Reopening rebuilds it cleanly
+    helpBtn.click();
+    expect(helpDialog.open).toBe(true);
+    expect(helpBody.children.length).toBeGreaterThan(0);
+
+    app.dispose();
+  });
 });

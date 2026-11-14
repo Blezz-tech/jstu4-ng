@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createI18n, type I18n, type Lang } from '../src/i18n';
-import { StepSound } from '../src/ui/audio';
+import { AUDIO_IDLE_SUSPEND_MS, StepSound } from '../src/ui/audio';
 import {
   AppController,
   type AppElements,
@@ -751,5 +751,92 @@ describe('AppController', () => {
     controller.restart();
     expect(controller.canStepBack).toBe(false);
     expect(el.stats.textContent).toContain('Выполнено операций: 0');
+  });
+
+  it('clears hidden #display-program and #display-tape DOM nodes when returning to edit mode', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,>,1\n1, ,#,1';
+    el.tapeInput.value = '101';
+
+    controller.start();
+    expect(el.programView.childNodes.length).toBeGreaterThan(0);
+    expect(el.tapeView.childNodes.length).toBeGreaterThan(0);
+
+    controller.backToEdit();
+    expect(el.programView.childNodes).toHaveLength(0);
+    expect(el.tapeView.childNodes).toHaveLength(0);
+
+    // Same cleanup when switching directly via loadDraft() from run mode
+    controller.start();
+    expect(el.programView.childNodes.length).toBeGreaterThan(0);
+    controller.loadDraft('0, ,#,0', '1');
+    expect(el.programView.childNodes).toHaveLength(0);
+    expect(el.tapeView.childNodes).toHaveLength(0);
+  });
+
+  it('StepSound suspends AudioContext when idle, resumes on next tick, and closes on dispose', () => {
+    const suspend = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const resume = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const mockContext = {
+      state: 'running' as AudioContextState,
+      currentTime: 0,
+      destination: {},
+      suspend: () => {
+        mockContext.state = 'suspended';
+        return suspend();
+      },
+      resume: () => {
+        mockContext.state = 'running';
+        return resume();
+      },
+      close,
+      createOscillator: () => ({
+        type: 'triangle',
+        frequency: { setValueAtTime: vi.fn() },
+        connect: () => ({ connect: vi.fn() }),
+        start: vi.fn(),
+        stop: vi.fn(),
+      }),
+      createGain: () => ({
+        gain: { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+        connect: vi.fn(),
+      }),
+    };
+
+    const origAudio = window.AudioContext;
+    Object.defineProperty(window, 'AudioContext', {
+      value: vi.fn(function MockAudioContext() {
+        return mockContext;
+      }),
+      configurable: true,
+    });
+
+    try {
+      const sound = new StepSound(true);
+      sound.tick();
+      expect(suspend).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(AUDIO_IDLE_SUSPEND_MS);
+      expect(suspend).toHaveBeenCalledTimes(1);
+      expect(mockContext.state).toBe('suspended');
+
+      // Next tick resumes the suspended context
+      sound.tick();
+      expect(resume).toHaveBeenCalledTimes(1);
+      expect(mockContext.state).toBe('running');
+
+      // dispose() cancels idle timer and closes the context
+      sound.dispose();
+      expect(close).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(AUDIO_IDLE_SUSPEND_MS * 2);
+      expect(suspend).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(window, 'AudioContext', {
+        value: origAudio,
+        configurable: true,
+      });
+    }
   });
 });
