@@ -607,9 +607,9 @@ button {
 .setting-number {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
   height: 32px;
-  padding: 0 8px;
+  padding: 0 4px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -624,7 +624,8 @@ button {
 }
 
 .setting-number__input {
-  width: 4.8ch;
+  width: 5ch;
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--text);
@@ -632,7 +633,7 @@ button {
   font-size: 0.85rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: center;
   -moz-appearance: textfield;
   appearance: textfield;
 }
@@ -646,12 +647,6 @@ button {
 .setting-number__input:focus {
   outline: none;
   box-shadow: none;
-}
-
-.setting-number__unit {
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  color: var(--text-muted);
 }
 
 /* ——— workspace ————————————————————————————————————————————————————— */
