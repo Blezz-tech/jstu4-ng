@@ -170,12 +170,12 @@ button {
 
 .app {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   height: 100%;
   max-width: 1100px;
   margin: 0 auto;
   padding: var(--space);
-  gap: var(--space);
+  gap: calc(var(--space) * 0.75);
 }
 
 .topbar {
@@ -821,12 +821,59 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   text-underline-offset: 3px;
 }
 
+/* ——— statusbar (top) ——————————————————————————————————————————————— */
+
+.statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.log {
+  font-size: 0.86rem;
+  font-weight: 550;
+  text-wrap: pretty;
+}
+
+.log:empty,
+.stats:empty {
+  display: none;
+}
+
+.log[data-kind='info'] {
+  color: var(--ok);
+}
+
+.log[data-kind='warning'] {
+  color: var(--warn);
+}
+
+.log[data-kind='error'] {
+  color: var(--err);
+}
+
+.stats {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ——— hint ————————————————————————————————————————————————————————— */
 
 .hint {
+  flex: 1 1 180px;
   min-height: 1.2em;
   font-size: 0.8rem;
   color: var(--text-faint);
+  text-align: right;
 }
 
 /* ——— toolbar ————————————————————————————————————————————————————— */
@@ -834,7 +881,7 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: calc(var(--space) * 0.7);
 }
@@ -887,40 +934,6 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   font-variant-numeric: tabular-nums;
   color: var(--text);
   text-align: right;
-}
-
-.toolbar__status {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: min(100%, 320px);
-  flex: 1 1 320px;
-}
-
-.log {
-  min-height: 1.4em;
-  font-size: 0.88rem;
-  font-weight: 550;
-  text-wrap: pretty;
-}
-
-.log[data-kind='info'] {
-  color: var(--ok);
-}
-
-.log[data-kind='warning'] {
-  color: var(--warn);
-}
-
-.log[data-kind='error'] {
-  color: var(--err);
-}
-
-.stats {
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
 }
 
 /* ——— help dialog ————————————————————————————————————————————————————— */
@@ -1077,10 +1090,9 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
     display: none;
   }
 
-  .toolbar__status {
-    flex: 0 0 auto;
-    min-width: 0;
-    width: 100%;
+  .statusbar {
+    flex-direction: column;
+    padding: 6px 10px;
   }
 }
 
@@ -1106,6 +1118,7 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
     max-width: none;
   }
 
+  .statusbar,
   .program,
   .tape,
   .field {

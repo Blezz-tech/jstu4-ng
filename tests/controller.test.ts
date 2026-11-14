@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { messages } from '../src/i18n';
+import { createI18n, type I18n, type Lang } from '../src/i18n';
 import { StepSound } from '../src/ui/audio';
 import { AppController, type AppElements, type UIMode } from '../src/ui/controller';
 
@@ -28,7 +28,8 @@ function setupDom(): AppElements {
 function makeController(
   elements: AppElements,
   overrides: {
-    lang?: 'ru' | 'en';
+    lang?: Lang;
+    i18n?: I18n;
     onModeChange?: (mode: UIMode) => void;
     onRunningChange?: (isRunning: boolean) => void;
     onProgramChange?: (text: string) => void;
@@ -36,7 +37,7 @@ function makeController(
   } = {},
 ): AppController {
   return new AppController({
-    messages: messages(overrides.lang ?? 'ru'),
+    i18n: overrides.i18n ?? createI18n(overrides.lang ?? 'ru'),
     elements,
     onModeChange: overrides.onModeChange ?? (() => undefined),
     ...(overrides.onRunningChange ? { onRunningChange: overrides.onRunningChange } : {}),
@@ -58,22 +59,24 @@ describe('AppController', () => {
 
   it('keeps state 0 as 00 in toTu4 even when state 0 is not on the first line and preserves the log', () => {
     const el = setupDom();
+    const i18n = createI18n('ru');
     const saved: string[] = [];
-    const controller = makeController(el, { onProgramChange: (t) => saved.push(t) });
+    const controller = makeController(el, { i18n, onProgramChange: (t) => saved.push(t) });
 
     el.programInput.value = 'fin, ,#,fin\n0, ,>,fin';
     controller.toTu4();
 
     expect(el.programInput.value).toBe('01, ,#,01\n00, ,>,01');
     expect(saved).toEqual(['01, ,#,01\n00, ,>,01']);
-    expect(el.log.textContent).toBe(messages('ru').log.convertedToTu4);
+    expect(el.log.textContent).toBe(i18n.t('log.convertedToTu4'));
     expect(el.log.dataset.kind).toBe('info');
     expect(controller.currentMode).toBe('edit');
   });
 
   it('reports tooManyStates when toTu4 is called on a program with > 256 states', () => {
     const el = setupDom();
-    const controller = makeController(el);
+    const i18n = createI18n('ru');
+    const controller = makeController(el, { i18n });
 
     const lines = [
       '0, ,>,s1',
@@ -82,7 +85,7 @@ describe('AppController', () => {
     el.programInput.value = lines.join('\n');
     controller.toTu4();
 
-    expect(el.log.textContent).toBe(messages('ru').error.tooManyStates);
+    expect(el.log.textContent).toBe(i18n.t('error.tooManyStates'));
     expect(el.log.dataset.kind).toBe('error');
   });
 
@@ -176,9 +179,10 @@ describe('AppController', () => {
     expect(controller.currentMode).toBe('edit');
   });
 
-  it('updates language in place via setMessages() without losing input or active run', () => {
+  it('updates language reactively via i18n without losing input or active run', () => {
     const el = setupDom();
-    const controller = makeController(el, { lang: 'ru' });
+    const i18n = createI18n('ru');
+    const controller = makeController(el, { i18n });
 
     el.programInput.value = '0, ,=,1\n1, ,#,1';
     el.tapeInput.value = '101';
@@ -186,7 +190,7 @@ describe('AppController', () => {
     controller.step(); // 1 step done, still running in state 1
 
     expect(el.stats.textContent).toContain('Команд в программе: 2');
-    controller.setMessages(messages('en'));
+    i18n.setLocale('en');
 
     expect(controller.currentMode).toBe('run');
     expect(controller.isMachineRunning).toBe(true);
@@ -196,9 +200,9 @@ describe('AppController', () => {
 
     // Finish in English, then switch back to Russian — log message translates too.
     controller.step();
-    expect(el.log.textContent).toBe(messages('en').log.finished);
-    controller.setMessages(messages('ru'));
-    expect(el.log.textContent).toBe(messages('ru').log.finished);
+    expect(el.log.textContent).toBe(i18n.t('log.finished'));
+    i18n.setLocale('ru');
+    expect(el.log.textContent).toBe(i18n.t('log.finished'));
   });
 
   it('restores cursor offset in #input-program when returning from a compile error', () => {
@@ -282,7 +286,7 @@ describe('AppController', () => {
     const savedPrograms: string[] = [];
     const savedTapes: string[] = [];
     const controller = new AppController({
-      messages: messages('en'),
+      i18n: createI18n('en'),
       elements: el,
       onModeChange: () => undefined,
       onProgramChange: (p) => savedPrograms.push(p),

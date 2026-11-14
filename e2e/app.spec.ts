@@ -233,12 +233,19 @@ test('closing #help removes the hash so reloading does not reopen help', async (
   await expect(page.locator('#help-dialog')).toBeHidden();
 });
 
-test('mobile toolbar status does not hog vertical height', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+test('status bar sits at the top above the tape and stays compact on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/');
-  const statusBox = (await page.locator('.toolbar__status').boundingBox())!;
+  const titleBox = (await page.locator('.topbar').boundingBox())!;
+  const statusBox = (await page.locator('#statusbar').boundingBox())!;
+  const tapeBox = (await page.locator('#label-tape').boundingBox())!;
+  expect(statusBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height - 1);
+  expect(statusBox.y + statusBox.height).toBeLessThanOrEqual(tapeBox.y + 1);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileStatusBox = (await page.locator('#statusbar').boundingBox())!;
   const programBox = (await page.locator('#input-program').boundingBox())!;
-  expect(statusBox.height).toBeLessThan(120);
+  expect(mobileStatusBox.height).toBeLessThan(120);
   expect(programBox.height).toBeGreaterThan(300);
 });
 

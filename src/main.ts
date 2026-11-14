@@ -1,8 +1,7 @@
 import './styles/main.css';
 
 import { TM_VERSION } from './core/version';
-import { detectLang, messages, type Lang, type Messages } from './i18n';
-import type { HelpContent } from './i18n/types';
+import { bindDomI18n, createI18n, detectLang, type HelpContent } from './i18n';
 import { StepSound } from './ui/audio';
 import { AppController, type UIMode } from './ui/controller';
 import { debounce, el, mustFind } from './ui/dom';
@@ -24,16 +23,14 @@ import {
   type Theme,
 } from './ui/storage';
 
-/* ——— settings, language & theme ———————————————————————————————————— */
+/* ——— settings, i18n & theme ———————————————————————————————————————— */
 
 const html = document.documentElement;
 const saved = loadState();
 let settings: AppSettings = saved.settings;
 
-let lang: Lang = detectLang(
-  location.search,
-  settings.lang,
-  navigator.languages ?? [navigator.language],
+const i18n = createI18n(
+  detectLang(location.search, settings.lang, navigator.languages ?? [navigator.language]),
 );
 
 function updateSettings(patch: Partial<AppSettings>): void {
@@ -45,7 +42,6 @@ function updateSettings(patch: Partial<AppSettings>): void {
 
 const dom = {
   skipLink: mustFind<HTMLAnchorElement>(document, '.skip-link'),
-  title: mustFind(document, '#app-title'),
   version: mustFind(document, '#app-version'),
   programInput: mustFind<HTMLTextAreaElement>(document, '#input-program'),
   tapeInput: mustFind<HTMLInputElement>(document, '#input-tape'),
@@ -56,29 +52,19 @@ const dom = {
   stats: mustFind(document, '#stats'),
   controls: mustFind(document, '#controls'),
   hint: mustFind(document, '#hint'),
-  labelProgram: mustFind(document, '#label-program'),
-  labelTape: mustFind(document, '#label-tape'),
   runToggleButton: mustFind<HTMLButtonElement>(document, '#btn-run-toggle'),
-  speedControl: mustFind(document, '#speed-control'),
-  speedLabel: mustFind(document, '#label-speed'),
   speedInput: mustFind<HTMLInputElement>(document, '#input-speed'),
   speedValue: mustFind(document, '#speed-value'),
   settingsAnchor: mustFind(document, '#settings-anchor'),
   settingsButton: mustFind<HTMLButtonElement>(document, '#btn-settings'),
   settingsMenu: mustFind(document, '#settings-menu'),
-  settingsTitle: mustFind(document, '#settings-title'),
   settingsClose: mustFind<HTMLButtonElement>(document, '#btn-settings-close'),
-  settingLangLabel: mustFind(document, '#label-setting-lang'),
   langButton: mustFind<HTMLButtonElement>(document, '#btn-lang'),
-  langLabel: mustFind(document, '#lang-label'),
-  settingThemeLabel: mustFind(document, '#label-setting-theme'),
   themeButtons: Array.from(
     document.querySelectorAll<HTMLButtonElement>('#theme-group [data-theme-option]'),
   ),
-  settingSoundLabel: mustFind(document, '#label-setting-sound'),
   soundButton: mustFind<HTMLButtonElement>(document, '#btn-sound'),
   soundLabel: mustFind(document, '#sound-label'),
-  settingMaxSpeedLabel: mustFind(document, '#label-setting-max-speed'),
   maxSpeedInput: mustFind<HTMLInputElement>(document, '#input-max-speed'),
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
@@ -86,6 +72,8 @@ const dom = {
   helpClose: mustFind<HTMLButtonElement>(document, '#btn-help-close'),
   helpBack: mustFind<HTMLButtonElement>(document, '#btn-help-back'),
 };
+
+dom.version.textContent = `v${TM_VERSION}`;
 
 function themeIsDark(): boolean {
   return (
@@ -113,9 +101,8 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 
 const sound = new StepSound(settings.sound);
 
-/* ——— i18n bootstrap ————————————————————————————————————————————— */
+/* ——— dynamic UI sync ————————————————————————————————————————————— */
 
-let m: Messages = messages(lang);
 let activeHintTarget: HTMLElement | null = null;
 
 /** Keep the hint bar in sync with the hovered/focused visible control. */
@@ -140,7 +127,14 @@ function syncSoundControl(): void {
   const onState = sound.isEnabled;
   dom.soundButton.setAttribute('aria-checked', String(onState));
   dom.soundButton.dataset.on = String(onState);
-  dom.soundLabel.textContent = onState ? m.settings.on : m.settings.off;
+  dom.soundLabel.textContent = i18n.t(onState ? 'settings.on' : 'settings.off');
+}
+
+function syncLangAria(): void {
+  dom.langButton.setAttribute(
+    'aria-label',
+    i18n.t('settings.languageAria', { language: i18n.meta.nativeName }),
+  );
 }
 
 function syncSpeedControls(): void {
@@ -160,101 +154,6 @@ function syncSpeedControls(): void {
   if (document.activeElement !== dom.maxSpeedInput) {
     dom.maxSpeedInput.value = String(maxSpeed);
   }
-}
-
-/** Apply all localized strings to the static markup. */
-function localize(): void {
-  html.lang = lang;
-  document.title = m.appTitle;
-  dom.title.textContent = m.appTitle;
-  dom.version.textContent = `v${TM_VERSION}`;
-  dom.skipLink.textContent = m.a11y.skipToProgram;
-
-  dom.labelTape.textContent = m.tape;
-  dom.labelProgram.textContent = m.program;
-  dom.tapeInput.placeholder = m.hints.editTape;
-  dom.programInput.placeholder = m.hints.editProgram;
-
-  dom.tapeInput.setAttribute('aria-label', m.a11y.tapeLabel);
-  dom.programInput.setAttribute('aria-label', m.a11y.programLabel);
-  dom.programView.setAttribute('aria-label', m.a11y.programViewLabel);
-  dom.tapeView.setAttribute('aria-label', m.a11y.tapeViewLabel);
-  dom.log.setAttribute('aria-label', m.a11y.logLabel);
-
-  const byId = (id: string): HTMLElement => mustFind(document, id);
-  const text = (id: string, value: string): void => {
-    byId(id).querySelector('.btn__text')!.textContent = value;
-  };
-  const title = (id: string, value: string): void => {
-    byId(id).setAttribute('title', value);
-  };
-  const hint = (id: string, value: string): void => {
-    byId(id).setAttribute('data-hint', value);
-  };
-
-  text('#btn-start', m.controls.start);
-  text('#btn-totu4', m.controls.toTu4);
-  text('#btn-copy', m.controls.copy);
-  text('#btn-step', m.controls.step);
-  text('#btn-run-toggle', m.controls.run);
-  text('#btn-unmark', m.controls.unmark);
-  text('#btn-edit', m.controls.backToEdit);
-  text('#btn-edit-err', m.controls.backToEdit);
-
-  title('#btn-start', m.hints.start);
-  title('#btn-totu4', m.hints.toTu4);
-  title('#btn-copy', m.hints.copy);
-  title('#btn-step', m.hints.step);
-  title('#btn-run-toggle', m.hints.run);
-  title('#btn-unmark', m.hints.unmark);
-  title('#btn-edit', m.hints.backToEdit);
-  title('#btn-edit-err', m.hints.backToEdit);
-  title('#btn-help', m.controls.help);
-
-  hint('#btn-start', m.hints.start);
-  hint('#btn-totu4', m.hints.toTu4);
-  hint('#btn-copy', m.hints.copy);
-  hint('#btn-step', m.hints.step);
-  hint('#btn-run-toggle', m.hints.run);
-  hint('#btn-unmark', m.hints.unmark);
-  hint('#btn-edit', m.hints.backToEdit);
-  hint('#btn-edit-err', m.hints.backToEdit);
-
-  dom.speedLabel.textContent = m.controls.speed;
-  dom.speedControl.setAttribute('title', m.hints.speed);
-  dom.speedControl.setAttribute('data-hint', m.hints.speed);
-  dom.speedInput.setAttribute('aria-label', m.controls.speed);
-
-  dom.settingsButton.setAttribute('title', m.controls.settings);
-  dom.settingsButton.setAttribute('aria-label', m.controls.settings);
-  dom.settingsTitle.textContent = m.settings.title;
-  dom.settingsClose.setAttribute('title', m.controls.close);
-  dom.settingsClose.setAttribute('aria-label', m.controls.close);
-
-  dom.settingLangLabel.textContent = m.settings.language;
-  dom.langLabel.textContent = m.settings.languageName;
-  dom.langButton.setAttribute('title', m.controls.language);
-  dom.langButton.setAttribute('aria-label', `${m.controls.language}: ${m.settings.languageName}`);
-
-  dom.settingThemeLabel.textContent = m.settings.theme;
-  byId('#btn-theme-auto').textContent = m.settings.themeAuto;
-  byId('#btn-theme-light').textContent = m.settings.themeLight;
-  byId('#btn-theme-dark').textContent = m.settings.themeDark;
-
-  dom.settingSoundLabel.textContent = m.settings.sound;
-  syncSoundControl();
-
-  dom.settingMaxSpeedLabel.textContent = m.settings.maxSpeed;
-  dom.maxSpeedInput.setAttribute('aria-label', m.settings.maxSpeed);
-
-  mustFind(document, '#btn-help').setAttribute('aria-label', m.controls.help);
-  dom.helpClose.setAttribute('aria-label', m.controls.close);
-  dom.helpClose.setAttribute('title', m.controls.close);
-
-  renderHelp(m.help);
-  syncRunToggleLabel();
-  syncSpeedControls();
-  syncHint();
 }
 
 /* ——— settings menu ——————————————————————————————————————————————— */
@@ -370,8 +269,8 @@ function syncRunState(isRunning: boolean): void {
 function syncRunToggleLabel(): void {
   const toggle = dom.runToggleButton;
   const running = controller.isAutoRunning;
-  const label = running ? m.controls.stop : m.controls.run;
-  const hint = running ? m.hints.stop : m.hints.run;
+  const label = i18n.t(running ? 'controls.stop' : 'controls.run');
+  const hint = i18n.t(running ? 'hints.stop' : 'hints.run');
   toggle.querySelector('.btn__text')!.textContent = label;
   toggle.setAttribute('title', hint);
   toggle.setAttribute('data-hint', hint);
@@ -382,7 +281,7 @@ function syncRunToggleLabel(): void {
 /* ——— wiring ————————————————————————————————————————————————————— */
 
 const controller = new AppController({
-  messages: m,
+  i18n,
   initialSpeed: settings.speed,
   initialMaxSpeed: settings.maxSpeed,
   elements: {
@@ -402,6 +301,21 @@ const controller = new AppController({
   onTapeChange: saveTape,
   onStepSound: () => sound.tick(),
 });
+
+// Declaratively bind all `data-i18n` / `data-i18n-attr` nodes, plus sync the
+// dynamic controls whenever the active locale changes.
+function syncDynamicI18n(): void {
+  syncSoundControl();
+  syncLangAria();
+  renderHelp(i18n.help);
+  syncRunToggleLabel();
+  syncSpeedControls();
+  syncHint();
+}
+
+bindDomI18n(document, i18n);
+syncDynamicI18n();
+i18n.subscribe(syncDynamicI18n);
 
 /* ——— events ————————————————————————————————————————————————————— */
 
@@ -465,16 +379,13 @@ document.addEventListener('pointerdown', (event) => {
 });
 
 on(dom.langButton, 'click', () => {
-  lang = lang === 'ru' ? 'en' : 'ru';
-  updateSettings({ lang });
+  const next = i18n.toggleLocale();
+  updateSettings({ lang: next });
   const url = new URL(location.href);
   if (url.searchParams.has('lang')) {
-    url.searchParams.set('lang', lang);
+    url.searchParams.set('lang', next);
     history.replaceState(null, '', url.pathname + url.search + url.hash);
   }
-  m = messages(lang);
-  controller.setMessages(m);
-  localize();
 });
 
 for (const button of dom.themeButtons) {
@@ -650,9 +561,8 @@ for (const control of hintTargets) {
   control.addEventListener('focusout', hide);
 }
 
-// Hydrate saved draft, localize static DOM, and initialize toolbar state.
+// Hydrate saved draft and initialize toolbar state.
 controller.hydrate(saved.program, saved.tape);
-localize();
 syncRunState(false);
 
 // Bookmarks landing on `#help` open the in-app help dialog.

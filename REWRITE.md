@@ -8,10 +8,10 @@
 | Метрика             | v2.3                                            | v3.0                                                               |
 | ------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
 | Рантайм-зависимости | jQuery 1.6.4, HotMilk/Milk, `jquery-plugins.js` | **0**                                                              |
-| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **44.0 КБ** (14.0 КБ gzip)                                         |
+| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **44.7 КБ** (14.8 КБ gzip)                                         |
 | Языки               | ES3-стиль, глобальные `i18n`, `TM`              | TypeScript strict, ES-модули, `noUncheckedIndexedAccess`           |
 | Типизация           | нет                                             | 100% кода, `tsc --noEmit` в скрипте `build`                        |
-| Тесты               | нет                                             | **75 юнит/DOM (Vitest) + 29 сквозных (Playwright)**                |
+| Тесты               | нет                                             | **85 юнит/DOM (Vitest) + 29 сквозных (Playwright)**                |
 | Линт/формат         | нет                                             | ESLint 10 (typescript-eslint, type-checked) + Prettier             |
 | Сборка              | ручное подключение `<script>`                   | Vite 7, хешированные ассеты, sourcemaps                            |
 | Доступность         | кнопки-ссылки без семантики                     | `<button>`, `<dialog>`, aria-live, `:focus-visible`, skip-link     |
@@ -24,9 +24,9 @@
 | Оригинал                                                 | Куда переехало                                                          |
 | -------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `tu4.js` (TM, TMRun, TM.Command, TM.compile)             | `src/core/{machine,parser,program,run,tu4,errors}.ts`                   |
-| `i18n.js`                                                | `src/i18n/{ru,en,types,index}.ts`                                       |
+| `i18n.js`                                                | `src/i18n/{locales/*.json,format,dom,types,index}.ts`                   |
 | `ui.js`                                                  | `src/ui/controller.ts` + `src/ui/render.ts` + `src/main.ts`             |
-| `hotmilk.browser.jquery.js` (Milk-шаблоны)               | шаблонные функции в `i18n/*.ts`                                         |
+| `hotmilk.browser.jquery.js` (Milk-шаблоны)               | JSON-каталоги + ICU-форматтер (`Intl.NumberFormat`, `Intl.PluralRules`) |
 | `jquery-plugins.js` (placeholder, scrollTo, selectRange) | платформенные API: `placeholder`, `scrollIntoView`, `setSelectionRange` |
 | `jquery-1.6.4.js`                                        | — (не нужен)                                                            |
 | `jstu4.html`, `jstu4.css`                                | `public/index.html`, `src/styles/main.css`                              |
@@ -60,10 +60,13 @@
    трюков с `prototype = new Error()`; у каждой ошибки есть типизированные
    `data`, которые использует i18n.
 
-6. **i18n — типизированные словари.** Никаких глобальных `i18n['en'].texts`,
-   `$('#selector')` в строках и шаблонов с `$T`. Функции сообщений принимают
-   параметры по типам, справка — структурированные блоки (p/rich/list/code), а
-   не HTML-разметка в JS.
+6. **i18n уровня 2026 года с нулём рантайм-зависимостей.** Переводы хранятся в
+   чистых декларативных JSON-каталогах (`src/i18n/locales/{ru,en}.json`), а не в
+   TS-функциях; интерполяция, числа и множественные формы работают через
+   ICU-подмножество на нативных `Intl.NumberFormat`, `Intl.PluralRules` и
+   `Intl.Locale`. В разметке используются декларативные `data-i18n` /
+   `data-i18n-attr` и реактивный стор `I18n`, а юнит-тесты проверяют паритет
+   ключей, плейсхолдеров и всех ссылок из `public/index.html`.
 
 ## Исправленные дефекты оригинала
 
@@ -84,7 +87,7 @@
 
 ```bash
 npm install
-npm run check      # lint + prettier + 75 юнит/DOM-тестов + сборка
+npm run check      # lint + prettier + 85 юнит/DOM-тестов + сборка
 npm run test:e2e   # 29 сценариев Playwright в Chromium
 npm run dev        # живой предпросмотр
 ```

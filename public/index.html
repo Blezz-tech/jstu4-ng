@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" dir="ltr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -18,12 +18,12 @@
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
-    <a class="skip-link" href="#input-program">Программа</a>
+    <a class="skip-link" href="#input-program" data-i18n="a11y.skipToProgram"></a>
 
     <div class="app">
       <header class="topbar">
         <h1 class="title">
-          <span class="title__text" id="app-title"></span>
+          <span class="title__text" id="app-title" data-i18n="app.title"></span>
           <span class="title__version" id="app-version"></span>
         </h1>
         <nav class="topbar__actions" aria-label="UI">
@@ -35,6 +35,7 @@
               aria-haspopup="dialog"
               aria-expanded="false"
               aria-controls="settings-menu"
+              data-i18n-attr="title:controls.settings;aria-label:controls.settings"
             >
               <svg
                 class="icon-btn__gear"
@@ -59,12 +60,16 @@
               hidden
             >
               <header class="settings-menu__header">
-                <h2 class="settings-menu__title" id="settings-title">Настройки</h2>
+                <h2
+                  class="settings-menu__title"
+                  id="settings-title"
+                  data-i18n="settings.title"
+                ></h2>
                 <button
                   class="icon-btn settings-menu__close"
                   id="btn-settings-close"
                   type="button"
-                  aria-label="Закрыть"
+                  data-i18n-attr="title:controls.close;aria-label:controls.close"
                 >
                   ×
                 </button>
@@ -72,14 +77,27 @@
 
               <div class="settings-menu__body">
                 <div class="setting-row">
-                  <span class="setting-row__label" id="label-setting-lang">Язык</span>
-                  <button class="btn btn--sm" id="btn-lang" type="button">
-                    <span id="lang-label">Русский</span>
+                  <span
+                    class="setting-row__label"
+                    id="label-setting-lang"
+                    data-i18n="settings.language"
+                  ></span>
+                  <button
+                    class="btn btn--sm"
+                    id="btn-lang"
+                    type="button"
+                    data-i18n-attr="title:controls.language"
+                  >
+                    <span id="lang-label" data-i18n="settings.languageName"></span>
                   </button>
                 </div>
 
                 <div class="setting-row setting-row--stack">
-                  <span class="setting-row__label" id="label-setting-theme">Тема</span>
+                  <span
+                    class="setting-row__label"
+                    id="label-setting-theme"
+                    data-i18n="settings.theme"
+                  ></span>
                   <div
                     class="segmented"
                     id="theme-group"
@@ -92,32 +110,33 @@
                       type="button"
                       data-theme-option="auto"
                       aria-pressed="false"
-                    >
-                      Авто
-                    </button>
+                      data-i18n="settings.themeAuto"
+                    ></button>
                     <button
                       class="segmented__btn"
                       id="btn-theme-light"
                       type="button"
                       data-theme-option="light"
                       aria-pressed="false"
-                    >
-                      Светлая
-                    </button>
+                      data-i18n="settings.themeLight"
+                    ></button>
                     <button
                       class="segmented__btn"
                       id="btn-theme-dark"
                       type="button"
                       data-theme-option="dark"
                       aria-pressed="false"
-                    >
-                      Тёмная
-                    </button>
+                      data-i18n="settings.themeDark"
+                    ></button>
                   </div>
                 </div>
 
                 <div class="setting-row">
-                  <span class="setting-row__label" id="label-setting-sound">Звук шагов</span>
+                  <span
+                    class="setting-row__label"
+                    id="label-setting-sound"
+                    data-i18n="settings.sound"
+                  ></span>
                   <button
                     class="switch"
                     id="btn-sound"
@@ -129,7 +148,7 @@
                     <span class="switch__track" aria-hidden="true">
                       <span class="switch__thumb"></span>
                     </span>
-                    <span class="switch__text" id="sound-label">Выкл</span>
+                    <span class="switch__text" id="sound-label"></span>
                   </button>
                 </div>
 
@@ -138,9 +157,8 @@
                     class="setting-row__label"
                     id="label-setting-max-speed"
                     for="input-max-speed"
-                  >
-                    Макс. скорость
-                  </label>
+                    data-i18n="settings.maxSpeed"
+                  ></label>
                   <div class="setting-number">
                     <input
                       class="setting-number__input"
@@ -151,6 +169,7 @@
                       step="1"
                       value="10"
                       inputmode="decimal"
+                      data-i18n-attr="aria-label:settings.maxSpeed"
                     />
                     <span class="setting-number__unit" aria-hidden="true">×</span>
                   </div>
@@ -159,13 +178,31 @@
             </section>
           </div>
 
-          <button class="btn btn--ghost" id="btn-help" type="button">?</button>
+          <button
+            class="btn btn--ghost"
+            id="btn-help"
+            type="button"
+            data-i18n-attr="title:controls.help;aria-label:controls.help"
+          >
+            ?
+          </button>
         </nav>
       </header>
 
+      <section class="statusbar" id="statusbar" data-i18n-attr="aria-label:a11y.statusLabel">
+        <p
+          class="log"
+          id="log"
+          role="status"
+          aria-live="polite"
+          data-i18n-attr="aria-label:a11y.logLabel"
+        ></p>
+        <p class="stats" id="stats"></p>
+      </section>
+
       <main class="workspace">
         <section class="pane pane--tape">
-          <label class="pane__label" for="input-tape" id="label-tape">Лента</label>
+          <label class="pane__label" for="input-tape" id="label-tape" data-i18n="pane.tape"></label>
           <div class="pane__slot">
             <input
               class="field field--tape"
@@ -176,13 +213,24 @@
               spellcheck="false"
               enterkeyhint="go"
               tabindex="1"
+              data-i18n-attr="placeholder:hints.editTape;aria-label:a11y.tapeLabel"
             />
-            <div class="tape" id="display-tape" aria-live="polite"></div>
+            <div
+              class="tape"
+              id="display-tape"
+              aria-live="polite"
+              data-i18n-attr="aria-label:a11y.tapeViewLabel"
+            ></div>
           </div>
         </section>
 
         <section class="pane pane--program">
-          <label class="pane__label" for="input-program" id="label-program">Программа</label>
+          <label
+            class="pane__label"
+            for="input-program"
+            id="label-program"
+            data-i18n="pane.program"
+          ></label>
           <div class="pane__stack">
             <textarea
               class="field field--program"
@@ -192,31 +240,67 @@
               autocomplete="off"
               wrap="off"
               tabindex="2"
+              data-i18n-attr="placeholder:hints.editProgram;aria-label:a11y.programLabel"
             ></textarea>
-            <div class="program" id="display-program" tabindex="0"></div>
+            <div
+              class="program"
+              id="display-program"
+              tabindex="0"
+              data-i18n-attr="aria-label:a11y.programViewLabel"
+            ></div>
           </div>
         </section>
       </main>
 
       <footer class="toolbar">
         <div class="toolbar__buttons" id="controls">
-          <button class="btn btn--primary" id="btn-start" type="button" data-mode="edit">
-            <span class="btn__text">Старт</span>
+          <button
+            class="btn btn--primary"
+            id="btn-start"
+            type="button"
+            data-mode="edit"
+            data-i18n-attr="title:hints.start;data-hint:hints.start"
+          >
+            <span class="btn__text" data-i18n="controls.start"></span>
           </button>
-          <button class="btn" id="btn-totu4" type="button" data-mode="edit">
-            <span class="btn__text">В формат TU4</span>
+          <button
+            class="btn"
+            id="btn-totu4"
+            type="button"
+            data-mode="edit"
+            data-i18n-attr="title:hints.toTu4;data-hint:hints.toTu4"
+          >
+            <span class="btn__text" data-i18n="controls.toTu4"></span>
           </button>
-          <button class="btn" id="btn-copy" type="button" data-mode="edit">
-            <span class="btn__text">Копировать</span>
+          <button
+            class="btn"
+            id="btn-copy"
+            type="button"
+            data-mode="edit"
+            data-i18n-attr="title:hints.copy;data-hint:hints.copy"
+          >
+            <span class="btn__text" data-i18n="controls.copy"></span>
           </button>
-          <button class="btn btn--primary" id="btn-step" type="button" data-mode="run">
-            <span class="btn__text">Шаг</span>
+          <button
+            class="btn btn--primary"
+            id="btn-step"
+            type="button"
+            data-mode="run"
+            data-i18n-attr="title:hints.step;data-hint:hints.step"
+          >
+            <span class="btn__text" data-i18n="controls.step"></span>
           </button>
           <button class="btn" id="btn-run-toggle" type="button" data-mode="run">
-            <span class="btn__text">Запуск</span>
+            <span class="btn__text" data-i18n="controls.run"></span>
           </button>
-          <label class="speed-control" id="speed-control" data-mode="run" for="input-speed">
-            <span class="speed-control__label" id="label-speed">Скорость</span>
+          <label
+            class="speed-control"
+            id="speed-control"
+            data-mode="run"
+            for="input-speed"
+            data-i18n-attr="title:hints.speed;data-hint:hints.speed"
+          >
+            <span class="speed-control__label" id="label-speed" data-i18n="controls.speed"></span>
             <input
               class="speed-control__slider"
               id="input-speed"
@@ -225,24 +309,39 @@
               max="10"
               step="0.5"
               value="1"
+              data-i18n-attr="aria-label:controls.speed"
             />
             <output class="speed-control__value" id="speed-value" for="input-speed">1×</output>
           </label>
-          <button class="btn" id="btn-unmark" type="button" data-mode="run">
-            <span class="btn__text">Сбросить метки</span>
+          <button
+            class="btn"
+            id="btn-unmark"
+            type="button"
+            data-mode="run"
+            data-i18n-attr="title:hints.unmark;data-hint:hints.unmark"
+          >
+            <span class="btn__text" data-i18n="controls.unmark"></span>
           </button>
-          <button class="btn" id="btn-edit" type="button" data-mode="run">
-            <span class="btn__text">К правке</span>
+          <button
+            class="btn"
+            id="btn-edit"
+            type="button"
+            data-mode="run"
+            data-i18n-attr="title:hints.backToEdit;data-hint:hints.backToEdit"
+          >
+            <span class="btn__text" data-i18n="controls.backToEdit"></span>
           </button>
-          <button class="btn" id="btn-edit-err" type="button" data-mode="error">
-            <span class="btn__text">К правке</span>
+          <button
+            class="btn"
+            id="btn-edit-err"
+            type="button"
+            data-mode="error"
+            data-i18n-attr="title:hints.backToEdit;data-hint:hints.backToEdit"
+          >
+            <span class="btn__text" data-i18n="controls.backToEdit"></span>
           </button>
         </div>
-        <div class="toolbar__status">
-          <p class="log" id="log" role="status" aria-live="polite"></p>
-          <p class="stats" id="stats"></p>
-          <p class="hint" id="hint" aria-hidden="true"></p>
-        </div>
+        <p class="hint" id="hint" aria-hidden="true"></p>
       </footer>
     </div>
 
@@ -250,7 +349,14 @@
       <div class="help__inner">
         <header class="help__header">
           <h2 id="help-title"></h2>
-          <button class="icon-btn" id="btn-help-close" type="button" aria-label="Close">×</button>
+          <button
+            class="icon-btn"
+            id="btn-help-close"
+            type="button"
+            data-i18n-attr="title:controls.close;aria-label:controls.close"
+          >
+            ×
+          </button>
         </header>
         <div class="help__body" id="help-body"></div>
         <footer class="help__footer">
