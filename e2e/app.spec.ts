@@ -113,17 +113,52 @@ test('persists the draft across reloads', async ({ page }) => {
   await expect(page.locator('#input-tape')).toHaveValue('hello');
 });
 
-test('switches language and remembers it', async ({ page }) => {
+test('opens settings menu with the gear button and closes on Escape or outside click', async ({
+  page,
+}) => {
   await page.goto('/');
+  await expect(page.locator('#settings-menu')).toBeHidden();
+  await expect(page.locator('#btn-settings')).toHaveAttribute('aria-expanded', 'false');
+
+  await page.locator('#btn-settings').click();
+  await expect(page.locator('#settings-menu')).toBeVisible();
+  await expect(page.locator('#btn-settings')).toHaveAttribute('aria-expanded', 'true');
+
+  // Escape closes the settings menu and restores focus to the gear button.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#settings-menu')).toBeHidden();
+  await expect(page.locator('#btn-settings')).toBeFocused();
+
+  // Clicking outside closes the settings menu.
+  await page.locator('#btn-settings').click();
+  await expect(page.locator('#settings-menu')).toBeVisible();
+  await page.locator('#app-title').click();
+  await expect(page.locator('#settings-menu')).toBeHidden();
+});
+
+test('switches language with a button inside settings and persists to localStorage', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('#btn-settings').click();
+  await expect(page.locator('#btn-lang')).toContainText('Русский');
   await page.locator('#btn-lang').click();
+  await expect(page.locator('#btn-lang')).toContainText('English');
   await expect(page.locator('#btn-start')).toContainText('Start');
   await expect(page).toHaveTitle(/Turing machine/);
+
+  const stored = await page.evaluate(
+    () => JSON.parse(window.localStorage.getItem('jstu4:settings') ?? '{}') as { lang?: string },
+  );
+  expect(stored.lang).toBe('en');
+
   await page.reload();
   await expect(page.locator('#btn-start')).toContainText('Start');
 });
 
-test('the language switch keeps keyboard focus on the toggle', async ({ page }) => {
+test('the language switch keeps keyboard focus on the button', async ({ page }) => {
   await page.goto('/');
+  await page.locator('#btn-settings').click();
   await page.locator('#btn-lang').focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
@@ -133,10 +168,11 @@ test('the language switch keeps keyboard focus on the toggle', async ({ page }) 
 test('supports ?lang=en deep links and keeps language switches across reload', async ({ page }) => {
   await page.goto('/?lang=en');
   await expect(page.locator('#btn-start')).toContainText('Start');
+  await page.locator('#btn-settings').click();
   await page.locator('#btn-lang').click();
-  await expect(page.locator('#btn-start')).toContainText('Запустить');
+  await expect(page.locator('#btn-start')).toContainText('Старт');
   await page.reload();
-  await expect(page.locator('#btn-start')).toContainText('Запустить');
+  await expect(page.locator('#btn-start')).toContainText('Старт');
 });
 
 test('closing #help removes the hash so reloading does not reopen help', async ({ page }) => {
@@ -165,19 +201,28 @@ test('respects the browser language on first visit', async ({ browser }) => {
   await context.close();
 });
 
-test('cycles the theme auto → light → dark → auto', async ({ page }) => {
+test('switches theme auto / light / dark in settings and persists to localStorage', async ({
+  page,
+}) => {
   await page.goto('/');
   const html = page.locator('html');
   const choice = () => html.getAttribute('data-theme-choice');
 
   expect(await choice()).toBe('auto');
-  await page.locator('#btn-theme').click();
+  await page.locator('#btn-settings').click();
+  await page.locator('#btn-theme-light').click();
   expect(await choice()).toBe('light');
   await expect(html).toHaveAttribute('data-theme', 'light');
-  await page.locator('#btn-theme').click();
+  await page.locator('#btn-theme-dark').click();
   expect(await choice()).toBe('dark');
   await expect(html).toHaveAttribute('data-theme', 'dark');
-  await page.locator('#btn-theme').click();
+
+  await page.reload();
+  expect(await choice()).toBe('dark');
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+
+  await page.locator('#btn-settings').click();
+  await page.locator('#btn-theme-auto').click();
   expect(await choice()).toBe('auto');
 });
 
@@ -293,22 +338,31 @@ test('switching language preserves edited program and active run', async ({ page
   await page.goto('/');
   await page.locator('#input-program').fill('0, ,>,1\n1, ,#,1');
   await page.locator('#input-tape').fill('101');
+  await page.locator('#btn-settings').click();
   await page.locator('#btn-lang').click();
+  await page.keyboard.press('Escape');
   await expect(page.locator('#input-program')).toHaveValue('0, ,>,1\n1, ,#,1');
 
   await page.locator('#btn-start').click();
   await page.locator('#btn-step').click();
+  await page.locator('#btn-settings').click();
   await page.locator('#btn-lang').click();
+  await page.keyboard.press('Escape');
   await expect(page.locator('#btn-step')).toBeVisible();
   await expect(page.locator('#stats')).toContainText('Выполнено операций: 1');
 });
 
-test('help dialog is centered in the viewport and sound button has its own label', async ({
-  page,
-}) => {
+test('help dialog is centered in the viewport and sound switch persists', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/');
-  await expect(page.locator('#btn-sound')).toHaveAttribute('aria-label', /Звук/);
+  await page.locator('#btn-settings').click();
+  await expect(page.locator('#btn-sound')).toHaveAttribute('aria-checked', 'false');
+  await page.locator('#btn-sound').click();
+  await expect(page.locator('#btn-sound')).toHaveAttribute('aria-checked', 'true');
+  await page.reload();
+  await page.locator('#btn-settings').click();
+  await expect(page.locator('#btn-sound')).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
 
   await page.keyboard.press('F1');
   const box = (await page.locator('#help-dialog').boundingBox())!;

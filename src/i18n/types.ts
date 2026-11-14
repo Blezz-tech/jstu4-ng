@@ -52,6 +52,7 @@ export interface Messages {
 
   readonly controls: {
     readonly help: string;
+    readonly settings: string;
     readonly start: string;
     readonly step: string;
     readonly quick: string;
@@ -65,6 +66,19 @@ export interface Messages {
     readonly sound: string;
     readonly language: string;
     readonly close: string;
+  };
+
+  readonly settings: {
+    readonly title: string;
+    readonly language: string;
+    readonly languageName: string;
+    readonly theme: string;
+    readonly themeAuto: string;
+    readonly themeLight: string;
+    readonly themeDark: string;
+    readonly sound: string;
+    readonly on: string;
+    readonly off: string;
   };
 
   readonly hints: {

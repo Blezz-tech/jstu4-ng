@@ -60,6 +60,13 @@ test.describe('screenshots', () => {
     await page.screenshot({ path: 'screenshots/help.png' });
   });
 
+  test('settings menu', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#btn-settings').click();
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: 'screenshots/settings.png' });
+  });
+
   test('mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
