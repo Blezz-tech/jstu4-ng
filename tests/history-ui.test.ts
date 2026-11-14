@@ -31,6 +31,13 @@ function editField(field: HTMLInputElement | HTMLTextAreaElement, value: string)
 }
 
 describe('version control UI (public/index.html + src/main.ts)', () => {
+  let mounted: { dispose(): void } | null = null;
+
+  async function boot(): Promise<void> {
+    const mod = await import('../src/main');
+    mounted = mod.app;
+  }
+
   beforeEach(() => {
     vi.resetModules();
     window.localStorage.clear();
@@ -57,6 +64,8 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
   });
 
   afterEach(() => {
+    mounted?.dispose();
+    mounted = null;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     window.localStorage.clear();
@@ -64,7 +73,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
   });
 
   it('places SVG save button right after Copy, status indicator after Save, and SVG history button right before Settings', async () => {
-    await import('../src/main');
+    await boot();
 
     const copyBtn = document.querySelector<HTMLButtonElement>('#btn-copy')!;
     const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
@@ -103,7 +112,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 14, 12, 30, 0));
 
-    await import('../src/main');
+    await boot();
 
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
     const tapeInput = document.querySelector<HTMLInputElement>('#input-tape')!;
@@ -186,7 +195,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 14, 14, 0, 5));
 
-    await import('../src/main');
+    await boot();
 
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
     const tapeInput = document.querySelector<HTMLInputElement>('#input-tape')!;
@@ -245,7 +254,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 14, 16, 10, 0));
 
-    await import('../src/main');
+    await boot();
 
     const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
     const saveBtn = document.querySelector<HTMLButtonElement>('#btn-save')!;
@@ -318,7 +327,7 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
   });
 
   it('updates history live on cross-tab storage events and warns on QuotaExceededError', async () => {
-    await import('../src/main');
+    await boot();
 
     const historyBtn = document.querySelector<HTMLButtonElement>('#btn-history')!;
     const historyList = document.querySelector<HTMLUListElement>('#history-list')!;

@@ -1,0 +1,282 @@
+/* ——— toolbar ————————————————————————————————————————————————————— */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: calc(var(--space) * 0.7);
+}
+
+.toolbar__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Mode visibility: each direct toolbar control declares which mode it belongs to. */
+
+#controls[data-mode='edit'] > :not([data-mode='edit']),
+#controls[data-mode='run'] > :not([data-mode='run']),
+#controls[data-mode='error'] > :not([data-mode='error']) {
+  display: none;
+}
+
+/* Uniform fixed-width transport controls (←, →, ▶/■) prevent horizontal shift. */
+
+.btn--transport {
+  width: 38px;
+  min-width: 38px;
+  height: 36px;
+  padding: 0;
+}
+
+.btn__arrow {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.btn__media-icon {
+  display: block;
+}
+
+.btn--run-toggle .btn__media-icon--stop {
+  display: none;
+}
+
+.btn--run-toggle[data-state='stop'] .btn__media-icon--play {
+  display: none;
+}
+
+.btn--run-toggle[data-state='stop'] .btn__media-icon--stop {
+  display: block;
+}
+
+.btn--run-toggle[data-state='stop'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.btn__icon {
+  font-size: 0.95em;
+  line-height: 1;
+}
+
+.speed-control {
+  --speed-thumb-size: 16px;
+  --zero-ratio: 0.375;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  transition: border-color 120ms ease;
+}
+
+.speed-control[data-direction='reverse'] {
+  border-color: color-mix(in srgb, var(--warn) 48%, var(--border));
+}
+
+.speed-control[data-direction='stopped'] {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.speed-control__label {
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.speed-control__track-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 136px;
+  height: 24px;
+}
+
+/* Themed colored vertical zero bar aligned to value === 0 along the slider travel. */
+.speed-control__zero {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: calc(var(--zero-ratio) * (100% - var(--speed-thumb-size)) + var(--speed-thumb-size) / 2);
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0.85;
+  pointer-events: none;
+  z-index: 1;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.speed-control[data-direction='stopped'] .speed-control__zero {
+  opacity: 1;
+  transform: translateX(-50%) scaleY(1.12);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.speed-control__slider {
+  position: relative;
+  z-index: 2;
+  appearance: none;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.speed-control__slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.speed-control__slider::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--speed-thumb-size);
+  height: var(--speed-thumb-size);
+  margin-top: calc((4px - var(--speed-thumb-size)) / 2);
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.speed-control__slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.speed-control__slider::-moz-range-thumb {
+  width: var(--speed-thumb-size);
+  height: var(--speed-thumb-size);
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.speed-control[data-direction='reverse'] .speed-control__slider::-webkit-slider-thumb {
+  background: var(--warn);
+}
+
+.speed-control[data-direction='reverse'] .speed-control__slider::-moz-range-thumb {
+  background: var(--warn);
+}
+
+.speed-control__slider:focus-visible {
+  outline: none;
+}
+
+.speed-control__slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--ring);
+}
+
+.speed-control__slider:focus-visible::-moz-range-thumb {
+  box-shadow: var(--ring);
+}
+
+.speed-control__value {
+  min-width: 5.5ch;
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-align: right;
+}
+
+.speed-control[data-direction='reverse'] .speed-control__value {
+  color: var(--warn);
+}
+
+.speed-control[data-direction='stopped'] .speed-control__value {
+  color: var(--accent);
+}
+
+/* ——— toolbar icon-only, save status & danger buttons ——————————————— */
+
+.btn--icon-only {
+  width: 38px;
+  min-width: 38px;
+  height: 36px;
+  padding: 0;
+}
+
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.save-status[data-state='idle'] {
+  display: none;
+}
+
+.save-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.save-status[data-state='dirty'] {
+  color: var(--warn);
+}
+
+.save-status[data-state='dirty']::before {
+  background: var(--warn);
+}
+
+.save-status[data-state='saved'] {
+  color: var(--ok);
+}
+
+.save-status[data-state='saved']::before {
+  background: var(--ok);
+}
+
+.save-status[data-state='autosaved'] {
+  color: var(--text-muted);
+}
+
+.save-status[data-state='autosaved']::before {
+  background: var(--accent);
+}
+
+.btn--danger {
+  border-color: var(--err);
+  background: var(--err);
+  color: #ffffff;
+}
+
+.btn--danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: var(--err);
+  background: var(--err);
+}
