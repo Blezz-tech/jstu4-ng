@@ -1,0 +1,117 @@
+/* ——— buttons ————————————————————————————————————————————————————— */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 550;
+  white-space: nowrap;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.06s ease;
+}
+
+.btn--sm {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: 0.85rem;
+}
+
+.btn:hover {
+  background: var(--surface-2);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.btn--primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, black);
+}
+
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: var(--surface);
+}
+
+.btn--primary:disabled,
+.btn--primary[aria-disabled='true'] {
+  /* A disabled primary action must not stay saturated blue: it reads as
+     "click me", which is exactly what the halting state is not. */
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text-faint);
+}
+
+.btn--primary:disabled:hover {
+  background: var(--surface);
+}
+
+.btn[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.icon-btn[data-on='true'],
+.icon-btn[aria-expanded='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.icon-btn__gear {
+  transition: transform 0.2s ease;
+}
+
+.icon-btn[aria-expanded='true'] .icon-btn__gear {
+  transform: rotate(30deg);
+}
+
+#btn-help {
+  font-size: 1.05rem;
+  border-color: var(--border);
+  color: var(--text);
+}

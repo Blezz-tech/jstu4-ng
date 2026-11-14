@@ -1,0 +1,142 @@
+/* ——— compact side panels when both are open (900px–1180px) ————————— */
+
+@media (max-width: 1180px) and (min-width: 900px) {
+  .app-shell[data-history='open'][data-sidepanel='open'] {
+    grid-template-columns: 264px minmax(0, 1fr) 256px;
+  }
+}
+
+/* ——— responsive side panel drawers (< 900px) ——————————————————————— */
+
+@media (max-width: 899px) {
+  .app-shell,
+  .app-shell[data-history='open'][data-sidepanel='closed'],
+  .app-shell[data-history='open'][data-sidepanel='open'],
+  .app-shell[data-history='closed'][data-sidepanel='closed'] {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 1100px;
+  }
+
+  .history-backdrop,
+  .sidepanel-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgb(0 0 0 / 45%);
+    backdrop-filter: blur(2px);
+  }
+
+  .sidepanel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    width: min(320px, 88vw);
+    border-radius: var(--radius) 0 0 var(--radius);
+    border-right: none;
+    border-top: none;
+    border-bottom: none;
+  }
+
+  .historypanel {
+    left: 0;
+    right: auto;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    border-left: none;
+    border-right: 1px solid var(--border);
+  }
+}
+
+/* ——— small screens ————————————————————————————————————————————————— */
+
+@media (max-width: 640px) {
+  body {
+    font-size: 14px;
+  }
+
+  .app-shell {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .title {
+    font-size: 1rem;
+  }
+
+  .title__version {
+    display: none;
+  }
+
+  .toolbar {
+    flex-direction: column;
+  }
+
+  .toolbar__buttons {
+    width: 100%;
+  }
+
+  .toolbar__buttons .btn:not(.btn--transport):not(.btn--icon-only) {
+    flex: 1 1 auto;
+  }
+
+  .speed-control {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .speed-control__track-wrap {
+    flex: 1 1 auto;
+    width: auto;
+  }
+}
+
+/* ——— print ————————————————————————————————————————————————————————— */
+
+@media print {
+  body {
+    overflow: visible;
+    background: #fff;
+    color: #000;
+  }
+
+  .topbar__actions,
+  .icon-btn--history,
+  .toolbar,
+  .history-backdrop,
+  .historypanel,
+  .sidepanel-backdrop,
+  .sidepanel__section--hint,
+  .sidepanel__close,
+  .skip-link,
+  .pane__stack::after {
+    display: none !important;
+  }
+
+  .app-shell {
+    display: block;
+    height: auto;
+    max-width: none;
+  }
+
+  .app {
+    height: auto;
+    max-width: none;
+  }
+
+  .sidepanel,
+  .sidepanel__card,
+  .program,
+  .tape,
+  .field {
+    background: #fff;
+    color: #000;
+    border-color: #999;
+    box-shadow: none;
+  }
+
+  .program {
+    overflow: visible;
+    white-space: pre-wrap;
+  }
+}

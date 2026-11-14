@@ -29,14 +29,29 @@ export function mustFind<T extends Element = HTMLElement>(root: ParentNode, sele
   return found;
 }
 
-/** A debounced version of a function (trailing edge only). */
+export interface DebouncedFn<A extends readonly unknown[]> {
+  (...args: A): void;
+  cancel(): void;
+}
+
+/** A debounced version of a function (trailing edge only) with cancellation support. */
 export function debounce<A extends readonly unknown[]>(
   fn: (...args: A) => void,
   delay: number,
-): (...args: A) => void {
+): DebouncedFn<A> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  return (...args: A) => {
+  const wrapped = (...args: A): void => {
     if (timer !== undefined) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
+    timer = setTimeout(() => {
+      timer = undefined;
+      fn(...args);
+    }, delay);
   };
+  wrapped.cancel = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+  return wrapped;
 }

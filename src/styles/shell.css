@@ -1,0 +1,114 @@
+/* ——— app shell ————————————————————————————————————————————————————— */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 296px;
+  height: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space);
+  gap: var(--space);
+}
+
+.app-shell[data-history='closed'][data-sidepanel='closed'] {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 1100px;
+}
+
+.app-shell[data-history='open'][data-sidepanel='closed'] {
+  grid-template-columns: 312px minmax(0, 1fr);
+  max-width: 1400px;
+}
+
+.app-shell[data-history='open'][data-sidepanel='open'] {
+  grid-template-columns: 312px minmax(0, 1fr) 296px;
+  max-width: 1680px;
+}
+
+.app {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  gap: calc(var(--space) * 0.75);
+}
+
+.icon-btn--history {
+  padding: 0 6px;
+}
+
+.icon-btn--sidepanel {
+  position: relative;
+}
+
+.icon-btn--history[aria-expanded='true'],
+.icon-btn--sidepanel[aria-expanded='true'] {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
+
+.icon-btn__badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: none;
+  pointer-events: none;
+}
+
+.icon-btn__badge[data-kind='info'] {
+  display: block;
+  background: var(--ok);
+}
+
+.icon-btn__badge[data-kind='warning'] {
+  display: block;
+  background: var(--warn);
+}
+
+.icon-btn__badge[data-kind='error'] {
+  display: block;
+  background: var(--err);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: clamp(1rem, 0.8rem + 1.1vw, 1.35rem);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  min-width: 0;
+}
+
+.title__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title__version {
+  flex: none;
+  font-size: 0.72em;
+  font-weight: 500;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}

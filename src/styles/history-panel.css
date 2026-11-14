@@ -1,0 +1,234 @@
+/* ——— version control left panel ———————————————————————————————————— */
+
+.history-backdrop[hidden] {
+  display: none;
+}
+
+.historypanel__title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.historypanel__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  flex: none;
+}
+
+.historypanel__filter-label {
+  font-size: 0.84rem;
+  font-weight: 550;
+  color: var(--text);
+}
+
+.historypanel__body {
+  gap: 10px;
+}
+
+.historypanel__count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.snapshot-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.snapshot-list:empty {
+  display: none;
+}
+
+.snapshot-list:not(:empty) + .historypanel__empty {
+  display: none;
+}
+
+.historypanel__empty {
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+}
+
+.snapshot-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.snapshot-item:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.snapshot-item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 13.75px;
+  top: 22px;
+  bottom: -14px;
+  width: 1.5px;
+  background: var(--border-strong);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.snapshot-item[data-active='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.snapshot-item__node {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: var(--accent);
+}
+
+.snapshot-item[data-kind='autosave']:not([data-named='true']) .snapshot-item__node {
+  border-color: var(--text-faint);
+  background: transparent;
+}
+
+.snapshot-item[data-named='true'] .snapshot-item__node {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.snapshot-item__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.snapshot-item__load {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.snapshot-item__title {
+  width: 100%;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.snapshot-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.snapshot-item__actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.snapshot-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.snapshot-action:hover {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.snapshot-action--delete:hover {
+  background: var(--err-soft);
+  border-color: color-mix(in srgb, var(--err) 45%, var(--border));
+  color: var(--err);
+}
+
+.snapshot-item__edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.snapshot-item__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 2px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+}
+
+.snapshot-item__input:focus {
+  outline: none;
+  box-shadow: var(--ring);
+}

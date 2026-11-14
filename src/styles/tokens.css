@@ -1,0 +1,85 @@
+/* ==========================================================================
+   jstu4 — modern vanilla rebuild
+   Single stylesheet: design tokens, light/dark themes, layout, components.
+   No CSS frameworks, no resets from npm: 40 lines of a modern reset + custom
+   properties do the job.
+   ========================================================================== */
+
+/* ——— design tokens ——————————————————————————————————————————————— */
+
+:root {
+  color-scheme: light;
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #eef0f4;
+  --border: #d4d9e0;
+  --border-strong: #b6bdc7;
+  --text: #1c2129;
+  --text-muted: #5d6673;
+  --text-faint: #8b939f;
+
+  --accent: #1f6feb;
+  --accent-text: #ffffff;
+  --accent-soft: #dbe8fd;
+
+  --ok: #147d3b;
+  --ok-soft: #d7f4e0;
+  --warn: #8a5a00;
+  --warn-soft: #fdf0cf;
+  --err: #b3261e;
+  --err-soft: #fce4e2;
+
+  --cell-current: #b9f3c4;
+  --cell-current-text: #0b3d18;
+  --cmd-reverse: #fae078;
+  --cmd-reverse-text: #4d3400;
+
+  --scrollbar-thumb: #c2c9d4;
+  --scrollbar-thumb-hover: #a6aebc;
+  --scrollbar-track: transparent;
+
+  --radius: 10px;
+  --radius-sm: 7px;
+  --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 4px 16px rgb(16 24 40 / 6%);
+  --ring: 0 0 0 3px rgb(31 111 235 / 35%);
+
+  --space: clamp(10px, 2vmin, 18px);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #14161a;
+  --surface: #1b1e24;
+  --surface-2: #22262e;
+  --border: #333a45;
+  --border-strong: #464f5d;
+  --text: #e6e9ee;
+  --text-muted: #a4adba;
+  --text-faint: #737d8b;
+
+  --accent: #6ea8ff;
+  --accent-text: #0b1220;
+  --accent-soft: #1d2b45;
+
+  --ok: #6ee7a0;
+  --ok-soft: #12351f;
+  --warn: #f2c25b;
+  --warn-soft: #3a2c0a;
+  --err: #ff8c82;
+  --err-soft: #3d1714;
+
+  --cell-current: #2f7a44;
+  --cell-current-text: #eafff0;
+  --cmd-reverse: #b07d14;
+  --cmd-reverse-text: #fff9e6;
+
+  --scrollbar-thumb: #3f4855;
+  --scrollbar-thumb-hover: #55606f;
+  --scrollbar-track: transparent;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 20px rgb(0 0 0 / 35%);
+  --ring: 0 0 0 3px rgb(110 168 255 / 45%);
+}

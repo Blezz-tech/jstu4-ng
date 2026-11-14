@@ -1,0 +1,276 @@
+/* ——— workspace ————————————————————————————————————————————————————— */
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space) * 0.9);
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+/* The tape pane keeps its natural height: letting it shrink was what made the
+   program panel slide over the tape label when the window was short. */
+.workspace > .pane--tape {
+  flex: 0 0 auto;
+}
+
+.pane--program {
+  flex: 1 1 auto;
+}
+
+.pane__label {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.field {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  padding: 10px 12px;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.field:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.field::placeholder {
+  color: var(--text-faint);
+}
+
+/* Tape: the editable input and the read-only view share one grid cell. */
+.pane--tape .pane__slot {
+  display: grid;
+  flex: none;
+}
+
+.pane--tape .pane__slot > * {
+  grid-area: 1 / 1;
+}
+
+.field--tape {
+  min-height: 42px;
+}
+
+/* The program pane stacks the textarea and the highlighted view in exactly
+   the same space: switching between edit and run modes must not reflow the
+   page, so both children share one grid cell. */
+
+.pane__stack {
+  position: relative;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pane__stack > * {
+  grid-area: 1 / 1;
+  min-height: 0;
+}
+
+.field--program {
+  resize: none;
+}
+
+/* Mode switching: only one of the twins is visible at a time.
+
+   `.display: none` would collapse the grid/stack and reflow the page; keeping
+   the hidden twin in place and only toggling visibility would leave a blank
+   row for the tape field, so the tape uses a shared slot instead. */
+
+body[data-mode='edit'] #display-tape,
+body[data-mode='edit'] #display-program,
+body[data-mode='run'] #input-tape,
+body[data-mode='run'] #input-program,
+body[data-mode='error'] #display-tape,
+body[data-mode='error'] #input-program {
+  display: none;
+}
+
+/* ——— scrollbars ———————————————————————————————————————————————————— */
+
+.tape,
+.program,
+.field--program,
+.help__body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.tape::-webkit-scrollbar,
+.program::-webkit-scrollbar,
+.field--program::-webkit-scrollbar,
+.help__body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.tape::-webkit-scrollbar-track,
+.program::-webkit-scrollbar-track,
+.field--program::-webkit-scrollbar-track,
+.help__body::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+.tape::-webkit-scrollbar-thumb,
+.program::-webkit-scrollbar-thumb,
+.field--program::-webkit-scrollbar-thumb,
+.help__body::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}
+
+.tape::-webkit-scrollbar-thumb:hover,
+.program::-webkit-scrollbar-thumb:hover,
+.field--program::-webkit-scrollbar-thumb:hover,
+.help__body::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* ——— tape view ————————————————————————————————————————————————————— */
+
+.tape {
+  display: block;
+  min-height: 42px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.98rem;
+  line-height: 1.7;
+  cursor: text;
+}
+
+.tape-view {
+  display: inline-flex;
+}
+
+.tape-view .cell {
+  display: inline-block;
+  min-width: 1.1ch;
+  padding: 0 2px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.tape-view .cell.current {
+  background: var(--cell-current);
+  border-radius: 4px;
+  color: var(--cell-current-text);
+  font-weight: 700;
+  box-shadow: 0 0 0 1px var(--cell-current);
+}
+
+/* ——— program view ————————————————————————————————————————————————————— */
+
+/* "There is more below": a fade pinned to the bottom edge of the listing, so a
+   long program does not look cut off mid-line. The overlay lives on the stack
+   (not on the scroll container), so it never scrolls and never adds height.
+   It is inset past the 1px border and the 10px scrollbar gutter, and it is
+   purely decorative: `pointer-events: none` keeps the pane clickable. */
+.pane__stack::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  right: 11px;
+  bottom: 1px;
+  left: 11px;
+  height: 30px;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: linear-gradient(
+    to top,
+    var(--surface) 12%,
+    color-mix(in srgb, var(--surface) 72%, transparent) 55%,
+    transparent 100%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
+  opacity: 1;
+}
+
+.program {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  white-space: pre;
+  color: var(--text-muted);
+  cursor: text;
+  tab-size: 4;
+}
+
+.program .cmd {
+  color: var(--text);
+  border-radius: 4px;
+}
+
+.program .cmd.visited {
+  color: var(--ok);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.program .cmd.current {
+  background: var(--cell-current);
+  color: var(--cell-current-text);
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 0 0 2px var(--cell-current);
+}
+
+.program[data-step-dir='reverse'] .cmd.current {
+  background: var(--cmd-reverse);
+  color: var(--cmd-reverse-text);
+  box-shadow: 0 0 0 2px var(--cmd-reverse);
+}
+
+.program mark.error {
+  background: var(--err-soft);
+  color: var(--err);
+  font-weight: 700;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px var(--err);
+}
+
+.program .cmd.error {
+  background: var(--err-soft);
+  color: var(--err);
+  text-decoration: underline wavy var(--err);
+  text-underline-offset: 3px;
+}
