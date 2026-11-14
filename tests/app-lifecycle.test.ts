@@ -1,78 +1,20 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountApp } from '../src/app';
 import { debounce } from '../src/ui/dom';
 import { AUTOSAVE_INTERVAL_MS, SNAPSHOTS_STORAGE_KEY } from '../src/ui/history';
 import { SettingsStore, ThemeController } from '../src/ui/shell/settings-store';
-
-const htmlPath = resolve(import.meta.dirname, '../public/index.html');
-const rawHtml = readFileSync(htmlPath, 'utf8');
-const bodyMatch = rawHtml.match(/<body>([\s\S]*)<\/body>/);
-const bodyMarkup = bodyMatch?.[1] ?? '';
-
-interface MockMql {
-  matches: boolean;
-  addEventListener: ReturnType<typeof vi.fn>;
-  removeEventListener: ReturnType<typeof vi.fn>;
-  fireChange(nextMatches: boolean): void;
-}
-
-function createMockMatchMedia(initialMatches = false): MockMql {
-  const listeners = new Set<() => void>();
-  const mql: MockMql = {
-    matches: initialMatches,
-    addEventListener: vi.fn((_type: string, cb: () => void) => {
-      listeners.add(cb);
-    }),
-    removeEventListener: vi.fn((_type: string, cb: () => void) => {
-      listeners.delete(cb);
-    }),
-    fireChange(nextMatches: boolean) {
-      mql.matches = nextMatches;
-      for (const cb of listeners) cb();
-    },
-  };
-  vi.stubGlobal(
-    'matchMedia',
-    vi.fn(() => mql),
-  );
-  return mql;
-}
+import { setupAppDom, teardownAppDom, type MockMql } from './helpers/dom-fixture';
 
 describe('mountApp lifecycle & shell modules', () => {
   let mql: MockMql;
 
   beforeEach(() => {
-    window.localStorage.clear();
-    Object.defineProperty(window.navigator, 'languages', {
-      value: ['ru-RU'],
-      configurable: true,
-    });
-    Object.defineProperty(window.navigator, 'language', {
-      value: 'ru-RU',
-      configurable: true,
-    });
-    document.documentElement.lang = 'ru';
-    document.body.innerHTML = bodyMarkup;
-    mql = createMockMatchMedia(false);
-    for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
-      dialog.showModal = () => {
-        dialog.setAttribute('open', '');
-      };
-      dialog.close = () => {
-        dialog.removeAttribute('open');
-        dialog.dispatchEvent(new Event('close'));
-      };
-    }
+    mql = setupAppDom(false);
   });
 
   afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-    window.localStorage.clear();
-    document.body.innerHTML = '';
+    teardownAppDom();
   });
 
   it('detaches all listeners, timers, and observers on dispose() and allows clean remounting', () => {

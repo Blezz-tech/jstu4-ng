@@ -55,23 +55,19 @@ export function listProgram(text: string): ProgramListing {
 
 /**
  * Render program text with command spans. Whitespace and comments stay as
- * plain text; every command gets `data-command-id` so the runner can mark the
- * current/visited/erroneous one without re-rendering the whole pane.
+ * plain text; every command gets `.cmd` so the runner can highlight the
+ * current/visited/erroneous one in O(1) without re-rendering the whole pane.
  */
 export function renderProgram(compiled: ProgramListing): DocumentFragment {
   const fragment = document.createDocumentFragment();
   let cursor = 0;
 
-  compiled.ranges.forEach((range, index) => {
+  for (const range of compiled.ranges) {
     if (range.start > cursor) fragment.append(compiled.text.slice(cursor, range.start));
-    const span = el('span', {
-      class: 'cmd',
-      'data-command-id': String(index),
-    });
-    span.textContent = compiled.text.slice(range.start, range.end);
+    const span = el('span', { class: 'cmd' }, compiled.text.slice(range.start, range.end));
     fragment.append(span);
     cursor = range.end;
-  });
+  }
 
   if (cursor < compiled.text.length) fragment.append(compiled.text.slice(cursor));
   return fragment;
@@ -81,34 +77,11 @@ export function renderProgram(compiled: ProgramListing): DocumentFragment {
 export function renderProgramWithError(text: string, offset: number): DocumentFragment {
   const fragment = document.createDocumentFragment();
   fragment.append(text.slice(0, offset));
-  const mark = el('mark', { class: 'error' });
-  mark.textContent = text.charAt(offset) || ' ';
-  fragment.append(mark, text.slice(offset + 1));
+  fragment.append(
+    el('mark', { class: 'error' }, text.charAt(offset) || ' '),
+    text.slice(offset + 1),
+  );
   return fragment;
-}
-
-/** Render a tape; `position` (if any) gets the `current` highlight. */
-export function renderTape(tape: string, position: number | null, label: string): HTMLElement {
-  const container = el('div', { class: 'tape-view', role: 'img', 'aria-label': label });
-
-  const cells = Array.from(tape);
-  // Always show the cell under the head, even when it is past the last symbol.
-  if (position !== null && position >= cells.length) {
-    while (cells.length <= position) cells.push(' ');
-  }
-
-  cells.forEach((symbol, index) => {
-    const cell = el('span', {
-      class: index === position ? 'cell current' : 'cell',
-      ...(index === position ? { 'aria-current': 'true' } : {}),
-    });
-    // `&nbsp;`-style spaces keep the grid stable; the raw symbol is kept for
-    // screen readers and copying via `aria-label` on the container.
-    cell.textContent = symbol === ' ' ? '\u00a0' : symbol;
-    container.append(cell);
-  });
-
-  return container;
 }
 
 function formatTapeCell(symbol: string): string {

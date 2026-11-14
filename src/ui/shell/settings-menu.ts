@@ -31,6 +31,23 @@ export interface SettingsMenuOptions {
   readonly signal: AbortSignal;
 }
 
+type SpeedBoundKind = 'min' | 'max';
+
+const SPEED_BOUND_LIMITS = {
+  min: {
+    min: MIN_MIN_SPEED,
+    max: MAX_MIN_SPEED,
+    fallback: DEFAULT_MIN_SPEED,
+    clamp: clampMinSpeed,
+  },
+  max: {
+    min: MIN_MAX_SPEED,
+    max: MAX_MAX_SPEED,
+    fallback: DEFAULT_MAX_SPEED,
+    clamp: clampMaxSpeed,
+  },
+} as const;
+
 function bindStepperButton(
   button: HTMLButtonElement,
   onStep: () => void,
@@ -41,14 +58,9 @@ function bindStepperButton(
   let didRepeat = false;
 
   const stop = (): void => {
-    if (delayId !== null) {
-      window.clearTimeout(delayId);
-      delayId = null;
-    }
-    if (repeatId !== null) {
-      window.clearInterval(repeatId);
-      repeatId = null;
-    }
+    if (delayId !== null) window.clearTimeout(delayId);
+    if (repeatId !== null) window.clearInterval(repeatId);
+    delayId = repeatId = null;
   };
 
   signal.addEventListener('abort', stop, { once: true });
@@ -66,21 +78,17 @@ function bindStepperButton(
         didRepeat = true;
         onStep();
         repeatId = window.setInterval(() => {
-          if (button.disabled) {
-            stop();
-            return;
-          }
-          onStep();
+          if (button.disabled) stop();
+          else onStep();
         }, 65);
       }, 380);
     },
     signal,
   );
 
-  listen(button, 'pointerup', stop, signal);
-  listen(button, 'pointercancel', stop, signal);
-  listen(button, 'pointerleave', stop, signal);
-  listen(button, 'blur', stop, signal);
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave', 'blur'] as const) {
+    listen(button, type, stop, signal);
+  }
 
   listen(
     button,
@@ -124,10 +132,7 @@ export class SettingsMenu {
     listen(
       this.dom.settingsButton,
       'click',
-      () => {
-        if (this.isOpen) this.close(false);
-        else this.open();
-      },
+      () => (this.isOpen ? this.close(false) : this.open()),
       signal,
     );
     listen(this.dom.settingsClose, 'click', () => this.close(true), signal);
@@ -135,9 +140,11 @@ export class SettingsMenu {
       this.doc,
       'pointerdown',
       (event) => {
-        if (!this.isOpen) return;
-        const target = event.target;
-        if (target instanceof Node && !this.dom.settingsAnchor.contains(target)) {
+        if (
+          this.isOpen &&
+          event.target instanceof Node &&
+          !this.dom.settingsAnchor.contains(event.target)
+        ) {
           this.close(false);
         }
       },
@@ -166,8 +173,7 @@ export class SettingsMenu {
         () => {
           const choice = button.dataset.themeOption;
           if (choice !== 'auto' && choice !== 'light' && choice !== 'dark') return;
-          const nextTheme: Theme = choice;
-          this.settings.update({ theme: nextTheme });
+          this.settings.update({ theme: choice satisfies Theme });
           theme.apply();
         },
         signal,
@@ -192,48 +198,14 @@ export class SettingsMenu {
 
     listen(this.dom.confirmDeleteSettingButton, 'click', onToggleConfirmDelete, signal);
 
-    listen(
-      this.dom.minSpeedInput,
-      'input',
-      () => this.applyMinSpeedValue(this.dom.minSpeedInput.value, false),
-      signal,
-    );
-    listen(
-      this.dom.minSpeedInput,
-      'change',
-      () => this.applyMinSpeedValue(this.dom.minSpeedInput.value, true),
-      signal,
-    );
-    listen(
-      this.dom.minSpeedInput,
-      'blur',
-      () => this.applyMinSpeedValue(this.dom.minSpeedInput.value, true),
-      signal,
-    );
-
-    listen(
-      this.dom.maxSpeedInput,
-      'input',
-      () => this.applyMaxSpeedValue(this.dom.maxSpeedInput.value, false),
-      signal,
-    );
-    listen(
-      this.dom.maxSpeedInput,
-      'change',
-      () => this.applyMaxSpeedValue(this.dom.maxSpeedInput.value, true),
-      signal,
-    );
-    listen(
-      this.dom.maxSpeedInput,
-      'blur',
-      () => this.applyMaxSpeedValue(this.dom.maxSpeedInput.value, true),
-      signal,
-    );
-
-    bindStepperButton(this.dom.minSpeedDec, () => this.stepMinSpeed(-1), signal);
-    bindStepperButton(this.dom.minSpeedInc, () => this.stepMinSpeed(1), signal);
-    bindStepperButton(this.dom.maxSpeedDec, () => this.stepMaxSpeed(-1), signal);
-    bindStepperButton(this.dom.maxSpeedInc, () => this.stepMaxSpeed(1), signal);
+    for (const kind of ['min', 'max'] as const) {
+      const { input, dec, inc } = this.boundNodes(kind);
+      listen(input, 'input', () => this.applySpeedBound(kind, input.value, false), signal);
+      listen(input, 'change', () => this.applySpeedBound(kind, input.value, true), signal);
+      listen(input, 'blur', () => this.applySpeedBound(kind, input.value, true), signal);
+      bindStepperButton(dec, () => this.stepSpeedBound(kind, -1), signal);
+      bindStepperButton(inc, () => this.stepSpeedBound(kind, 1), signal);
+    }
   }
 
   get isOpen(): boolean {
@@ -279,9 +251,9 @@ export class SettingsMenu {
     const maxSpeed = this.controller.currentMaxSpeed;
     const speed = this.controller.currentSpeed;
     const formatted = formatSpeed(speed);
-    const direction = speed < 0 ? 'reverse' : speed === 0 ? 'stopped' : 'forward';
 
-    this.dom.speedControl.dataset.direction = direction;
+    this.dom.speedControl.dataset.direction =
+      speed < 0 ? 'reverse' : speed === 0 ? 'stopped' : 'forward';
     this.dom.speedControl.style.setProperty('--zero-ratio', String(zeroRatio(minSpeed, maxSpeed)));
 
     this.dom.speedInput.min = String(minSpeed);
@@ -291,78 +263,53 @@ export class SettingsMenu {
     this.dom.speedInput.setAttribute('aria-valuetext', formatted);
     this.dom.speedValue.textContent = formatted;
 
-    this.dom.minSpeedInput.min = String(MIN_MIN_SPEED);
-    this.dom.minSpeedInput.max = String(MAX_MIN_SPEED);
-    if (this.doc.activeElement !== this.dom.minSpeedInput) {
-      this.dom.minSpeedInput.value = String(minSpeed);
+    for (const kind of ['min', 'max'] as const) {
+      const { input, dec, inc } = this.boundNodes(kind);
+      const limits = SPEED_BOUND_LIMITS[kind];
+      const value = kind === 'min' ? minSpeed : maxSpeed;
+      input.min = String(limits.min);
+      input.max = String(limits.max);
+      if (this.doc.activeElement !== input) input.value = String(value);
+      setButtonDisabled(dec, value <= limits.min);
+      setButtonDisabled(inc, value >= limits.max);
     }
-    setButtonDisabled(this.dom.minSpeedDec, minSpeed <= MIN_MIN_SPEED);
-    setButtonDisabled(this.dom.minSpeedInc, minSpeed >= MAX_MIN_SPEED);
-
-    this.dom.maxSpeedInput.min = String(MIN_MAX_SPEED);
-    this.dom.maxSpeedInput.max = String(MAX_MAX_SPEED);
-    if (this.doc.activeElement !== this.dom.maxSpeedInput) {
-      this.dom.maxSpeedInput.value = String(maxSpeed);
-    }
-    setButtonDisabled(this.dom.maxSpeedDec, maxSpeed <= MIN_MAX_SPEED);
-    setButtonDisabled(this.dom.maxSpeedInc, maxSpeed >= MAX_MAX_SPEED);
   }
 
-  private applyMinSpeedValue(rawValue: string, normalizeInput: boolean): void {
+  private boundNodes(kind: SpeedBoundKind) {
+    return kind === 'min'
+      ? { input: this.dom.minSpeedInput, dec: this.dom.minSpeedDec, inc: this.dom.minSpeedInc }
+      : { input: this.dom.maxSpeedInput, dec: this.dom.maxSpeedDec, inc: this.dom.maxSpeedInc };
+  }
+
+  private applySpeedBound(kind: SpeedBoundKind, rawValue: string, normalize: boolean): void {
+    const limits = SPEED_BOUND_LIMITS[kind];
     const trimmed = rawValue.trim();
     const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || trimmed === '' || trimmed === '-') {
-      if (!normalizeInput) return;
-      const result = this.controller.setMinSpeed(DEFAULT_MIN_SPEED);
+    if (!Number.isFinite(parsed) || trimmed === '' || (kind === 'min' && trimmed === '-')) {
+      if (normalize) this.commitSpeedBound(kind, limits.fallback, true);
+      return;
+    }
+    if (!normalize && (parsed < limits.min || parsed > limits.max)) return;
+    this.commitSpeedBound(kind, limits.clamp(parsed), normalize);
+  }
+
+  private stepSpeedBound(kind: SpeedBoundKind, delta: number): void {
+    const current =
+      kind === 'min' ? this.controller.currentMinSpeed : this.controller.currentMaxSpeed;
+    this.commitSpeedBound(kind, SPEED_BOUND_LIMITS[kind].clamp(current + delta), true);
+  }
+
+  private commitSpeedBound(kind: SpeedBoundKind, nextBound: number, writeInput: boolean): void {
+    const { input } = this.boundNodes(kind);
+    if (kind === 'min') {
+      const result = this.controller.setMinSpeed(nextBound);
       this.settings.update({ minSpeed: result.minSpeed, speed: result.speed });
-      this.dom.minSpeedInput.value = String(result.minSpeed);
-      this.syncSpeedControls();
-      return;
-    }
-
-    if (!normalizeInput && (parsed < MIN_MIN_SPEED || parsed > MAX_MIN_SPEED)) return;
-
-    const result = this.controller.setMinSpeed(clampMinSpeed(parsed));
-    this.settings.update({ minSpeed: result.minSpeed, speed: result.speed });
-    if (normalizeInput) this.dom.minSpeedInput.value = String(result.minSpeed);
-    this.syncSpeedControls();
-  }
-
-  private applyMaxSpeedValue(rawValue: string, normalizeInput: boolean): void {
-    const trimmed = rawValue.trim();
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || trimmed === '') {
-      if (!normalizeInput) return;
-      const result = this.controller.setMaxSpeed(DEFAULT_MAX_SPEED);
+      if (writeInput) input.value = String(result.minSpeed);
+    } else {
+      const result = this.controller.setMaxSpeed(nextBound);
       this.settings.update({ maxSpeed: result.maxSpeed, speed: result.speed });
-      this.dom.maxSpeedInput.value = String(result.maxSpeed);
-      this.syncSpeedControls();
-      return;
+      if (writeInput) input.value = String(result.maxSpeed);
     }
-
-    if (!normalizeInput && (parsed < MIN_MAX_SPEED || parsed > MAX_MAX_SPEED)) return;
-
-    const result = this.controller.setMaxSpeed(clampMaxSpeed(parsed));
-    this.settings.update({ maxSpeed: result.maxSpeed, speed: result.speed });
-    if (normalizeInput) this.dom.maxSpeedInput.value = String(result.maxSpeed);
-    this.syncSpeedControls();
-  }
-
-  private stepMinSpeed(delta: number): void {
-    const result = this.controller.setMinSpeed(
-      clampMinSpeed(this.controller.currentMinSpeed + delta),
-    );
-    this.settings.update({ minSpeed: result.minSpeed, speed: result.speed });
-    this.dom.minSpeedInput.value = String(result.minSpeed);
-    this.syncSpeedControls();
-  }
-
-  private stepMaxSpeed(delta: number): void {
-    const result = this.controller.setMaxSpeed(
-      clampMaxSpeed(this.controller.currentMaxSpeed + delta),
-    );
-    this.settings.update({ maxSpeed: result.maxSpeed, speed: result.speed });
-    this.dom.maxSpeedInput.value = String(result.maxSpeed);
     this.syncSpeedControls();
   }
 }

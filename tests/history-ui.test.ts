@@ -1,29 +1,7 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AUTOSAVE_INTERVAL_MS, SNAPSHOTS_STORAGE_KEY } from '../src/ui/history';
-
-const htmlPath = resolve(import.meta.dirname, '../public/index.html');
-const rawHtml = readFileSync(htmlPath, 'utf8');
-const bodyMatch = rawHtml.match(/<body>([\s\S]*)<\/body>/);
-const bodyMarkup = bodyMatch?.[1] ?? '';
-
-function stubMatchMedia(): void {
-  vi.stubGlobal(
-    'matchMedia',
-    vi.fn((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  );
-}
+import { setupAppDom, teardownAppDom } from './helpers/dom-fixture';
 
 function editField(field: HTMLInputElement | HTMLTextAreaElement, value: string): void {
   field.value = value;
@@ -40,36 +18,13 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
 
   beforeEach(() => {
     vi.resetModules();
-    window.localStorage.clear();
-    Object.defineProperty(window.navigator, 'languages', {
-      value: ['ru-RU'],
-      configurable: true,
-    });
-    Object.defineProperty(window.navigator, 'language', {
-      value: 'ru-RU',
-      configurable: true,
-    });
-    document.documentElement.lang = 'ru';
-    document.body.innerHTML = bodyMarkup;
-    stubMatchMedia();
-    for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
-      dialog.showModal = () => {
-        dialog.setAttribute('open', '');
-      };
-      dialog.close = () => {
-        dialog.removeAttribute('open');
-        dialog.dispatchEvent(new Event('close'));
-      };
-    }
+    setupAppDom(false);
   });
 
   afterEach(() => {
     mounted?.dispose();
     mounted = null;
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-    window.localStorage.clear();
-    document.body.innerHTML = '';
+    teardownAppDom();
   });
 
   it('places SVG save button right after Copy, status indicator after Save, and SVG history button right before Settings', async () => {

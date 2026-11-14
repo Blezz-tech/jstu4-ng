@@ -28,13 +28,23 @@ const ICON_CHECK = ['M20 6 9 17l-5-5'];
 const ICON_CANCEL = ['M18 6 6 18', 'M6 6l12 12'];
 
 type CleanSaveStatus =
-  | { readonly kind: 'idle' }
-  | { readonly kind: 'saved'; readonly timestamp: number }
-  | { readonly kind: 'autosaved'; readonly timestamp: number };
+  { readonly kind: 'idle' } | { readonly kind: 'saved' | 'autosaved'; readonly timestamp: number };
 
 function countProgramLines(program: string): number {
-  const nonEmpty = program.split(/\r?\n/).filter((line) => line.trim() !== '').length;
-  return Math.max(nonEmpty, 1);
+  return Math.max(program.split(/\r?\n/).filter((line) => line.trim() !== '').length, 1);
+}
+
+function actionButton(
+  className: string,
+  label: string,
+  iconPaths: readonly string[],
+  type: 'button' | 'submit' = 'button',
+): HTMLButtonElement {
+  return el(
+    'button',
+    { class: className, type, title: label, 'aria-label': label },
+    svgIcon(iconPaths),
+  );
 }
 
 export interface HistoryPanelOptions {
@@ -62,7 +72,6 @@ export class HistoryPanel {
   private readonly settings: SettingsStore;
   private readonly onCloseHistoryDrawer: () => void;
   private readonly onConfirmDeleteSettingChanged: () => void;
-  private readonly signal: AbortSignal;
 
   private readonly snapshots: SnapshotStore;
   private readonly autosave: AutosaveTracker;
@@ -84,7 +93,6 @@ export class HistoryPanel {
     this.settings = options.settings;
     this.onCloseHistoryDrawer = options.onCloseHistoryDrawer;
     this.onConfirmDeleteSettingChanged = options.onConfirmDeleteSettingChanged;
-    this.signal = options.signal;
 
     const initial = this.settings.get();
     this.namedOnly = initial.namedOnly ?? false;
@@ -105,48 +113,29 @@ export class HistoryPanel {
     });
 
     this.snapshots = new SnapshotStore({
-      onPersistError: () => {
-        this.notifications.show('warning', (t) => t.t('log.snapshotQuotaExceeded'));
-      },
+      onPersistError: () =>
+        this.notifications.show('warning', (t) => t.t('log.snapshotQuotaExceeded')),
     });
     this.snapshots.subscribe((source) => {
       if (source !== 'storage') return;
-      if (
-        this.activeSnapshotId !== null &&
-        this.snapshots.getById(this.activeSnapshotId) === null
-      ) {
-        this.activeSnapshotId = null;
-      }
-      const pendingId = this.deleteDialog.currentPendingId;
-      if (pendingId !== null && this.snapshots.getById(pendingId) === null) {
-        this.deleteDialog.close();
-      }
-      if (
-        this.editingSnapshotId !== null &&
-        this.snapshots.getById(this.editingSnapshotId) === null
-      ) {
-        this.editingSnapshotId = null;
-      }
-      if (this.editingSnapshotId === null) {
-        this.render();
-      }
+      const missing = (id: string | null): boolean =>
+        id !== null && this.snapshots.getById(id) === null;
+      if (missing(this.activeSnapshotId)) this.activeSnapshotId = null;
+      if (missing(this.deleteDialog.currentPendingId)) this.deleteDialog.close();
+      if (missing(this.editingSnapshotId)) this.editingSnapshotId = null;
+      if (this.editingSnapshotId === null) this.render();
     });
 
     this.autosave = new AutosaveTracker({
       store: this.snapshots,
-      readState: () => ({
-        program: this.dom.programInput.value,
-        tape: this.dom.tapeInput.value,
-      }),
+      readState: () => ({ program: this.dom.programInput.value, tape: this.dom.tapeInput.value }),
       onAutosave: (created) => {
         this.activeSnapshotId = created.id;
         this.lastCleanSaveStatus = { kind: 'autosaved', timestamp: created.createdAt };
         this.syncSaveStatus();
         if (this.editingSnapshotId === null) this.render();
       },
-      onDirtyChange: () => {
-        this.syncSaveStatus();
-      },
+      onDirtyChange: () => this.syncSaveStatus(),
     });
 
     this.persistProgram = debounce((text: string) => saveProgram(text), 400);
@@ -167,24 +156,28 @@ export class HistoryPanel {
       signal,
     );
 
-    listen(
-      this.dom.programInput,
-      'input',
-      () => {
-        this.persistProgram(this.dom.programInput.value);
-        this.autosave.markEdited(this.dom.programInput.value, this.dom.tapeInput.value);
-      },
-      signal,
-    );
-    listen(
-      this.dom.tapeInput,
-      'input',
-      () => {
-        this.persistTape(this.dom.tapeInput.value);
-        this.autosave.markEdited(this.dom.programInput.value, this.dom.tapeInput.value);
-      },
-      signal,
-    );
+    const bindInput = (
+      field: HTMLInputElement | HTMLTextAreaElement,
+      persist: DebouncedFn<[string]>,
+    ): void => {
+      listen(
+        field,
+        'input',
+        () => {
+          persist(field.value);
+          this.autosave.markEdited(this.dom.programInput.value, this.dom.tapeInput.value);
+        },
+        signal,
+      );
+    };
+    bindInput(this.dom.programInput, this.persistProgram);
+    bindInput(this.dom.tapeInput, this.persistTape);
+
+    // Delegate snapshot card interactions onto `#history-list` so re-rendering
+    // never creates per-item event listeners.
+    listen(this.dom.historyList, 'click', (event) => this.handleListClick(event), signal);
+    listen(this.dom.historyList, 'submit', (event) => this.handleListSubmit(event), signal);
+    listen(this.dom.historyList, 'keydown', (event) => this.handleListKeydown(event), signal);
 
     const handleTabClosing = (): void => {
       saveProgram(this.dom.programInput.value);
@@ -247,41 +240,88 @@ export class HistoryPanel {
     this.snapshots.dispose();
   }
 
+  private handleListClick(event: MouseEvent): void {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    if (target.closest('.snapshot-action--cancel') !== null) {
+      this.editingSnapshotId = null;
+      this.render();
+      return;
+    }
+
+    const id = target.closest<HTMLLIElement>('.snapshot-item')?.dataset.snapshotId;
+    const snapshot = id ? this.snapshots.getById(id) : null;
+    if (snapshot === null) return;
+
+    if (target.closest('.snapshot-action--rename') !== null) {
+      this.editingSnapshotId = snapshot.id;
+      this.render();
+      const input = this.dom.historyList.querySelector<HTMLInputElement>('.snapshot-item__input');
+      input?.focus();
+      input?.select();
+    } else if (target.closest('.snapshot-action--delete') !== null) {
+      this.requestDeleteSnapshot(snapshot);
+    } else if (target.closest('.snapshot-item__load') !== null) {
+      this.restoreSnapshot(snapshot);
+    }
+  }
+
+  private handleListSubmit(event: SubmitEvent): void {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.classList.contains('snapshot-item__edit')) {
+      return;
+    }
+    event.preventDefault();
+    const id = form.closest<HTMLLIElement>('.snapshot-item')?.dataset.snapshotId;
+    const trimmed =
+      form.querySelector<HTMLInputElement>('.snapshot-item__input')?.value.trim() ?? '';
+    if (id && trimmed !== '') this.snapshots.rename(id, trimmed);
+    this.editingSnapshotId = null;
+    this.render();
+  }
+
+  private handleListKeydown(event: KeyboardEvent): void {
+    if (
+      event.key === 'Escape' &&
+      event.target instanceof HTMLInputElement &&
+      event.target.classList.contains('snapshot-item__input')
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.editingSnapshotId = null;
+      this.render();
+    }
+  }
+
   private syncNamedOnlyControl(): void {
     this.dom.namedOnlyButton.setAttribute('aria-checked', String(this.namedOnly));
   }
 
   private syncSaveStatus(): void {
+    const status = this.dom.saveStatus;
     if (this.autosave.isDirty) {
-      this.dom.saveStatus.dataset.state = 'dirty';
-      this.dom.saveStatus.textContent = this.i18n.t('history.statusUnsaved');
-      this.dom.saveStatus.title = this.i18n.t('history.statusUnsavedHint');
+      status.dataset.state = 'dirty';
+      status.textContent = this.i18n.t('history.statusUnsaved');
+      status.title = this.i18n.t('history.statusUnsavedHint');
       return;
     }
-    if (this.lastCleanSaveStatus.kind === 'saved') {
-      this.dom.saveStatus.dataset.state = 'saved';
-      this.dom.saveStatus.textContent = this.i18n.t('history.statusSaved', {
-        time: formatSaveClock(this.lastCleanSaveStatus.timestamp),
-      });
-      this.dom.saveStatus.title = '';
+    status.title = '';
+    if (this.lastCleanSaveStatus.kind === 'idle') {
+      status.dataset.state = 'idle';
+      status.textContent = '';
       return;
     }
-    if (this.lastCleanSaveStatus.kind === 'autosaved') {
-      this.dom.saveStatus.dataset.state = 'autosaved';
-      this.dom.saveStatus.textContent = this.i18n.t('history.statusAutosaved', {
-        time: formatSaveClock(this.lastCleanSaveStatus.timestamp),
-      });
-      this.dom.saveStatus.title = '';
-      return;
-    }
-    this.dom.saveStatus.dataset.state = 'idle';
-    this.dom.saveStatus.textContent = '';
-    this.dom.saveStatus.title = '';
+    const key =
+      this.lastCleanSaveStatus.kind === 'saved' ? 'history.statusSaved' : 'history.statusAutosaved';
+    status.dataset.state = this.lastCleanSaveStatus.kind;
+    status.textContent = this.i18n.t(key, {
+      time: formatSaveClock(this.lastCleanSaveStatus.timestamp),
+    });
   }
 
   private performDeleteSnapshot(id: string): void {
-    const removed = this.snapshots.remove(id);
-    if (!removed) return;
+    if (!this.snapshots.remove(id)) return;
     if (this.activeSnapshotId === id) this.activeSnapshotId = null;
     if (this.editingSnapshotId === id) this.editingSnapshotId = null;
     this.notifications.show('info', (t) => t.t('log.snapshotDeleted'));
@@ -321,9 +361,6 @@ export class HistoryPanel {
 
   private renderSnapshotItem(snapshot: ProgramSnapshot): HTMLLIElement {
     const isNamed = snapshot.customName !== null;
-    const isEditing = this.editingSnapshotId === snapshot.id;
-    const displayName = getSnapshotDisplayName(snapshot, this.i18n);
-
     const li = el('li', {
       class: 'snapshot-item',
       'data-snapshot-id': snapshot.id,
@@ -331,153 +368,70 @@ export class HistoryPanel {
       'data-named': String(isNamed),
       'data-active': String(this.activeSnapshotId === snapshot.id),
     });
-
     const node = el('span', { class: 'snapshot-item__node', 'aria-hidden': 'true' });
-    const main = el('div', { class: 'snapshot-item__main' });
 
-    if (isEditing) {
-      const form = el('form', { class: 'snapshot-item__edit' });
+    if (this.editingSnapshotId === snapshot.id) {
+      const placeholder = this.i18n.t('history.renamePlaceholder');
       const input = el('input', {
         class: 'snapshot-item__input',
         type: 'text',
-        placeholder: this.i18n.t('history.renamePlaceholder'),
-        'aria-label': this.i18n.t('history.renamePlaceholder'),
+        placeholder,
+        'aria-label': placeholder,
       });
       input.value = snapshot.customName ?? '';
-
-      const commitBtn = el(
-        'button',
-        {
-          class: 'snapshot-action',
-          type: 'submit',
-          title: this.i18n.t('history.renameSave'),
-          'aria-label': this.i18n.t('history.renameSave'),
-        },
-        svgIcon(ICON_CHECK),
-      );
-
-      const cancelBtn = el(
-        'button',
-        {
-          class: 'snapshot-action',
-          type: 'button',
-          title: this.i18n.t('history.renameCancel'),
-          'aria-label': this.i18n.t('history.renameCancel'),
-        },
-        svgIcon(ICON_CANCEL),
-      );
-
-      listen(
-        form,
-        'submit',
-        (event) => {
-          event.preventDefault();
-          const trimmed = input.value.trim();
-          if (trimmed !== '') this.snapshots.rename(snapshot.id, trimmed);
-          this.editingSnapshotId = null;
-          this.render();
-        },
-        this.signal,
-      );
-      listen(
-        cancelBtn,
-        'click',
-        () => {
-          this.editingSnapshotId = null;
-          this.render();
-        },
-        this.signal,
-      );
-      listen(
+      const form = el(
+        'form',
+        { class: 'snapshot-item__edit' },
         input,
-        'keydown',
-        (event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            event.stopPropagation();
-            this.editingSnapshotId = null;
-            this.render();
-          }
-        },
-        this.signal,
+        actionButton('snapshot-action', this.i18n.t('history.renameSave'), ICON_CHECK, 'submit'),
+        actionButton(
+          'snapshot-action snapshot-action--cancel',
+          this.i18n.t('history.renameCancel'),
+          ICON_CANCEL,
+        ),
       );
-
-      form.append(input, commitBtn, cancelBtn);
-      main.append(form);
-      li.append(node, main);
+      li.append(node, el('div', { class: 'snapshot-item__main' }, form));
       return li;
     }
 
-    const loadBtn = el('button', {
-      class: 'snapshot-item__load',
-      type: 'button',
-      title: this.i18n.t('history.restore'),
-    });
-    const titleSpan = el('span', { class: 'snapshot-item__title' }, displayName);
-    const meta = el('span', { class: 'snapshot-item__meta' });
     const lineText = this.i18n.t('history.linesCount', {
       count: countProgramLines(snapshot.program),
     });
-    if (isNamed) {
-      meta.append(
-        el('span', { class: 'snapshot-item__time' }, formatSnapshotTimestamp(snapshot.createdAt)),
-        el('span', {}, '·'),
-        el('span', {}, lineText),
-      );
-    } else {
-      meta.append(el('span', {}, lineText));
-    }
-    loadBtn.append(titleSpan, meta);
-    listen(loadBtn, 'click', () => this.restoreSnapshot(snapshot), this.signal);
-
-    const actions = el('div', { class: 'snapshot-item__actions' });
-    const renameBtn = el(
+    const meta = el(
+      'span',
+      { class: 'snapshot-item__meta' },
+      ...(isNamed
+        ? [el('span', {}, formatSnapshotTimestamp(snapshot.createdAt)), el('span', {}, '·')]
+        : []),
+      el('span', {}, lineText),
+    );
+    const loadBtn = el(
       'button',
-      {
-        class: 'snapshot-action snapshot-action--rename',
-        type: 'button',
-        title: this.i18n.t('history.rename'),
-        'aria-label': this.i18n.t('history.rename'),
-      },
-      svgIcon(ICON_RENAME),
+      { class: 'snapshot-item__load', type: 'button', title: this.i18n.t('history.restore') },
+      el('span', { class: 'snapshot-item__title' }, getSnapshotDisplayName(snapshot, this.i18n)),
+      meta,
     );
-    listen(
-      renameBtn,
-      'click',
-      () => {
-        this.editingSnapshotId = snapshot.id;
-        this.render();
-        const editInput =
-          this.dom.historyPanel.querySelector<HTMLInputElement>('.snapshot-item__input');
-        if (editInput !== null) {
-          editInput.focus();
-          editInput.select();
-        }
-      },
-      this.signal,
+    const actions = el(
+      'div',
+      { class: 'snapshot-item__actions' },
+      actionButton(
+        'snapshot-action snapshot-action--rename',
+        this.i18n.t('history.rename'),
+        ICON_RENAME,
+      ),
+      actionButton(
+        'snapshot-action snapshot-action--delete',
+        this.i18n.t('history.delete'),
+        ICON_DELETE,
+      ),
     );
 
-    const deleteBtn = el(
-      'button',
-      {
-        class: 'snapshot-action snapshot-action--delete',
-        type: 'button',
-        title: this.i18n.t('history.delete'),
-        'aria-label': this.i18n.t('history.delete'),
-      },
-      svgIcon(ICON_DELETE),
-    );
-    listen(deleteBtn, 'click', () => this.requestDeleteSnapshot(snapshot), this.signal);
-
-    actions.append(renameBtn, deleteBtn);
-    main.append(loadBtn);
-    li.append(node, main, actions);
+    li.append(node, el('div', { class: 'snapshot-item__main' }, loadBtn), actions);
     return li;
   }
 
   private render(): void {
     const visible = this.snapshots.getVisible(this.namedOnly);
-
     this.dom.historyCount.textContent = String(visible.length);
     this.dom.historyEmpty.textContent = this.i18n.t(
       this.namedOnly ? 'history.emptyNamed' : 'history.emptyAll',
@@ -487,9 +441,7 @@ export class HistoryPanel {
     const pendingId = this.deleteDialog.currentPendingId;
     if (this.deleteDialog.isOpen && pendingId !== null) {
       const target = this.snapshots.getById(pendingId);
-      if (target !== null) {
-        this.deleteDialog.syncName(getSnapshotDisplayName(target, this.i18n));
-      }
+      if (target !== null) this.deleteDialog.syncName(getSnapshotDisplayName(target, this.i18n));
     }
   }
 }

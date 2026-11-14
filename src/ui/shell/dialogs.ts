@@ -3,6 +3,40 @@ import { copyTextToClipboard } from '../clipboard';
 import { el } from '../dom';
 import { listen, safeReplaceState, type AppDom } from './dom';
 
+function openModalDialog(dialog: HTMLDialogElement): void {
+  if (dialog.open) return;
+  dialog.showModal();
+  // Focus the dialog itself instead of the close button: screen readers
+  // announce the heading, and no accidental focus ring appears on "×".
+  dialog.focus({ preventScroll: true });
+}
+
+function closeModalDialog(dialog: HTMLDialogElement): void {
+  if (dialog.open) dialog.close();
+}
+
+function bindModalDialog(
+  dialog: HTMLDialogElement,
+  closeButtons: readonly HTMLButtonElement[],
+  signal: AbortSignal,
+  onClose?: () => void,
+): void {
+  for (const button of closeButtons) {
+    listen(button, 'click', () => closeModalDialog(dialog), signal);
+  }
+  listen(
+    dialog,
+    'click',
+    (event) => {
+      if (event.target === dialog) closeModalDialog(dialog);
+    },
+    signal,
+  );
+  if (onClose !== undefined) {
+    listen(dialog, 'close', onClose, signal);
+  }
+}
+
 export interface HelpDialogOptions {
   readonly dom: AppDom;
   readonly onBeforeOpen: () => void;
@@ -21,29 +55,14 @@ export class HelpDialog {
     const { signal } = options;
 
     listen(this.dom.helpButton, 'click', () => this.open(), signal);
-    listen(this.dom.helpBack, 'click', () => this.close(), signal);
-    listen(this.dom.helpClose, 'click', () => this.close(), signal);
-    listen(
-      this.dom.helpDialog,
-      'click',
-      (event) => {
-        if (event.target === this.dom.helpDialog) this.close();
-      },
-      signal,
-    );
-    listen(
-      this.dom.helpDialog,
-      'close',
-      () => {
-        // Release help body DOM nodes while the dialog is closed.
-        this.dom.helpBody.replaceChildren();
-        this.renderedContent = null;
-        if (location.hash === '#help') {
-          safeReplaceState(location.pathname + location.search);
-        }
-      },
-      signal,
-    );
+    bindModalDialog(this.dom.helpDialog, [this.dom.helpBack, this.dom.helpClose], signal, () => {
+      // Release help body DOM nodes while the dialog is closed.
+      this.dom.helpBody.replaceChildren();
+      this.renderedContent = null;
+      if (location.hash === '#help') {
+        safeReplaceState(location.pathname + location.search);
+      }
+    });
   }
 
   get isOpen(): boolean {
@@ -55,9 +74,7 @@ export class HelpDialog {
     this.content = content;
     this.dom.helpTitle.textContent = content.title;
     this.dom.helpBack.textContent = content.back;
-    if (this.isOpen) {
-      this.mountContent(content);
-    }
+    if (this.isOpen) this.mountContent(content);
   }
 
   open(): void {
@@ -65,15 +82,11 @@ export class HelpDialog {
     if (this.content !== null && this.renderedContent !== this.content) {
       this.mountContent(this.content);
     }
-    if (this.dom.helpDialog.open) return;
-    this.dom.helpDialog.showModal();
-    // Focus the dialog itself instead of the close button: screen readers
-    // announce the heading, and no accidental focus ring appears on "×".
-    this.dom.helpDialog.focus({ preventScroll: true });
+    openModalDialog(this.dom.helpDialog);
   }
 
   close(): void {
-    if (this.dom.helpDialog.open) this.dom.helpDialog.close();
+    closeModalDialog(this.dom.helpDialog);
   }
 
   private mountContent(content: HelpContent): void {
@@ -88,17 +101,15 @@ export class HelpDialog {
           case 'rich': {
             const p = el('p');
             for (const part of block.parts) {
-              if (typeof part === 'string') {
-                p.append(document.createTextNode(part));
-              } else {
-                p.append(
-                  el(
-                    'a',
-                    { href: part.href, target: '_blank', rel: 'noopener noreferrer' },
-                    part.label,
-                  ),
-                );
-              }
+              p.append(
+                typeof part === 'string'
+                  ? document.createTextNode(part)
+                  : el(
+                      'a',
+                      { href: part.href, target: '_blank', rel: 'noopener noreferrer' },
+                      part.label,
+                    ),
+              );
             }
             fragment.append(p);
             break;
@@ -109,12 +120,9 @@ export class HelpDialog {
             fragment.append(list);
             break;
           }
-          case 'code': {
-            const pre = el('pre', { class: 'help__code' });
-            pre.textContent = block.lines.join('\n');
-            fragment.append(pre);
+          case 'code':
+            fragment.append(el('pre', { class: 'help__code' }, block.lines.join('\n')));
             break;
-          }
         }
       }
     }
@@ -142,18 +150,10 @@ export class Tu4Dialog {
     this.onBeforeOpen = options.onBeforeOpen;
     const { signal } = options;
 
-    listen(this.dom.tu4Close, 'click', () => this.close(), signal);
-    listen(this.dom.tu4Done, 'click', () => this.close(), signal);
     listen(this.dom.tu4Copy, 'click', () => void this.copy(), signal);
-    listen(
-      this.dom.tu4Dialog,
-      'click',
-      (event) => {
-        if (event.target === this.dom.tu4Dialog) this.close();
-      },
-      signal,
+    bindModalDialog(this.dom.tu4Dialog, [this.dom.tu4Close, this.dom.tu4Done], signal, () =>
+      this.clearStatus(),
     );
-    listen(this.dom.tu4Dialog, 'close', () => this.clearStatus(), signal);
   }
 
   get isOpen(): boolean {
@@ -165,13 +165,12 @@ export class Tu4Dialog {
     this.clearStatus();
     this.dom.tu4Output.value = converted;
     this.dom.tu4Output.scrollTop = 0;
-    if (!this.dom.tu4Dialog.open) this.dom.tu4Dialog.showModal();
-    this.dom.tu4Dialog.focus({ preventScroll: true });
+    openModalDialog(this.dom.tu4Dialog);
   }
 
   close(): void {
     this.clearStatus();
-    if (this.dom.tu4Dialog.open) this.dom.tu4Dialog.close();
+    closeModalDialog(this.dom.tu4Dialog);
   }
 
   dispose(): void {
@@ -218,23 +217,13 @@ export class DeleteSnapshotDialog {
     this.onConfirm = options.onConfirm;
     const { signal } = options;
 
-    listen(this.dom.deleteDialogClose, 'click', () => this.close(), signal);
-    listen(this.dom.deleteDialogCancel, 'click', () => this.close(), signal);
-    listen(
+    bindModalDialog(
       this.dom.deleteDialog,
-      'click',
-      (event) => {
-        if (event.target === this.dom.deleteDialog) this.close();
-      },
+      [this.dom.deleteDialogClose, this.dom.deleteDialogCancel],
       signal,
-    );
-    listen(
-      this.dom.deleteDialog,
-      'close',
       () => {
         this.pendingId = null;
       },
-      signal,
     );
     listen(
       this.dom.deleteDialogConfirm,
@@ -262,8 +251,7 @@ export class DeleteSnapshotDialog {
     this.dom.deleteSnapshotName.textContent = displayName;
     this.dom.skipDeleteConfirm.checked = false;
     this.onBeforeOpen();
-    if (!this.dom.deleteDialog.open) this.dom.deleteDialog.showModal();
-    this.dom.deleteDialog.focus({ preventScroll: true });
+    openModalDialog(this.dom.deleteDialog);
   }
 
   syncName(displayName: string): void {
@@ -272,6 +260,6 @@ export class DeleteSnapshotDialog {
 
   close(): void {
     this.pendingId = null;
-    if (this.dom.deleteDialog.open) this.dom.deleteDialog.close();
+    closeModalDialog(this.dom.deleteDialog);
   }
 }

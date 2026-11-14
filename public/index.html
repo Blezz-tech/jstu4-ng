@@ -229,7 +229,7 @@
                       type="button"
                       data-i18n-attr="title:controls.language"
                     >
-                      <span id="lang-label" data-i18n="settings.languageName"></span>
+                      <span data-i18n="settings.languageName"></span>
                     </button>
                   </div>
 
@@ -396,7 +396,7 @@
             </div>
 
             <button
-              class="btn btn--ghost"
+              class="btn"
               id="btn-help"
               type="button"
               data-i18n-attr="title:controls.help;aria-label:controls.help"
@@ -425,12 +425,7 @@
 
         <main class="workspace">
           <section class="pane pane--tape">
-            <label
-              class="pane__label"
-              for="input-tape"
-              id="label-tape"
-              data-i18n="pane.tape"
-            ></label>
+            <label class="pane__label" for="input-tape" data-i18n="pane.tape"></label>
             <div class="pane__slot">
               <input
                 class="field field--tape"
@@ -603,8 +598,8 @@
               for="input-speed"
               data-i18n-attr="title:hints.speed;data-hint:hints.speed"
             >
-              <span class="speed-control__label" id="label-speed" data-i18n="controls.speed"></span>
-              <span class="speed-control__track-wrap" id="speed-track-wrap">
+              <span class="speed-control__label" data-i18n="controls.speed"></span>
+              <span class="speed-control__track-wrap">
                 <span class="speed-control__zero" id="speed-zero" aria-hidden="true"></span>
                 <input
                   class="speed-control__slider"

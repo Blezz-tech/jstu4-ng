@@ -50,14 +50,20 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxSpeed: DEFAULT_MAX_SPEED,
 };
 
+const OPTIONAL_BOOL_KEYS = [
+  'sidepanelOpen',
+  'historyOpen',
+  'namedOnly',
+  'confirmSnapshotDelete',
+] as const;
+
 function isTheme(value: unknown): value is Theme {
   return value === 'auto' || value === 'light' || value === 'dark';
 }
 
 /**
  * `localStorage` wrapper that never throws: private mode, disabled storage and
- * quota errors all degrade to an in-memory no-op (the app keeps working, it
- * just does not remember anything).
+ * quota errors all degrade to an in-memory no-op.
  */
 function read(key: string): string | null {
   try {
@@ -82,42 +88,32 @@ export function loadSettings(): AppSettings {
     try {
       const parsed: unknown = JSON.parse(raw);
       if (typeof parsed === 'object' && parsed !== null) {
-        const record = parsed as Record<string, unknown>;
+        const rec = parsed as Record<string, unknown>;
         const minSpeed =
-          typeof record['minSpeed'] === 'number'
-            ? clampMinSpeed(record['minSpeed'])
+          typeof rec['minSpeed'] === 'number'
+            ? clampMinSpeed(rec['minSpeed'])
             : DEFAULT_SETTINGS.minSpeed;
         const maxSpeed =
-          typeof record['maxSpeed'] === 'number'
-            ? clampMaxSpeed(record['maxSpeed'])
+          typeof rec['maxSpeed'] === 'number'
+            ? clampMaxSpeed(rec['maxSpeed'])
             : DEFAULT_SETTINGS.maxSpeed;
-        const speed =
-          typeof record['speed'] === 'number'
-            ? clampSpeed(record['speed'], minSpeed, maxSpeed)
-            : clampSpeed(DEFAULT_SETTINGS.speed, minSpeed, maxSpeed);
-        const sidepanelOpen =
-          typeof record['sidepanelOpen'] === 'boolean' ? record['sidepanelOpen'] : undefined;
-        const historyOpen =
-          typeof record['historyOpen'] === 'boolean' ? record['historyOpen'] : undefined;
-        const namedOnly =
-          typeof record['namedOnly'] === 'boolean' ? record['namedOnly'] : undefined;
-        const confirmSnapshotDelete =
-          typeof record['confirmSnapshotDelete'] === 'boolean'
-            ? record['confirmSnapshotDelete']
-            : undefined;
-        return {
-          lang:
-            typeof record['lang'] === 'string' && isLang(record['lang']) ? record['lang'] : null,
-          theme: isTheme(record['theme']) ? record['theme'] : DEFAULT_SETTINGS.theme,
-          sound: typeof record['sound'] === 'boolean' ? record['sound'] : DEFAULT_SETTINGS.sound,
+        const speed = clampSpeed(
+          typeof rec['speed'] === 'number' ? rec['speed'] : DEFAULT_SETTINGS.speed,
+          minSpeed,
+          maxSpeed,
+        );
+        const result: Record<string, unknown> = {
+          lang: typeof rec['lang'] === 'string' && isLang(rec['lang']) ? rec['lang'] : null,
+          theme: isTheme(rec['theme']) ? rec['theme'] : DEFAULT_SETTINGS.theme,
+          sound: typeof rec['sound'] === 'boolean' ? rec['sound'] : DEFAULT_SETTINGS.sound,
           speed,
           minSpeed,
           maxSpeed,
-          ...(sidepanelOpen !== undefined ? { sidepanelOpen } : {}),
-          ...(historyOpen !== undefined ? { historyOpen } : {}),
-          ...(namedOnly !== undefined ? { namedOnly } : {}),
-          ...(confirmSnapshotDelete !== undefined ? { confirmSnapshotDelete } : {}),
         };
+        for (const key of OPTIONAL_BOOL_KEYS) {
+          if (typeof rec[key] === 'boolean') result[key] = rec[key];
+        }
+        return result as unknown as AppSettings;
       }
     } catch {
       /* corrupted JSON — fall through to legacy keys / defaults */
@@ -127,12 +123,10 @@ export function loadSettings(): AppSettings {
   const legacyLang = read(KEYS.legacyLang);
   const legacyTheme = read(KEYS.legacyTheme);
   return {
+    ...DEFAULT_SETTINGS,
     lang: isLang(legacyLang) ? legacyLang : DEFAULT_SETTINGS.lang,
     theme: isTheme(legacyTheme) ? legacyTheme : DEFAULT_SETTINGS.theme,
     sound: read(KEYS.legacySound) === '1',
-    speed: DEFAULT_SETTINGS.speed,
-    minSpeed: DEFAULT_SETTINGS.minSpeed,
-    maxSpeed: DEFAULT_SETTINGS.maxSpeed,
   };
 }
 
