@@ -12,6 +12,8 @@ export interface HelpDialogOptions {
 export class HelpDialog {
   private readonly dom: AppDom;
   private readonly onBeforeOpen: () => void;
+  private content: HelpContent | null = null;
+  private renderedContent: HelpContent | null = null;
 
   constructor(options: HelpDialogOptions) {
     this.dom = options.dom;
@@ -33,6 +35,9 @@ export class HelpDialog {
       this.dom.helpDialog,
       'close',
       () => {
+        // Release help body DOM nodes while the dialog is closed.
+        this.dom.helpBody.replaceChildren();
+        this.renderedContent = null;
         if (location.hash === '#help') {
           safeReplaceState(location.pathname + location.search);
         }
@@ -45,10 +50,33 @@ export class HelpDialog {
     return this.dom.helpDialog.open;
   }
 
+  /** Store localized help content; builds `#help-body` lazily only when open. */
   render(content: HelpContent): void {
+    this.content = content;
     this.dom.helpTitle.textContent = content.title;
     this.dom.helpBack.textContent = content.back;
+    if (this.isOpen) {
+      this.mountContent(content);
+    }
+  }
 
+  open(): void {
+    this.onBeforeOpen();
+    if (this.content !== null && this.renderedContent !== this.content) {
+      this.mountContent(this.content);
+    }
+    if (this.dom.helpDialog.open) return;
+    this.dom.helpDialog.showModal();
+    // Focus the dialog itself instead of the close button: screen readers
+    // announce the heading, and no accidental focus ring appears on "×".
+    this.dom.helpDialog.focus({ preventScroll: true });
+  }
+
+  close(): void {
+    if (this.dom.helpDialog.open) this.dom.helpDialog.close();
+  }
+
+  private mountContent(content: HelpContent): void {
     const fragment = document.createDocumentFragment();
     for (const section of content.sections) {
       fragment.append(el('h3', {}, section.title));
@@ -91,19 +119,7 @@ export class HelpDialog {
       }
     }
     this.dom.helpBody.replaceChildren(fragment);
-  }
-
-  open(): void {
-    this.onBeforeOpen();
-    if (this.dom.helpDialog.open) return;
-    this.dom.helpDialog.showModal();
-    // Focus the dialog itself instead of the close button: screen readers
-    // announce the heading, and no accidental focus ring appears on "×".
-    this.dom.helpDialog.focus({ preventScroll: true });
-  }
-
-  close(): void {
-    if (this.dom.helpDialog.open) this.dom.helpDialog.close();
+    this.renderedContent = content;
   }
 }
 

@@ -570,6 +570,8 @@ export class AppController {
     this.errorCommandNode = null;
     this.visitCounts.clear();
     this.tapeRenderer.clear();
+    this.el.programView.replaceChildren();
+    this.el.tapeView.replaceChildren();
     this.returnCursorOffset = null;
   }
 

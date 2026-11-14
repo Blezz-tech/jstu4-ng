@@ -199,6 +199,7 @@ export function mountApp(doc: Document = document): MountedApp {
       notifications.dispose();
       historyPanel.dispose();
       tu4Dialog.dispose();
+      sound.dispose();
       theme.dispose();
     },
   };
