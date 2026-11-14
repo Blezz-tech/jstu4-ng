@@ -17,10 +17,19 @@ describe('storage', () => {
 
   it('returns default settings when localStorage is empty', () => {
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
+    expect(DEFAULT_SETTINGS.minSpeed).toBe(-15);
+    expect(DEFAULT_SETTINGS.maxSpeed).toBe(25);
   });
 
-  it('persists and loads settings as JSON in jstu4:settings', () => {
-    saveSettings({ lang: 'en', theme: 'dark', sound: true, speed: 2.5, maxSpeed: 25 });
+  it('persists and loads settings (including minSpeed, maxSpeed, and negative speed) as JSON', () => {
+    saveSettings({
+      lang: 'en',
+      theme: 'dark',
+      sound: true,
+      speed: -2.5,
+      minSpeed: -20,
+      maxSpeed: 40,
+    });
 
     const raw = window.localStorage.getItem('jstu4:settings');
     expect(raw).not.toBeNull();
@@ -28,30 +37,53 @@ describe('storage', () => {
       lang: 'en',
       theme: 'dark',
       sound: true,
-      speed: 2.5,
-      maxSpeed: 25,
+      speed: -2.5,
+      minSpeed: -20,
+      maxSpeed: 40,
     });
     expect(loadSettings()).toEqual({
       lang: 'en',
       theme: 'dark',
       sound: true,
-      speed: 2.5,
-      maxSpeed: 25,
+      speed: -2.5,
+      minSpeed: -20,
+      maxSpeed: 40,
     });
   });
 
-  it('clamps stored speed to stored maxSpeed and sanitizes out-of-range values', () => {
+  it('clamps stored speed into [minSpeed, maxSpeed] and sanitizes out-of-range values', () => {
     window.localStorage.setItem(
       'jstu4:settings',
-      JSON.stringify({ lang: 'ru', theme: 'auto', sound: false, speed: 50, maxSpeed: 8 }),
+      JSON.stringify({
+        lang: 'ru',
+        theme: 'auto',
+        sound: false,
+        speed: 50,
+        minSpeed: -10,
+        maxSpeed: 8,
+      }),
     );
     expect(loadSettings()).toEqual({
       lang: 'ru',
       theme: 'auto',
       sound: false,
       speed: 8,
+      minSpeed: -10,
       maxSpeed: 8,
     });
+
+    window.localStorage.setItem(
+      'jstu4:settings',
+      JSON.stringify({
+        lang: 'ru',
+        theme: 'auto',
+        sound: false,
+        speed: -50,
+        minSpeed: -12,
+        maxSpeed: 20,
+      }),
+    );
+    expect(loadSettings().speed).toBe(-12);
   });
 
   it('migrates legacy per-key preferences when jstu4:settings is absent', () => {
@@ -64,14 +96,22 @@ describe('storage', () => {
       theme: 'light',
       sound: true,
       speed: 1,
-      maxSpeed: 10,
+      minSpeed: -15,
+      maxSpeed: 25,
     });
   });
 
   it('sanitizes invalid or corrupted values in jstu4:settings', () => {
     window.localStorage.setItem(
       'jstu4:settings',
-      JSON.stringify({ lang: 'de', theme: 'sepia', sound: 'yes', speed: 'fast', maxSpeed: 'lots' }),
+      JSON.stringify({
+        lang: 'de',
+        theme: 'sepia',
+        sound: 'yes',
+        speed: 'fast',
+        minSpeed: 'slow',
+        maxSpeed: 'lots',
+      }),
     );
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
 
@@ -82,12 +122,19 @@ describe('storage', () => {
   it('loads saved program, tape, and settings together via loadState()', () => {
     saveProgram('0, ,#,0');
     saveTape('101');
-    saveSettings({ lang: 'ru', theme: 'light', sound: true, speed: 3, maxSpeed: 20 });
+    saveSettings({
+      lang: 'ru',
+      theme: 'light',
+      sound: true,
+      speed: 3,
+      minSpeed: -15,
+      maxSpeed: 20,
+    });
 
     expect(loadState()).toEqual({
       program: '0, ,#,0',
       tape: '101',
-      settings: { lang: 'ru', theme: 'light', sound: true, speed: 3, maxSpeed: 20 },
+      settings: { lang: 'ru', theme: 'light', sound: true, speed: 3, minSpeed: -15, maxSpeed: 20 },
     });
 
     // Clearing program/tape removes the keys instead of storing empty strings.
@@ -106,7 +153,14 @@ describe('storage', () => {
     });
 
     expect(() =>
-      saveSettings({ lang: 'en', theme: 'dark', sound: true, speed: 2, maxSpeed: 10 }),
+      saveSettings({
+        lang: 'en',
+        theme: 'dark',
+        sound: true,
+        speed: 2,
+        minSpeed: -15,
+        maxSpeed: 25,
+      }),
     ).not.toThrow();
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
   });

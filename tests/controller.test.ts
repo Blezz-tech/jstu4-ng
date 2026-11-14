@@ -129,7 +129,8 @@ describe('AppController', () => {
     controller.start();
     expect(controller.isAutoRunning).toBe(false);
     expect(controller.currentSpeed).toBe(1);
-    expect(controller.currentMaxSpeed).toBe(10);
+    expect(controller.currentMinSpeed).toBe(-15);
+    expect(controller.currentMaxSpeed).toBe(25);
 
     // Start auto-run at default 1× (200 ms/step).
     controller.toggleAutoRun();
@@ -177,6 +178,165 @@ describe('AppController', () => {
     // Second Escape (now paused) returns to edit.
     controller.handleEscape();
     expect(controller.currentMode).toBe('edit');
+  });
+
+  it('supports stepping backwards, visited-mark rollback, and reaching initial state notification', () => {
+    const el = setupDom();
+    const i18n = createI18n('ru');
+    const controller = makeController(el, { i18n });
+
+    el.programInput.value = '0, ,>,1\n1, ,A,2\n2,A,>,3\n3, ,#,3';
+    el.tapeInput.value = 'x';
+    controller.start();
+
+    expect(controller.canStepBack).toBe(false);
+    expect(controller.canRestart).toBe(false);
+
+    // Run all 4 steps to a normal finish (tape 'x A', head right after result).
+    controller.step();
+    controller.step();
+    controller.step();
+    controller.step();
+    expect(controller.isMachineRunning).toBe(false);
+    expect(el.log.textContent).toBe(i18n.t('log.finished'));
+    expect(el.stats.textContent).toContain('Выполнено операций: 4');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(4);
+    expect(controller.canStepBack).toBe(true);
+    expect(controller.canRestart).toBe(true);
+
+    // Step back from halted state un-halts the machine and clears visited mark of the undone command.
+    expect(controller.stepBack()).toBe(true);
+    expect(controller.isMachineRunning).toBe(true);
+    expect(el.stats.textContent).toContain('Выполнено операций: 3');
+    expect(el.log.textContent).toBe('');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(3);
+    expect(el.programView.querySelectorAll('.cmd.current')).toHaveLength(1);
+
+    // Step back all the way to step 0 -> displays reachedInitialState notice.
+    expect(controller.stepBack()).toBe(true);
+    expect(controller.stepBack()).toBe(true);
+    expect(el.stats.textContent).toContain('Выполнено операций: 1');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(1);
+
+    expect(controller.stepBack()).toBe(false);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(0);
+    expect(el.log.textContent).toBe(i18n.t('log.reachedInitialState'));
+    expect(controller.canStepBack).toBe(false);
+  });
+
+  it('stops auto-run at speed 0, reverses on negative speed (including from end), and supports restart()', () => {
+    const el = setupDom();
+    const i18n = createI18n('ru');
+    const controller = makeController(el, { i18n });
+
+    el.programInput.value = '0, ,=,1\n1, ,=,2\n2, ,=,3\n3, ,#,3';
+    el.tapeInput.value = '';
+    controller.start();
+
+    // Auto-run forward at 5× (40 ms/step) for 2 steps, then set speed to 0 -> stops immediately.
+    controller.setSpeed(5);
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    vi.advanceTimersByTime(80);
+    expect(el.stats.textContent).toContain('Выполнено операций: 2');
+
+    controller.setSpeed(0);
+    expect(controller.isAutoRunning).toBe(false);
+    expect(controller.canAutoRun).toBe(false);
+    vi.advanceTimersByTime(400);
+    expect(el.stats.textContent).toContain('Выполнено операций: 2');
+
+    // Dragging smoothly across 0 from +5× to -5× seamlessly reverses auto-run.
+    controller.setSpeed(5);
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    controller.beginSpeedDrag();
+    controller.setSpeed(0);
+    expect(controller.isAutoRunning).toBe(false);
+    controller.setSpeed(-5);
+    controller.endSpeedDrag();
+    expect(controller.isAutoRunning).toBe(true);
+
+    // Runs backwards 2 steps back to step 0 -> stops and logs reachedInitialState.
+    vi.advanceTimersByTime(80);
+    expect(controller.isAutoRunning).toBe(false);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
+    expect(el.log.textContent).toBe(i18n.t('log.reachedInitialState'));
+
+    // Run forward all the way to halt (4 steps), then reverse automatically from the halted state!
+    controller.setSpeed(5);
+    controller.toggleAutoRun();
+    vi.advanceTimersByTime(200);
+    expect(controller.isMachineRunning).toBe(false);
+    expect(el.log.textContent).toBe(i18n.t('log.finished'));
+    expect(controller.canAutoRun).toBe(false); // speed > 0 at halt
+
+    // Setting negative speed after halt enables Запуск again to run backwards!
+    controller.setSpeed(-5);
+    expect(controller.canAutoRun).toBe(true);
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    vi.advanceTimersByTime(80);
+    expect(el.stats.textContent).toContain('Выполнено операций: 2');
+    expect(controller.isMachineRunning).toBe(true);
+
+    // Calling restart() resets to step 0 cleanly.
+    controller.restart();
+    expect(controller.isAutoRunning).toBe(false);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
+    expect(el.log.textContent).toBe(i18n.t('log.restarted'));
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(0);
+
+    // Lowering/raising minSpeed clamps negative speed.
+    const clampedMin = controller.setMinSpeed(-3);
+    expect(clampedMin).toEqual({ minSpeed: -3, speed: -3 });
+    expect(controller.currentSpeed).toBe(-3);
+  });
+
+  it('batches high-speed reverse auto-run (-15×) via rAF and stops cleanly at step 0', () => {
+    const el = setupDom();
+    const i18n = createI18n('ru');
+    const sounds = vi.fn();
+    const pendingRafs: FrameRequestCallback[] = [];
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((cb: FrameRequestCallback) => {
+        pendingRafs.push(cb);
+        return pendingRafs.length;
+      }),
+    );
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    const controller = makeController(el, { i18n, onStepSound: sounds });
+    el.programInput.value = '0, ,>,0';
+    el.tapeInput.value = '';
+    controller.start();
+
+    // Advance 5 steps forward, then rewind at -15× (rAF batched mode).
+    for (let i = 0; i < 5; i += 1) controller.step();
+    sounds.mockClear();
+    expect(el.stats.textContent).toContain('Выполнено операций: 5');
+
+    controller.setSpeed(-15);
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    expect(pendingRafs).toHaveLength(1);
+
+    // Advance frames until the batch rewinds all 5 steps to step 0.
+    let now = performance.now();
+    for (let i = 0; i < 10 && controller.isAutoRunning; i += 1) {
+      now += 100;
+      const cb = pendingRafs.shift();
+      cb?.(now);
+    }
+
+    expect(controller.isAutoRunning).toBe(false);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
+    expect(el.log.textContent).toBe(i18n.t('log.reachedInitialState'));
+    expect(sounds).toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 
   it('updates language reactively via i18n without losing input or active run', () => {

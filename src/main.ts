@@ -3,16 +3,20 @@ import './styles/main.css';
 import { TM_VERSION } from './core/version';
 import { bindDomI18n, createI18n, detectLang, type HelpContent } from './i18n';
 import { StepSound } from './ui/audio';
-import { AppController, type UIMode } from './ui/controller';
+import { AppController, type RunControlState, type UIMode } from './ui/controller';
 import { debounce, el, mustFind } from './ui/dom';
 import {
   clampMaxSpeed,
+  clampMinSpeed,
   DEFAULT_MAX_SPEED,
+  DEFAULT_MIN_SPEED,
   formatSpeed,
   MAX_MAX_SPEED,
+  MAX_MIN_SPEED,
   MIN_MAX_SPEED,
-  MIN_SPEED,
+  MIN_MIN_SPEED,
   SPEED_STEP,
+  zeroRatio,
 } from './ui/speed';
 import {
   loadState,
@@ -52,7 +56,11 @@ const dom = {
   stats: mustFind(document, '#stats'),
   controls: mustFind(document, '#controls'),
   hint: mustFind(document, '#hint'),
+  stepBackButton: mustFind<HTMLButtonElement>(document, '#btn-step-back'),
+  stepButton: mustFind<HTMLButtonElement>(document, '#btn-step'),
   runToggleButton: mustFind<HTMLButtonElement>(document, '#btn-run-toggle'),
+  restartButton: mustFind<HTMLButtonElement>(document, '#btn-restart'),
+  speedControl: mustFind(document, '#speed-control'),
   speedInput: mustFind<HTMLInputElement>(document, '#input-speed'),
   speedValue: mustFind(document, '#speed-value'),
   settingsAnchor: mustFind(document, '#settings-anchor'),
@@ -65,6 +73,7 @@ const dom = {
   ),
   soundButton: mustFind<HTMLButtonElement>(document, '#btn-sound'),
   soundLabel: mustFind(document, '#sound-label'),
+  minSpeedInput: mustFind<HTMLInputElement>(document, '#input-min-speed'),
   maxSpeedInput: mustFind<HTMLInputElement>(document, '#input-max-speed'),
   helpDialog: mustFind<HTMLDialogElement>(document, '#help-dialog'),
   helpTitle: mustFind(document, '#help-title'),
@@ -138,16 +147,27 @@ function syncLangAria(): void {
 }
 
 function syncSpeedControls(): void {
+  const minSpeed = controller.currentMinSpeed;
   const maxSpeed = controller.currentMaxSpeed;
   const speed = controller.currentSpeed;
   const formatted = formatSpeed(speed);
+  const direction = speed < 0 ? 'reverse' : speed === 0 ? 'stopped' : 'forward';
 
-  dom.speedInput.min = String(MIN_SPEED);
+  dom.speedControl.dataset.direction = direction;
+  dom.speedControl.style.setProperty('--zero-ratio', String(zeroRatio(minSpeed, maxSpeed)));
+
+  dom.speedInput.min = String(minSpeed);
   dom.speedInput.max = String(maxSpeed);
   dom.speedInput.step = String(SPEED_STEP);
   dom.speedInput.value = String(speed);
   dom.speedInput.setAttribute('aria-valuetext', formatted);
   dom.speedValue.textContent = formatted;
+
+  dom.minSpeedInput.min = String(MIN_MIN_SPEED);
+  dom.minSpeedInput.max = String(MAX_MIN_SPEED);
+  if (document.activeElement !== dom.minSpeedInput) {
+    dom.minSpeedInput.value = String(minSpeed);
+  }
 
   dom.maxSpeedInput.min = String(MIN_MAX_SPEED);
   dom.maxSpeedInput.max = String(MAX_MAX_SPEED);
@@ -241,6 +261,11 @@ function closeHelp(): void {
 
 /* ——— toolbar state ——————————————————————————————————————————————— */
 
+function setButtonDisabled(button: HTMLButtonElement, disabled: boolean): void {
+  button.disabled = disabled;
+  button.setAttribute('aria-disabled', String(disabled));
+}
+
 function applyMode(mode: UIMode): void {
   dom.controls.dataset.mode = mode;
   document.body.dataset.mode = mode;
@@ -251,18 +276,18 @@ function applyMode(mode: UIMode): void {
 }
 
 /**
- * Step and Run/Stop only make sense while the machine is running. Once it halts
- * (finishes or hits a runtime error) the buttons stay visible — the mode is
- * still "run" — but are disabled and dimmed instead of silently doing nothing.
+ * Keep every run-mode button enabled strictly when its action makes sense:
+ * - `←` (Step back): enabled whenever at least 1 step was performed (including after halt/error).
+ * - `Шаг` (Step): enabled while the machine has not halted.
+ * - `Запуск` / `Стоп`: enabled while auto-running, or when stepping in the slider's direction is valid.
+ * - `Сначала` (Restart): enabled after at least 1 step or after halt/error.
  */
-function syncRunState(isRunning: boolean): void {
-  const step = mustFind<HTMLButtonElement>(document, '#btn-step');
-  const toggle = dom.runToggleButton;
-  step.disabled = !isRunning;
-  toggle.disabled = !isRunning;
-  step.setAttribute('aria-disabled', String(!isRunning));
-  toggle.setAttribute('aria-disabled', String(!isRunning));
-  document.body.dataset.running = String(isRunning);
+function syncRunState(state: RunControlState): void {
+  setButtonDisabled(dom.stepBackButton, !state.canStepBack);
+  setButtonDisabled(dom.stepButton, !state.canStepForward);
+  setButtonDisabled(dom.runToggleButton, !state.canAutoRun);
+  setButtonDisabled(dom.restartButton, !state.canRestart);
+  document.body.dataset.running = String(state.isRunning);
   syncRunToggleLabel();
 }
 
@@ -283,6 +308,7 @@ function syncRunToggleLabel(): void {
 const controller = new AppController({
   i18n,
   initialSpeed: settings.speed,
+  initialMinSpeed: settings.minSpeed,
   initialMaxSpeed: settings.maxSpeed,
   elements: {
     programInput: dom.programInput,
@@ -296,7 +322,7 @@ const controller = new AppController({
   onModeChange: (mode) => {
     applyMode(mode);
   },
-  onRunningChange: syncRunState,
+  onRunStateChange: syncRunState,
   onProgramChange: saveProgram,
   onTapeChange: saveTape,
   onStepSound: () => sound.tick(),
@@ -329,7 +355,12 @@ on(mustFind(document, '#btn-start'), 'click', () => {
   sound.unlock();
   controller.start();
 });
-on(mustFind(document, '#btn-step'), 'click', () => {
+on(dom.stepBackButton, 'click', () => {
+  sound.unlock();
+  controller.stepBack();
+  syncRunToggleLabel();
+});
+on(dom.stepButton, 'click', () => {
   sound.unlock();
   controller.step();
   syncRunToggleLabel();
@@ -339,11 +370,21 @@ on(dom.runToggleButton, 'click', () => {
   controller.toggleAutoRun();
   syncRunToggleLabel();
 });
+on(dom.restartButton, 'click', () => {
+  controller.restart();
+  syncRunToggleLabel();
+});
+
+on(dom.speedInput, 'pointerdown', () => controller.beginSpeedDrag());
+window.addEventListener('pointerup', () => controller.endSpeedDrag());
+window.addEventListener('pointercancel', () => controller.endSpeedDrag());
+on(dom.speedInput, 'change', () => controller.endSpeedDrag());
 on(dom.speedInput, 'input', () => {
   const nextSpeed = controller.setSpeed(Number(dom.speedInput.value));
   updateSettings({ speed: nextSpeed });
   syncSpeedControls();
 });
+
 on(mustFind(document, '#btn-unmark'), 'click', () => {
   controller.unmark();
   syncRunToggleLabel();
@@ -409,9 +450,30 @@ on(dom.soundButton, 'click', () => {
   }
 });
 
+function applyMinSpeedValue(rawValue: string, normalizeInput: boolean): void {
+  const trimmed = rawValue.trim();
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || trimmed === '' || trimmed === '-') {
+    if (!normalizeInput) return;
+    const result = controller.setMinSpeed(DEFAULT_MIN_SPEED);
+    updateSettings({ minSpeed: result.minSpeed, speed: result.speed });
+    dom.minSpeedInput.value = String(result.minSpeed);
+    syncSpeedControls();
+    return;
+  }
+
+  if (!normalizeInput && (parsed < MIN_MIN_SPEED || parsed > MAX_MIN_SPEED)) return;
+
+  const result = controller.setMinSpeed(clampMinSpeed(parsed));
+  updateSettings({ minSpeed: result.minSpeed, speed: result.speed });
+  if (normalizeInput) dom.minSpeedInput.value = String(result.minSpeed);
+  syncSpeedControls();
+}
+
 function applyMaxSpeedValue(rawValue: string, normalizeInput: boolean): void {
-  const parsed = Number(rawValue);
-  if (!Number.isFinite(parsed) || rawValue.trim() === '') {
+  const trimmed = rawValue.trim();
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || trimmed === '') {
     if (!normalizeInput) return;
     const result = controller.setMaxSpeed(DEFAULT_MAX_SPEED);
     updateSettings({ maxSpeed: result.maxSpeed, speed: result.speed });
@@ -427,6 +489,10 @@ function applyMaxSpeedValue(rawValue: string, normalizeInput: boolean): void {
   if (normalizeInput) dom.maxSpeedInput.value = String(result.maxSpeed);
   syncSpeedControls();
 }
+
+on(dom.minSpeedInput, 'input', () => applyMinSpeedValue(dom.minSpeedInput.value, false));
+on(dom.minSpeedInput, 'change', () => applyMinSpeedValue(dom.minSpeedInput.value, true));
+on(dom.minSpeedInput, 'blur', () => applyMinSpeedValue(dom.minSpeedInput.value, true));
 
 on(dom.maxSpeedInput, 'input', () => applyMaxSpeedValue(dom.maxSpeedInput.value, false));
 on(dom.maxSpeedInput, 'change', () => applyMaxSpeedValue(dom.maxSpeedInput.value, true));
@@ -534,7 +600,8 @@ on(document, 'keydown', (event) => {
   ) {
     event.preventDefault();
     sound.unlock();
-    controller.handleSpace();
+    if (event.shiftKey) controller.handleShiftSpace();
+    else controller.handleSpace();
     syncRunToggleLabel();
     return;
   }
@@ -563,7 +630,15 @@ for (const control of hintTargets) {
 
 // Hydrate saved draft and initialize toolbar state.
 controller.hydrate(saved.program, saved.tape);
-syncRunState(false);
+syncRunState({
+  isRunning: false,
+  isAutoRunning: false,
+  canStepForward: false,
+  canStepBack: false,
+  canAutoRun: false,
+  canRestart: false,
+  speed: controller.currentSpeed,
+});
 
 // Bookmarks landing on `#help` open the in-app help dialog.
 if (location.hash === '#help') openHelp();

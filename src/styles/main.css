@@ -901,7 +901,21 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   display: none;
 }
 
+.btn--step-back {
+  min-width: 38px;
+  padding: 0 11px;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.btn__icon {
+  font-size: 0.95em;
+  line-height: 1;
+}
+
 .speed-control {
+  --speed-thumb-size: 16px;
+  --zero-ratio: 0.375;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -912,6 +926,15 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   background: var(--surface);
   font-size: 0.85rem;
   color: var(--text-muted);
+  transition: border-color 120ms ease;
+}
+
+.speed-control[data-direction='reverse'] {
+  border-color: color-mix(in srgb, var(--warn) 48%, var(--border));
+}
+
+.speed-control[data-direction='stopped'] {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
 .speed-control__label {
@@ -919,21 +942,124 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   white-space: nowrap;
 }
 
+.speed-control__track-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 136px;
+  height: 24px;
+}
+
+/* Themed colored vertical zero bar aligned to value === 0 along the slider travel. */
+.speed-control__zero {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: calc(var(--zero-ratio) * (100% - var(--speed-thumb-size)) + var(--speed-thumb-size) / 2);
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0.85;
+  pointer-events: none;
+  z-index: 1;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.speed-control[data-direction='stopped'] .speed-control__zero {
+  opacity: 1;
+  transform: translateX(-50%) scaleY(1.12);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
 .speed-control__slider {
-  width: 112px;
+  position: relative;
+  z-index: 2;
+  appearance: none;
+  width: 100%;
+  height: 24px;
   margin: 0;
-  accent-color: var(--accent);
+  background: transparent;
   cursor: pointer;
 }
 
+.speed-control__slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.speed-control__slider::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--speed-thumb-size);
+  height: var(--speed-thumb-size);
+  margin-top: calc((4px - var(--speed-thumb-size)) / 2);
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.speed-control__slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.speed-control__slider::-moz-range-thumb {
+  width: var(--speed-thumb-size);
+  height: var(--speed-thumb-size);
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.speed-control[data-direction='reverse'] .speed-control__slider::-webkit-slider-thumb {
+  background: var(--warn);
+}
+
+.speed-control[data-direction='reverse'] .speed-control__slider::-moz-range-thumb {
+  background: var(--warn);
+}
+
+.speed-control__slider:focus-visible {
+  outline: none;
+}
+
+.speed-control__slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--ring);
+}
+
+.speed-control__slider:focus-visible::-moz-range-thumb {
+  box-shadow: var(--ring);
+}
+
 .speed-control__value {
-  min-width: 4.5ch;
+  min-width: 5.5ch;
   font-family: var(--font-mono);
   font-size: 0.84rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--text);
   text-align: right;
+}
+
+.speed-control[data-direction='reverse'] .speed-control__value {
+  color: var(--warn);
+}
+
+.speed-control[data-direction='stopped'] .speed-control__value {
+  color: var(--accent);
 }
 
 /* ——— help dialog ————————————————————————————————————————————————————— */
@@ -1081,7 +1207,7 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
     justify-content: space-between;
   }
 
-  .speed-control__slider {
+  .speed-control__track-wrap {
     flex: 1 1 auto;
     width: auto;
   }
