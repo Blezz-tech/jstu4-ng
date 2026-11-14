@@ -33,6 +33,19 @@ npm run test:e2e   # Playwright: 29 сценариев в реальном Chrom
 
 Требуется Node.js `^20.19 || ^22.12 || >=24`.
 
+### NixOS (`shell.nix`)
+
+В корне репозитория есть `shell.nix`, использующий системный `<nixpkgs>`
+(удобно на `nixos-unstable`, без скачивания отдельной копии `nixpkgs`) с
+Node.js и браузерами Playwright из `playwright-driver.browsers`:
+
+```bash
+nix-shell                       # войти в окружение (или: nix develop --impure -f shell.nix)
+npm ci                          # установить npm-зависимости
+npm run check                   # lint, format, unit/DOM-тесты и сборка dist/
+npm run test:e2e                # сквозные тесты Playwright с Chromium из /nix/store
+```
+
 ## Возможности
 
 |                  |                                                                                                                                                     |

@@ -28,6 +28,15 @@ export default defineConfig({
         // The CI browser defaults to en-US; pin the locale so language
         // detection (browser → ?lang= → stored choice) is deterministic.
         locale: 'ru-RU',
+        // NixOS shell.nix exports the Nix-store Chromium path so e2e tests work
+        // without downloading FHS binaries even across unstable version drift.
+        ...(process.env.PLAYWRIGHT_LAUNCH_OPTIONS_EXECUTABLE_PATH
+          ? {
+              launchOptions: {
+                executablePath: process.env.PLAYWRIGHT_LAUNCH_OPTIONS_EXECUTABLE_PATH,
+              },
+            }
+          : {}),
       },
     },
   ],
