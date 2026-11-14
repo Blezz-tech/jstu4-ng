@@ -39,6 +39,7 @@ function makeController(
     onRunningChange?: (isRunning: boolean) => void;
     onRunStateChange?: (state: RunControlState) => void;
     onProgramChange?: (text: string) => void;
+    onTu4Converted?: (converted: string) => void;
     onStepSound?: () => void;
   } = {},
 ): AppController {
@@ -50,6 +51,7 @@ function makeController(
     ...(overrides.onRunStateChange ? { onRunStateChange: overrides.onRunStateChange } : {}),
     onProgramChange: overrides.onProgramChange ?? (() => undefined),
     onTapeChange: () => undefined,
+    ...(overrides.onTu4Converted ? { onTu4Converted: overrides.onTu4Converted } : {}),
     ...(overrides.onStepSound ? { onStepSound: overrides.onStepSound } : {}),
   });
 }
@@ -64,17 +66,25 @@ describe('AppController', () => {
     document.body.innerHTML = '';
   });
 
-  it('keeps state 0 as 00 in toTu4 even when state 0 is not on the first line and preserves the log', () => {
+  it('keeps source unchanged in toTu4, preserves state 0 as 00, and delivers output via onTu4Converted', () => {
     const el = setupDom();
     const i18n = createI18n('ru');
     const saved: string[] = [];
-    const controller = makeController(el, { i18n, onProgramChange: (t) => saved.push(t) });
+    const converted: string[] = [];
+    const controller = makeController(el, {
+      i18n,
+      onProgramChange: (t) => saved.push(t),
+      onTu4Converted: (t) => converted.push(t),
+    });
 
-    el.programInput.value = 'fin, ,#,fin\n0, ,>,fin';
-    controller.toTu4();
+    const source = 'fin, ,#,fin\n0, ,>,fin';
+    el.programInput.value = source;
+    const result = controller.toTu4();
 
-    expect(el.programInput.value).toBe('01, ,#,01\n00, ,>,01');
-    expect(saved).toEqual(['01, ,#,01\n00, ,>,01']);
+    expect(result).toBe('01, ,#,01\n00, ,>,01');
+    expect(converted).toEqual(['01, ,#,01\n00, ,>,01']);
+    expect(el.programInput.value).toBe(source);
+    expect(saved).toEqual([]);
     expect(el.log.textContent).toBe(i18n.t('log.convertedToTu4'));
     expect(el.log.dataset.kind).toBe('info');
     expect(controller.currentMode).toBe('edit');

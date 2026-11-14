@@ -42,14 +42,15 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     document.body.innerHTML = bodyMarkup;
     stubMatchMedia(false);
     // jsdom does not implement HTMLDialogElement.showModal/close natively.
-    const dialog = document.querySelector<HTMLDialogElement>('#help-dialog')!;
-    dialog.showModal = () => {
-      dialog.setAttribute('open', '');
-    };
-    dialog.close = () => {
-      dialog.removeAttribute('open');
-      dialog.dispatchEvent(new Event('close'));
-    };
+    for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
+      dialog.showModal = () => {
+        dialog.setAttribute('open', '');
+      };
+      dialog.close = () => {
+        dialog.removeAttribute('open');
+        dialog.dispatchEvent(new Event('close'));
+      };
+    }
   });
 
   afterEach(() => {
@@ -381,5 +382,47 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
     };
     expect(stored.minSpeed).toBe(-1);
     expect(stored.maxSpeed).toBe(1);
+  });
+
+  it('shows converted TU4 code in a popup dialog without modifying the source program', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+
+    await import('../src/main');
+
+    const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
+    const toTu4Btn = document.querySelector<HTMLButtonElement>('#btn-totu4')!;
+    const tu4Dialog = document.querySelector<HTMLDialogElement>('#tu4-dialog')!;
+    const tu4Output = document.querySelector<HTMLTextAreaElement>('#tu4-output')!;
+    const tu4Status = document.querySelector<HTMLElement>('#tu4-status')!;
+    const tu4CopyBtn = document.querySelector<HTMLButtonElement>('#btn-tu4-copy')!;
+    const tu4DoneBtn = document.querySelector<HTMLButtonElement>('#btn-tu4-done')!;
+
+    const source = 'fin, ,#,fin\n0, ,>,fin';
+    programInput.value = source;
+
+    expect(tu4Dialog.open).toBe(false);
+    toTu4Btn.click();
+
+    // Source program stays completely unchanged while the modal displays TU4 output.
+    expect(programInput.value).toBe(source);
+    expect(tu4Dialog.open).toBe(true);
+    expect(tu4Output.readOnly).toBe(true);
+    expect(tu4Output.value).toBe('01, ,#,01\n00, ,>,01');
+
+    // Copy button copies converted code and displays confirmation inside the popup.
+    tu4CopyBtn.click();
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalledWith('01, ,#,01\n00, ,>,01');
+    expect(tu4Status.textContent).toBe('Код TU4 скопирован в буфер обмена');
+
+    // Closing the dialog clears the status and keeps original program intact.
+    tu4DoneBtn.click();
+    expect(tu4Dialog.open).toBe(false);
+    expect(tu4Status.textContent).toBe('');
+    expect(programInput.value).toBe(source);
   });
 });

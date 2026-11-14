@@ -1403,6 +1403,58 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   border-top: 1px solid var(--border);
 }
 
+/* ——— TU4 export dialog ————————————————————————————————————————————— */
+
+.tu4-dialog {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.tu4-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tu4-dialog__desc {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+}
+
+.tu4-dialog__code {
+  width: 100%;
+  min-height: 240px;
+  max-height: 52vh;
+  resize: vertical;
+  overflow: auto;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre;
+  tab-size: 4;
+}
+
+.tu4-dialog__footer {
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tu4-dialog__status {
+  font-size: 0.84rem;
+  font-weight: 550;
+  color: var(--ok);
+}
+
+.tu4-dialog__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .noscript {
   position: fixed;
   inset: auto 16px 16px;

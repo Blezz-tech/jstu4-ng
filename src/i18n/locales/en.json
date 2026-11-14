@@ -89,11 +89,17 @@
     "restart": "Restart the machine from the initial state",
     "speed": "Speed: < 0 reverse, 0 stop, > 0 forward (limits in settings)",
     "backToEdit": "Stop the machine and return to editing (Esc)",
-    "toTu4": "Replace state names with TU4 numbers (00–98 decimal, or 00–ff hex)",
+    "toTu4": "Show the program in TU4 format (00–98 decimal, or 00–ff hex) in a popup without modifying the source",
     "unmark": "Clear the marks from executed commands",
     "copy": "Copy the program to the clipboard",
     "editProgram": "Program: q,a,v,q′. Ctrl+Enter — run",
     "editTape": "Tape: source data. Enter — run"
+  },
+  "tu4Dialog": {
+    "title": "Program in TU4 format",
+    "description": "Your original program in the editor was not modified.",
+    "codeLabel": "Program code in TU4 format",
+    "copied": "TU4 code copied to clipboard"
   },
   "a11y": {
     "skipToProgram": "Skip to program",
@@ -168,7 +174,7 @@
               "“▶” / “■” (Run / Stop) — start or pause automatic execution (Enter); the speed slider supports negative values (reverse), a zero mark (stop), and configurable bounds (−15×…25× by default);",
               "“Restart” — reset the machine back to its initial state;",
               "“Back to edit” — stop the machine and return to editing (Esc pauses auto-run first);",
-              "“To TU4” — replace state names with numbers 00–98 (or hexadecimal 00–ff for 100–256 states)."
+              "“To TU4” — show the program converted to TU4 format (numbers 00–98, or hexadecimal 00–ff for 100–256 states) in a popup without modifying the source."
             ]
           }
         ]

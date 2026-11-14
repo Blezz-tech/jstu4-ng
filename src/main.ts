@@ -97,6 +97,12 @@ const dom = {
   helpBody: mustFind(document, '#help-body'),
   helpClose: mustFind<HTMLButtonElement>(document, '#btn-help-close'),
   helpBack: mustFind<HTMLButtonElement>(document, '#btn-help-back'),
+  tu4Dialog: mustFind<HTMLDialogElement>(document, '#tu4-dialog'),
+  tu4Output: mustFind<HTMLTextAreaElement>(document, '#tu4-output'),
+  tu4Status: mustFind(document, '#tu4-status'),
+  tu4Close: mustFind<HTMLButtonElement>(document, '#btn-tu4-close'),
+  tu4Copy: mustFind<HTMLButtonElement>(document, '#btn-tu4-copy'),
+  tu4Done: mustFind<HTMLButtonElement>(document, '#btn-tu4-done'),
 };
 
 dom.version.textContent = `v${TM_VERSION}`;
@@ -311,6 +317,55 @@ function closeHelp(): void {
   if (dom.helpDialog.open) dom.helpDialog.close();
 }
 
+/* ——— TU4 export dialog ——————————————————————————————————————————— */
+
+let tu4StatusTimer: number | null = null;
+
+function clearTu4Status(): void {
+  if (tu4StatusTimer !== null) {
+    window.clearTimeout(tu4StatusTimer);
+    tu4StatusTimer = null;
+  }
+  dom.tu4Status.textContent = '';
+}
+
+function openTu4Dialog(converted: string): void {
+  closeSettings(false);
+  closeHelp();
+  clearTu4Status();
+  dom.tu4Output.value = converted;
+  dom.tu4Output.scrollTop = 0;
+  if (!dom.tu4Dialog.open) dom.tu4Dialog.showModal();
+  dom.tu4Dialog.focus({ preventScroll: true });
+}
+
+function closeTu4Dialog(): void {
+  clearTu4Status();
+  if (dom.tu4Dialog.open) dom.tu4Dialog.close();
+}
+
+async function copyTu4Output(): Promise<void> {
+  const text = dom.tu4Output.value;
+  if (text === '') return;
+
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    dom.tu4Output.focus();
+    dom.tu4Output.select();
+    const copied = document.execCommand('copy');
+    dom.tu4Output.setSelectionRange(0, 0);
+    if (!copied) return;
+  }
+
+  clearTu4Status();
+  dom.tu4Status.textContent = i18n.t('tu4Dialog.copied');
+  tu4StatusTimer = window.setTimeout(() => {
+    tu4StatusTimer = null;
+    dom.tu4Status.textContent = '';
+  }, 2500);
+}
+
 /* ——— toolbar state ——————————————————————————————————————————————— */
 
 function setButtonDisabled(button: HTMLButtonElement, disabled: boolean): void {
@@ -386,6 +441,7 @@ const controller = new AppController({
   },
   onProgramChange: saveProgram,
   onTapeChange: saveTape,
+  onTu4Converted: openTu4Dialog,
   onStepSound: () => sound.tick(),
 });
 
@@ -466,6 +522,13 @@ on(dom.helpDialog, 'close', () => {
     safeReplaceState(location.pathname + location.search);
   }
 });
+on(dom.tu4Close, 'click', () => closeTu4Dialog());
+on(dom.tu4Done, 'click', () => closeTu4Dialog());
+on(dom.tu4Copy, 'click', () => void copyTu4Output());
+on(dom.tu4Dialog, 'click', (event) => {
+  if (event.target === dom.tu4Dialog) closeTu4Dialog();
+});
+on(dom.tu4Dialog, 'close', () => clearTu4Status());
 
 on(dom.sidepanelButton, 'click', () => applySidepanel(!sidepanelOpen, true));
 on(dom.sidepanelClose, 'click', () => {
@@ -699,6 +762,8 @@ on(document, 'keydown', (event) => {
   const inControl =
     target instanceof Element &&
     target.closest('button, a, [role="button"], select, summary') !== null;
+
+  if (dom.tu4Dialog.open) return;
 
   if (event.key === 'F1' || (event.key === '?' && event.shiftKey && !inEditable)) {
     event.preventDefault();

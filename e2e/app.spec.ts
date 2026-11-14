@@ -152,19 +152,40 @@ test('reports an empty program', async ({ page }) => {
   await expect(page.locator('#log')).toContainText('Программа пуста');
 });
 
-test('converts to TU4, preserves state 0 as 00, and keeps the notice visible', async ({ page }) => {
+test('opens TU4 popup without modifying source program, preserves state 0 as 00, and copies TU4 code', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/');
   await page.locator('#input-program').fill(SWAP);
   await page.locator('#btn-totu4').click();
-  await expect(page.locator('#input-program')).toHaveValue(/00, ,<,01/);
+
+  // Original editor source stays untouched while popup shows the TU4 output.
+  await expect(page.locator('#input-program')).toHaveValue(SWAP);
+  await expect(page.locator('#tu4-dialog')).toBeVisible();
+  await expect(page.locator('#tu4-output')).toHaveValue(/00, ,<,01/);
   await expect(page.locator('#log')).toContainText('TU4');
 
-  // Even when state 0 is not on the first line, it stays 00.
-  await page.locator('#input-program').fill('fin, ,#,fin\n0, ,>,fin');
-  await page.locator('#btn-totu4').click();
-  await expect(page.locator('#input-program')).toHaveValue('01, ,#,01\n00, ,>,01');
+  // Copy button inside the popup copies the TU4 text.
+  await page.locator('#btn-tu4-copy').click();
+  await expect(page.locator('#tu4-status')).toContainText('TU4');
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toMatch(/00, ,<,01/);
 
-  // The converted program still compiles and runs.
+  await page.locator('#btn-tu4-done').click();
+  await expect(page.locator('#tu4-dialog')).toBeHidden();
+
+  // Even when state 0 is not on the first line, it stays 00 and source remains untouched.
+  const source = 'fin, ,#,fin\n0, ,>,fin';
+  await page.locator('#input-program').fill(source);
+  await page.locator('#btn-totu4').click();
+  await expect(page.locator('#input-program')).toHaveValue(source);
+  await expect(page.locator('#tu4-output')).toHaveValue('01, ,#,01\n00, ,>,01');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#tu4-dialog')).toBeHidden();
+
+  // The untouched source program still compiles and runs.
   await page.locator('#input-tape').fill(' 0110');
   await page.locator('#btn-start').click();
   await expect(page.locator('#display-tape')).toBeVisible();
