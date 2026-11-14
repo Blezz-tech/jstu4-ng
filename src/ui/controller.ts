@@ -101,6 +101,10 @@ type LogDescriptor =
   | { readonly type: 'misplaced' }
   | { readonly type: 'convertedToTu4' }
   | { readonly type: 'copied' }
+  | { readonly type: 'snapshotSaved' }
+  | { readonly type: 'snapshotRestored'; readonly name: string }
+  | { readonly type: 'snapshotDeleted' }
+  | { readonly type: 'snapshotEmpty' }
   | { readonly type: 'tooManyStates' }
   | { readonly type: 'parseError'; readonly text: string }
   | { readonly type: 'programIsEmpty' }
@@ -508,6 +512,35 @@ export class AppController {
       }
       throw error;
     }
+  }
+
+  /** Load a saved snapshot into the editor, stopping any active run first. */
+  loadSnapshot(program: string, tape: string, displayName: string): void {
+    if (this.mode !== 'edit') {
+      this.stopAutoRun();
+      this.compiled = null;
+      this.run = null;
+      this.returnCursorOffset = null;
+      this.setMode('edit');
+      this.notifyRunState();
+    }
+    this.el.programInput.value = program;
+    this.el.tapeInput.value = tape;
+    this.options.onProgramChange(program);
+    this.options.onTapeChange(tape);
+    this.setLog({ type: 'snapshotRestored', name: displayName });
+  }
+
+  notifySnapshotSaved(): void {
+    this.setLog({ type: 'snapshotSaved' });
+  }
+
+  notifySnapshotDeleted(): void {
+    this.setLog({ type: 'snapshotDeleted' });
+  }
+
+  notifySnapshotEmpty(): void {
+    this.setLog({ type: 'snapshotEmpty' });
   }
 
   /** Keyboard: Enter behaviour depends on the current mode. */
@@ -997,6 +1030,22 @@ export class AppController {
       case 'copied':
         text = this.i18n.t('log.copied');
         kind = 'info';
+        break;
+      case 'snapshotSaved':
+        text = this.i18n.t('log.snapshotSaved');
+        kind = 'info';
+        break;
+      case 'snapshotRestored':
+        text = this.i18n.t('log.snapshotRestored', { name: d.name });
+        kind = 'info';
+        break;
+      case 'snapshotDeleted':
+        text = this.i18n.t('log.snapshotDeleted');
+        kind = 'info';
+        break;
+      case 'snapshotEmpty':
+        text = this.i18n.t('log.snapshotEmpty');
+        kind = 'warning';
         break;
       case 'tooManyStates':
         text = this.i18n.t('error.tooManyStates');

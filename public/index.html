@@ -20,7 +20,64 @@
   <body>
     <a class="skip-link" href="#input-program" data-i18n="a11y.skipToProgram"></a>
 
-    <div class="app-shell" id="app-shell" data-sidepanel="open">
+    <div class="app-shell" id="app-shell" data-history="closed" data-sidepanel="open">
+      <div class="history-backdrop" id="history-backdrop" hidden></div>
+
+      <aside
+        class="sidepanel historypanel"
+        id="history-panel"
+        aria-labelledby="history-title"
+        hidden
+      >
+        <header class="sidepanel__header">
+          <div class="historypanel__title-wrap">
+            <h2 class="sidepanel__title" id="history-title" data-i18n="history.title"></h2>
+            <span class="historypanel__count" id="history-count">0</span>
+          </div>
+          <button
+            class="icon-btn sidepanel__close"
+            id="btn-history-close"
+            type="button"
+            data-i18n-attr="title:controls.close;aria-label:controls.close"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                d="M18 6 6 18M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </header>
+
+        <div class="historypanel__toolbar">
+          <span
+            class="historypanel__filter-label"
+            id="label-named-only"
+            data-i18n="history.namedOnly"
+          ></span>
+          <button
+            class="switch"
+            id="btn-named-only"
+            type="button"
+            role="switch"
+            aria-checked="false"
+            aria-labelledby="label-named-only"
+          >
+            <span class="switch__track" aria-hidden="true">
+              <span class="switch__thumb"></span>
+            </span>
+          </button>
+        </div>
+
+        <div class="sidepanel__body historypanel__body">
+          <ul class="snapshot-list" id="history-list"></ul>
+          <p class="sidepanel__empty historypanel__empty" id="history-empty"></p>
+        </div>
+      </aside>
+
       <div class="app">
         <header class="topbar">
           <h1 class="title">
@@ -28,6 +85,89 @@
             <span class="title__version" id="app-version"></span>
           </h1>
           <nav class="topbar__actions" aria-label="UI">
+            <button
+              class="icon-btn icon-btn--history"
+              id="btn-history"
+              type="button"
+              aria-expanded="false"
+              aria-controls="history-panel"
+              data-i18n-attr="title:controls.history;aria-label:controls.history"
+            >
+              <svg viewBox="0 0 28 20" width="22" height="16" aria-hidden="true" focusable="false">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M2 3.5h5.5L10 6v10.5H2Z"
+                />
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M7.5 3.5V6H10"
+                />
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M5 8.8c-.6 0-.7.4-.7.9s-.2.7-.6.8c.4.1.6.4.6.8s.1.9.7.9M7 8.8c.6 0 .7.4.7.9s.2.7.6.8c-.4.1-.6.4-.6.8s-.1.9-.7.9"
+                />
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M10 10h2.5M15.8 10h2.4M21.5 10h2.2M15.4 8.7L19 4.5h4.7M20.8 11.3l2.1 4.2h.8"
+                />
+                <circle
+                  cx="14.2"
+                  cy="10"
+                  r="1.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+                <circle
+                  cx="19.8"
+                  cy="10"
+                  r="1.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+                <circle
+                  cx="25.2"
+                  cy="4.5"
+                  r="1.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+                <circle
+                  cx="25.2"
+                  cy="10"
+                  r="1.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+                <circle
+                  cx="25.2"
+                  cy="15.5"
+                  r="1.6"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+              </svg>
+            </button>
             <div class="settings-anchor" id="settings-anchor">
               <button
                 class="icon-btn"
@@ -145,6 +285,26 @@
                       role="switch"
                       aria-checked="false"
                       aria-labelledby="label-setting-sound"
+                    >
+                      <span class="switch__track" aria-hidden="true">
+                        <span class="switch__thumb"></span>
+                      </span>
+                    </button>
+                  </div>
+
+                  <div class="setting-row">
+                    <span
+                      class="setting-row__label"
+                      id="label-setting-confirm-delete"
+                      data-i18n="settings.confirmDelete"
+                    ></span>
+                    <button
+                      class="switch"
+                      id="btn-setting-confirm-delete"
+                      type="button"
+                      role="switch"
+                      aria-checked="true"
+                      aria-labelledby="label-setting-confirm-delete"
                     >
                       <span class="switch__track" aria-hidden="true">
                         <span class="switch__thumb"></span>
@@ -350,6 +510,45 @@
             >
               <span class="btn__text" data-i18n="controls.copy"></span>
             </button>
+            <button
+              class="btn btn--icon-only"
+              id="btn-save"
+              type="button"
+              data-mode="edit"
+              data-i18n-attr="title:hints.save;data-hint:hints.save;aria-label:controls.save"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M5 4h11l4 4v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"
+                />
+                <path
+                  fill="currentColor"
+                  fill-rule="evenodd"
+                  d="M8 4h7v5.5a.5.5 0 0 1-.5.5h-6a.5.5 0 0 1-.5-.5V4Zm3.5 1.5V8.5h2V5.5h-2Z"
+                />
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M7 20v-6.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5V20"
+                />
+              </svg>
+            </button>
+            <span
+              class="save-status"
+              id="save-status"
+              data-mode="edit"
+              data-state="idle"
+              role="status"
+              aria-live="polite"
+            ></span>
             <button
               class="btn btn--transport"
               id="btn-step-back"
@@ -569,6 +768,51 @@
               <span class="btn__text" data-i18n="controls.close"></span>
             </button>
           </div>
+        </footer>
+      </div>
+    </dialog>
+
+    <dialog
+      class="help confirm-dialog"
+      id="delete-snapshot-dialog"
+      aria-labelledby="delete-snapshot-title"
+      tabindex="-1"
+    >
+      <div class="help__inner">
+        <header class="help__header">
+          <h2 id="delete-snapshot-title" data-i18n="deleteDialog.title"></h2>
+          <button
+            class="icon-btn"
+            id="btn-delete-dialog-close"
+            type="button"
+            data-i18n-attr="title:controls.close;aria-label:controls.close"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                d="M18 6 6 18M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </header>
+        <div class="help__body confirm-dialog__body">
+          <p class="confirm-dialog__message" data-i18n="deleteDialog.message"></p>
+          <p class="confirm-dialog__target" id="delete-snapshot-name"></p>
+          <label class="confirm-dialog__check" for="chk-skip-delete-confirm">
+            <input type="checkbox" id="chk-skip-delete-confirm" />
+            <span data-i18n="deleteDialog.skipWarning"></span>
+          </label>
+        </div>
+        <footer class="help__footer confirm-dialog__footer">
+          <button class="btn" id="btn-cancel-delete" type="button">
+            <span class="btn__text" data-i18n="controls.cancel"></span>
+          </button>
+          <button class="btn btn--danger" id="btn-confirm-delete-snapshot" type="button">
+            <span class="btn__text" data-i18n="controls.delete"></span>
+          </button>
         </footer>
       </div>
     </dialog>
