@@ -70,6 +70,8 @@ export interface ControllerOptions {
   readonly initialMinSpeed?: number;
   /** Initial maximum (forward) speed multiplier (defaults to 25×). */
   readonly initialMaxSpeed?: number;
+  /** Maximum reversible steps retained per run (defaults to `DEFAULT_MAX_HISTORY`). */
+  readonly maxHistory?: number;
   /** Called after every mode or auto-run state change so the shell can sync UI. */
   readonly onModeChange: (mode: UIMode) => void;
   /** Called whenever the machine halts or starts running again. */
@@ -252,7 +254,7 @@ export class AppController {
       if (!this.canStepInDirection(next)) {
         this.clearAutoHandles();
         if (next < 0 && this.run !== null && !this.run.canStepBack) {
-          this.notifications.show('info', (i) => i.t('log.reachedInitialState'));
+          this.notifyStepBackBoundary(this.run);
         }
         this.options.onModeChange(this.mode);
       } else {
@@ -268,7 +270,7 @@ export class AppController {
         this.lastStepAt = performance.now();
         this.scheduleAutoTick(0);
       } else if (next < 0 && this.run !== null && !this.run.canStepBack) {
-        this.notifications.show('info', (i) => i.t('log.reachedInitialState'));
+        this.notifyStepBackBoundary(this.run);
       }
     }
 
@@ -325,7 +327,11 @@ export class AppController {
 
     this.stopAutoRun();
     this.compiled = parsed;
-    this.run = new MachineRun(parsed.program, tape);
+    this.run = new MachineRun(
+      parsed.program,
+      tape,
+      this.options.maxHistory !== undefined ? { maxHistory: this.options.maxHistory } : {},
+    );
     this.visitCounts.clear();
     this.returnCursorOffset = null;
     this.options.onProgramChange(this.el.programInput.value);
@@ -411,7 +417,7 @@ export class AppController {
     if (this.mode !== 'run' || this.run === null || this.speed === 0) return;
 
     if (this.speed < 0 && !this.run.canStepBack) {
-      this.notifications.show('info', (i) => i.t('log.reachedInitialState'));
+      this.notifyStepBackBoundary(this.run);
       this.notifyRunState();
       return;
     }
@@ -657,13 +663,18 @@ export class AppController {
     return false;
   }
 
+  private notifyStepBackBoundary(run: MachineRun): void {
+    const key = run.isAtStart ? 'log.reachedInitialState' : 'log.reachedHistoryLimit';
+    this.notifications.show('info', (i) => i.t(key));
+  }
+
   private stepBackOnce(playSound: boolean, render: boolean): boolean {
     const run = this.run;
     if (run === null) return false;
 
     if (!run.canStepBack) {
       this.clearAutoHandles();
-      this.notifications.show('info', (i) => i.t('log.reachedInitialState'));
+      this.notifyStepBackBoundary(run);
       this.options.onModeChange(this.mode);
       this.notifyRunState();
       return false;
@@ -678,14 +689,14 @@ export class AppController {
     this.stats.operationsCount = run.stepsCount;
     this.stats.maxDataLength = run.cellsUsed;
 
-    if (run.isAtStart) {
+    if (!run.canStepBack) {
       this.renderStats();
       this.updateTapeView(true);
       this.setStepDirection('reverse');
       this.highlightCurrentCommand(run.nextCommand);
       if (playSound) this.options.onStepSound?.();
       this.clearAutoHandles();
-      this.notifications.show('info', (i) => i.t('log.reachedInitialState'));
+      this.notifyStepBackBoundary(run);
       this.options.onModeChange(this.mode);
       this.notifyRunState();
       return false;

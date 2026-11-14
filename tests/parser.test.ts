@@ -70,4 +70,32 @@ describe('parseProgram', () => {
   it('never throws on an empty program', () => {
     expect(() => parseProgram('')).not.toThrow();
   });
+
+  it('parses large programs in O(N) with exact offsets and re-entrant onCommand callbacks', () => {
+    const lines: string[] = [];
+    for (let i = 0; i < 5000; i += 1) {
+      lines.push(`s${i}, ,>,s${i + 1} // step ${i}`);
+    }
+    const source = lines.join('\n');
+
+    const commands = parseProgram(source);
+    expect(commands).toHaveLength(5000);
+
+    const last = commands.at(-1)!;
+    expect(last.q).toBe('s4999');
+    expect(last.w).toBe('s5000');
+    expect(source.slice(last.source.offset, last.source.offset + last.source.text.length)).toBe(
+      last.source.text,
+    );
+
+    // Nested parseProgram inside onCommand must not corrupt the outer regex cursor
+    const nestedCounts: number[] = [];
+    const outer = parseProgram('0, ,>,1\n1, ,#,1', {
+      onCommand: () => {
+        nestedCounts.push(parseProgram('a,0,1,b').length);
+      },
+    });
+    expect(outer.map((c) => c.toString())).toEqual(['0, ,>,1', '1, ,#,1']);
+    expect(nestedCounts).toEqual([1, 1]);
+  });
 });
