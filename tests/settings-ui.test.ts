@@ -1,28 +1,6 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const htmlPath = resolve(import.meta.dirname, '../public/index.html');
-const rawHtml = readFileSync(htmlPath, 'utf8');
-const bodyMatch = rawHtml.match(/<body>([\s\S]*)<\/body>/);
-const bodyMarkup = bodyMatch?.[1] ?? '';
-
-function stubMatchMedia(prefersDark = false): void {
-  vi.stubGlobal(
-    'matchMedia',
-    vi.fn((query: string) => ({
-      matches: prefersDark && query.includes('dark'),
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  );
-}
+import { setupAppDom, teardownAppDom } from './helpers/dom-fixture';
 
 describe('settings menu & run speed UI (public/index.html + src/main.ts)', () => {
   let mounted: { dispose(): void } | null = null;
@@ -34,39 +12,13 @@ describe('settings menu & run speed UI (public/index.html + src/main.ts)', () =>
 
   beforeEach(() => {
     vi.resetModules();
-    window.localStorage.clear();
-    Object.defineProperty(window.navigator, 'languages', {
-      value: ['ru-RU'],
-      configurable: true,
-    });
-    Object.defineProperty(window.navigator, 'language', {
-      value: 'ru-RU',
-      configurable: true,
-    });
-    document.documentElement.lang = 'ru';
-    delete document.documentElement.dataset.theme;
-    delete document.documentElement.dataset.themeChoice;
-    document.body.innerHTML = bodyMarkup;
-    stubMatchMedia(false);
-    // jsdom does not implement HTMLDialogElement.showModal/close natively.
-    for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
-      dialog.showModal = () => {
-        dialog.setAttribute('open', '');
-      };
-      dialog.close = () => {
-        dialog.removeAttribute('open');
-        dialog.dispatchEvent(new Event('close'));
-      };
-    }
+    setupAppDom(false);
   });
 
   afterEach(() => {
     mounted?.dispose();
     mounted = null;
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-    window.localStorage.clear();
-    document.body.innerHTML = '';
+    teardownAppDom();
   });
 
   it('toggles the settings menu via the gear button, closes on Escape and outside pointerdown', async () => {

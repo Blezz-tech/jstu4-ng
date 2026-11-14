@@ -1,82 +1,6 @@
 import { mustFind } from '../dom';
 
-/** Strongly typed collection of all DOM nodes wired by the application shell. */
-export interface AppDom {
-  readonly appShell: HTMLElement;
-  readonly skipLink: HTMLAnchorElement;
-  readonly version: HTMLElement;
-  readonly programInput: HTMLTextAreaElement;
-  readonly tapeInput: HTMLInputElement;
-  readonly programView: HTMLElement;
-  readonly programStack: HTMLElement;
-  readonly tapeView: HTMLElement;
-  readonly log: HTMLElement;
-  readonly stats: HTMLElement;
-  readonly controls: HTMLElement;
-  readonly hint: HTMLElement;
-  readonly startButton: HTMLButtonElement;
-  readonly stepBackButton: HTMLButtonElement;
-  readonly stepButton: HTMLButtonElement;
-  readonly runToggleButton: HTMLButtonElement;
-  readonly restartButton: HTMLButtonElement;
-  readonly unmarkButton: HTMLButtonElement;
-  readonly editButton: HTMLButtonElement;
-  readonly editErrButton: HTMLButtonElement;
-  readonly copyButton: HTMLButtonElement;
-  readonly toTu4Button: HTMLButtonElement;
-  readonly helpButton: HTMLButtonElement;
-  readonly speedControl: HTMLElement;
-  readonly speedInput: HTMLInputElement;
-  readonly speedValue: HTMLElement;
-  readonly sidepanelButton: HTMLButtonElement;
-  readonly sidepanelClose: HTMLButtonElement;
-  readonly sidepanelBadge: HTMLElement;
-  readonly sidepanel: HTMLElement;
-  readonly sidepanelBackdrop: HTMLElement;
-  readonly settingsAnchor: HTMLElement;
-  readonly settingsButton: HTMLButtonElement;
-  readonly settingsMenu: HTMLElement;
-  readonly settingsClose: HTMLButtonElement;
-  readonly langButton: HTMLButtonElement;
-  readonly themeButtons: readonly HTMLButtonElement[];
-  readonly soundButton: HTMLButtonElement;
-  readonly confirmDeleteSettingButton: HTMLButtonElement;
-  readonly minSpeedInput: HTMLInputElement;
-  readonly minSpeedDec: HTMLButtonElement;
-  readonly minSpeedInc: HTMLButtonElement;
-  readonly maxSpeedInput: HTMLInputElement;
-  readonly maxSpeedDec: HTMLButtonElement;
-  readonly maxSpeedInc: HTMLButtonElement;
-  readonly historyPanel: HTMLElement;
-  readonly historyBackdrop: HTMLElement;
-  readonly historyButton: HTMLButtonElement;
-  readonly historyClose: HTMLButtonElement;
-  readonly namedOnlyButton: HTMLButtonElement;
-  readonly historyList: HTMLUListElement;
-  readonly historyCount: HTMLElement;
-  readonly historyEmpty: HTMLElement;
-  readonly saveButton: HTMLButtonElement;
-  readonly saveStatus: HTMLElement;
-  readonly helpDialog: HTMLDialogElement;
-  readonly helpTitle: HTMLElement;
-  readonly helpBody: HTMLElement;
-  readonly helpClose: HTMLButtonElement;
-  readonly helpBack: HTMLButtonElement;
-  readonly tu4Dialog: HTMLDialogElement;
-  readonly tu4Output: HTMLTextAreaElement;
-  readonly tu4Status: HTMLElement;
-  readonly tu4Close: HTMLButtonElement;
-  readonly tu4Copy: HTMLButtonElement;
-  readonly tu4Done: HTMLButtonElement;
-  readonly deleteDialog: HTMLDialogElement;
-  readonly deleteSnapshotName: HTMLElement;
-  readonly skipDeleteConfirm: HTMLInputElement;
-  readonly deleteDialogClose: HTMLButtonElement;
-  readonly deleteDialogCancel: HTMLButtonElement;
-  readonly deleteDialogConfirm: HTMLButtonElement;
-}
-
-export function queryAppDom(root: ParentNode): AppDom {
+export function queryAppDom(root: ParentNode) {
   return {
     appShell: mustFind(root, '#app-shell'),
     skipLink: mustFind<HTMLAnchorElement>(root, '.skip-link'),
@@ -116,7 +40,7 @@ export function queryAppDom(root: ParentNode): AppDom {
     langButton: mustFind<HTMLButtonElement>(root, '#btn-lang'),
     themeButtons: Array.from(
       root.querySelectorAll<HTMLButtonElement>('#theme-group [data-theme-option]'),
-    ),
+    ) as readonly HTMLButtonElement[],
     soundButton: mustFind<HTMLButtonElement>(root, '#btn-sound'),
     confirmDeleteSettingButton: mustFind<HTMLButtonElement>(root, '#btn-setting-confirm-delete'),
     minSpeedInput: mustFind<HTMLInputElement>(root, '#input-min-speed'),
@@ -125,16 +49,16 @@ export function queryAppDom(root: ParentNode): AppDom {
     maxSpeedInput: mustFind<HTMLInputElement>(root, '#input-max-speed'),
     maxSpeedDec: mustFind<HTMLButtonElement>(root, '#btn-max-speed-dec'),
     maxSpeedInc: mustFind<HTMLButtonElement>(root, '#btn-max-speed-inc'),
-    historyPanel: mustFind<HTMLElement>(root, '#history-panel'),
-    historyBackdrop: mustFind<HTMLElement>(root, '#history-backdrop'),
+    historyPanel: mustFind(root, '#history-panel'),
+    historyBackdrop: mustFind(root, '#history-backdrop'),
     historyButton: mustFind<HTMLButtonElement>(root, '#btn-history'),
     historyClose: mustFind<HTMLButtonElement>(root, '#btn-history-close'),
     namedOnlyButton: mustFind<HTMLButtonElement>(root, '#btn-named-only'),
     historyList: mustFind<HTMLUListElement>(root, '#history-list'),
-    historyCount: mustFind<HTMLElement>(root, '#history-count'),
-    historyEmpty: mustFind<HTMLElement>(root, '#history-empty'),
+    historyCount: mustFind(root, '#history-count'),
+    historyEmpty: mustFind(root, '#history-empty'),
     saveButton: mustFind<HTMLButtonElement>(root, '#btn-save'),
-    saveStatus: mustFind<HTMLElement>(root, '#save-status'),
+    saveStatus: mustFind(root, '#save-status'),
     helpDialog: mustFind<HTMLDialogElement>(root, '#help-dialog'),
     helpTitle: mustFind(root, '#help-title'),
     helpBody: mustFind(root, '#help-body'),
@@ -147,13 +71,16 @@ export function queryAppDom(root: ParentNode): AppDom {
     tu4Copy: mustFind<HTMLButtonElement>(root, '#btn-tu4-copy'),
     tu4Done: mustFind<HTMLButtonElement>(root, '#btn-tu4-done'),
     deleteDialog: mustFind<HTMLDialogElement>(root, '#delete-snapshot-dialog'),
-    deleteSnapshotName: mustFind<HTMLElement>(root, '#delete-snapshot-name'),
+    deleteSnapshotName: mustFind(root, '#delete-snapshot-name'),
     skipDeleteConfirm: mustFind<HTMLInputElement>(root, '#chk-skip-delete-confirm'),
     deleteDialogClose: mustFind<HTMLButtonElement>(root, '#btn-delete-dialog-close'),
     deleteDialogCancel: mustFind<HTMLButtonElement>(root, '#btn-cancel-delete'),
     deleteDialogConfirm: mustFind<HTMLButtonElement>(root, '#btn-confirm-delete-snapshot'),
-  };
+  } as const;
 }
+
+/** Strongly typed collection of all DOM nodes wired by the application shell. */
+export type AppDom = ReturnType<typeof queryAppDom>;
 
 export function setButtonDisabled(button: HTMLButtonElement, disabled: boolean): void {
   button.disabled = disabled;

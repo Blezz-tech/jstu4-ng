@@ -15,6 +15,8 @@ export interface SidePanelsOptions {
   readonly signal: AbortSignal;
 }
 
+type DrawerKey = 'history' | 'sidepanel';
+
 /**
  * Coordinates the left version-history panel and the right status side panel,
  * their mobile backdrops, mutual exclusion on narrow viewports, and the
@@ -24,9 +26,7 @@ export class SidePanels {
   private readonly dom: AppDom;
   private readonly settings: SettingsStore;
   private readonly onLayoutChange: () => void;
-
-  private sidepanelOpen: boolean;
-  private historyOpen: boolean;
+  private readonly openState: Record<DrawerKey, boolean>;
   private latestLogKind: LogKind | null = null;
 
   constructor(options: SidePanelsOptions) {
@@ -35,104 +35,104 @@ export class SidePanels {
     this.onLayoutChange = options.onLayoutChange;
 
     const initial = this.settings.get();
-    this.sidepanelOpen = initial.sidepanelOpen ?? !isNarrowViewport();
-    this.historyOpen = initial.historyOpen ?? false;
+    this.openState = {
+      sidepanel: initial.sidepanelOpen ?? !isNarrowViewport(),
+      history: initial.historyOpen ?? false,
+    };
 
-    this.setSidepanelOpen(this.sidepanelOpen, false);
-    this.setHistoryOpen(this.historyOpen, false);
+    this.setDrawerOpen('sidepanel', this.openState.sidepanel, false);
+    this.setDrawerOpen('history', this.openState.history, false);
 
     const { signal } = options;
     listen(
       window,
       'resize',
       () => {
-        this.dom.sidepanelBackdrop.hidden = !(this.sidepanelOpen && isNarrowViewport());
-        this.dom.historyBackdrop.hidden = !(this.historyOpen && isNarrowViewport());
+        const narrow = isNarrowViewport();
+        this.dom.sidepanelBackdrop.hidden = !(this.openState.sidepanel && narrow);
+        this.dom.historyBackdrop.hidden = !(this.openState.history && narrow);
       },
       signal,
     );
 
-    listen(
-      this.dom.historyButton,
-      'click',
-      () => this.setHistoryOpen(!this.historyOpen, true),
-      signal,
-    );
-    listen(
-      this.dom.historyClose,
-      'click',
-      () => {
-        this.setHistoryOpen(false, true);
-        this.dom.historyButton.focus();
-      },
-      signal,
-    );
-    listen(this.dom.historyBackdrop, 'click', () => this.setHistoryOpen(false, false), signal);
-
-    listen(
-      this.dom.sidepanelButton,
-      'click',
-      () => this.setSidepanelOpen(!this.sidepanelOpen, true),
-      signal,
-    );
-    listen(
-      this.dom.sidepanelClose,
-      'click',
-      () => {
-        this.setSidepanelOpen(false, true);
-        this.dom.sidepanelButton.focus();
-      },
-      signal,
-    );
-    listen(this.dom.sidepanelBackdrop, 'click', () => this.setSidepanelOpen(false, false), signal);
+    for (const key of ['history', 'sidepanel'] as const) {
+      const { button, closeButton, backdrop } = this.drawerNodes(key);
+      listen(button, 'click', () => this.setDrawerOpen(key, !this.openState[key], true), signal);
+      listen(
+        closeButton,
+        'click',
+        () => {
+          this.setDrawerOpen(key, false, true);
+          button.focus();
+        },
+        signal,
+      );
+      listen(backdrop, 'click', () => this.setDrawerOpen(key, false, false), signal);
+    }
   }
 
   get isSidepanelOpen(): boolean {
-    return this.sidepanelOpen;
+    return this.openState.sidepanel;
   }
 
   get isHistoryOpen(): boolean {
-    return this.historyOpen;
+    return this.openState.history;
   }
 
   setHistoryOpen(open: boolean, persist = false): void {
-    this.historyOpen = open;
-    if (open && isNarrowViewport() && this.sidepanelOpen) {
-      this.setSidepanelOpen(false, false);
-    }
-    this.dom.appShell.dataset.history = open ? 'open' : 'closed';
-    this.dom.historyPanel.hidden = !open;
-    this.dom.historyButton.setAttribute('aria-expanded', String(open));
-    this.dom.historyBackdrop.hidden = !(open && isNarrowViewport());
-    if (persist) this.settings.update({ historyOpen: open });
-    this.onLayoutChange();
+    this.setDrawerOpen('history', open, persist);
   }
 
   setSidepanelOpen(open: boolean, persist = false): void {
-    this.sidepanelOpen = open;
-    if (open && isNarrowViewport() && this.historyOpen) {
-      this.setHistoryOpen(false, false);
-    }
-    this.dom.appShell.dataset.sidepanel = open ? 'open' : 'closed';
-    this.dom.sidepanel.hidden = !open;
-    this.dom.sidepanelButton.setAttribute('aria-expanded', String(open));
-    this.dom.sidepanelBackdrop.hidden = !(open && isNarrowViewport());
-    this.syncSidepanelBadge();
-    if (persist) this.settings.update({ sidepanelOpen: open });
-    this.onLayoutChange();
+    this.setDrawerOpen('sidepanel', open, persist);
   }
 
   handleLogChange(kind: LogKind | null): void {
     this.latestLogKind = kind;
-    if (kind === 'error' && !this.sidepanelOpen) {
-      this.setSidepanelOpen(true, false);
+    if (kind === 'error' && !this.openState.sidepanel) {
+      this.setDrawerOpen('sidepanel', true, false);
     } else {
       this.syncSidepanelBadge();
     }
   }
 
+  private drawerNodes(key: DrawerKey) {
+    return key === 'history'
+      ? {
+          panel: this.dom.historyPanel,
+          button: this.dom.historyButton,
+          closeButton: this.dom.historyClose,
+          backdrop: this.dom.historyBackdrop,
+        }
+      : {
+          panel: this.dom.sidepanel,
+          button: this.dom.sidepanelButton,
+          closeButton: this.dom.sidepanelClose,
+          backdrop: this.dom.sidepanelBackdrop,
+        };
+  }
+
+  private setDrawerOpen(key: DrawerKey, open: boolean, persist: boolean): void {
+    const other: DrawerKey = key === 'history' ? 'sidepanel' : 'history';
+    this.openState[key] = open;
+    if (open && isNarrowViewport() && this.openState[other]) {
+      this.setDrawerOpen(other, false, false);
+    }
+
+    const { panel, button, backdrop } = this.drawerNodes(key);
+    this.dom.appShell.dataset[key] = open ? 'open' : 'closed';
+    panel.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+    backdrop.hidden = !(open && isNarrowViewport());
+    if (key === 'sidepanel') this.syncSidepanelBadge();
+    if (persist) {
+      this.settings.update(key === 'history' ? { historyOpen: open } : { sidepanelOpen: open });
+    }
+    this.onLayoutChange();
+  }
+
   private syncSidepanelBadge(): void {
-    const showBadge = !this.sidepanelOpen && this.latestLogKind !== null;
+    const showBadge = !this.openState.sidepanel && this.latestLogKind !== null;
     this.dom.sidepanelBadge.dataset.kind = showBadge ? (this.latestLogKind ?? '') : '';
   }
 }

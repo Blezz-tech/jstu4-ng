@@ -34,7 +34,6 @@
     "tooManyStates": "В программе больше 256 состояний: формат TU4 это не позволяет"
   },
   "stats": {
-    "summary": "Команд в программе: {commandsCount, number}. Длина исходного сообщения: {initialDataLength, number}. Использовано ячеек: {maxDataLength, number}. Выполнено операций: {operationsCount, number}",
     "commands": "Команд в программе",
     "initialLength": "Длина исходного сообщения",
     "cellsUsed": "Использовано ячеек",
@@ -59,8 +58,6 @@
     "save": "Сохранить",
     "delete": "Удалить",
     "cancel": "Отмена",
-    "theme": "Тема оформления",
-    "sound": "Звук шагов",
     "language": "Переключить язык",
     "close": "Закрыть"
   },
@@ -144,8 +141,7 @@
     "programViewLabel": "Выполняемая программа",
     "tapeViewLabel": "Лента во время выполнения",
     "logLabel": "Сообщения эмулятора",
-    "statusLabel": "Статус и статистика выполнения",
-    "currentCell": "Текущая ячейка"
+    "statusLabel": "Статус и статистика выполнения"
   },
   "help": {
     "title": "Эмулятор машины Тьюринга в четвёрках",

@@ -1,5 +1,4 @@
-import { Command, type StateId } from './machine';
-import { stateKey } from './machine';
+import { stateKey, type StateId } from './machine';
 import type { Program } from './program';
 import { parseProgram } from './parser';
 import { createProgram } from './program';
@@ -35,15 +34,7 @@ export function toTu4(program: Program): string {
   };
 
   return program.commands
-    .map((command) =>
-      new Command(
-        nameOf(command.q),
-        command.a,
-        command.v,
-        nameOf(command.w),
-        command.source,
-      ).toString(),
-    )
+    .map((command) => `${nameOf(command.q)},${command.a},${command.v},${nameOf(command.w)}`)
     .join('\n');
 }
 

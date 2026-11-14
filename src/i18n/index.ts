@@ -1,6 +1,6 @@
 import enJson from './locales/en.json';
 import ruJson from './locales/ru.json';
-import { formatMessage, type FormatParams } from './format';
+import { formatMessage, formatNumber, type FormatParams } from './format';
 import {
   DEFAULT_LANG,
   LANGS,
@@ -116,12 +116,6 @@ export class I18n {
     return this.catalogs[this.current].help;
   }
 
-  /** Register or override a locale catalog (supports future lazy-loaded locales). */
-  registerCatalog(locale: Lang, catalog: MessageCatalog): void {
-    this.catalogs[locale] = catalog;
-    if (locale === this.current) this.emit();
-  }
-
   /** Switch active locale and notify all subscribers. */
   setLocale(next: Lang): void {
     if (next === this.current) return;
@@ -156,9 +150,9 @@ export class I18n {
     return formatMessage(template, this.meta.bcp47, params);
   }
 
-  /** Locale-aware number formatting via `Intl.NumberFormat`. */
+  /** Locale-aware number formatting via cached `Intl.NumberFormat`. */
   formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
-    return new Intl.NumberFormat(this.meta.bcp47, options).format(value);
+    return formatNumber(value, this.meta.bcp47, options);
   }
 
   private emit(): void {
