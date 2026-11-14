@@ -10,43 +10,53 @@ export interface ParseOptions {
 }
 
 /**
- * Whitespace / comment skipping is done by a single regular expression that
- * alternates between line comments (`#`, `//`) and plain whitespace.
+ * Whitespace / comment skipping regex (sticky `/y`, anchored at `lastIndex`)
+ * that alternates between line comments (`#`, `//`) and plain whitespace.
  *
  * Note: a comment must be separated from a command by at least one space or
  * line break, otherwise `#` would be ambiguous with the halt symbol and `/`
  * with a tape symbol.
  */
-const SKIP_RE = /^(?:(?:#|\/\/)[^\n]*(?:\n|$))|^(?:\s+)/;
+const SKIP_PATTERN = '(?:(?:#|//)[^\\n]*(?:\\n|$))|(?:\\s+)';
 
 /** `q,a,v,q'` — `a` and `v` are single characters, `q` and `q'` are words. */
-const COMMAND_RE = /^([^\s]+),(.),(.),([^\s]+)/;
+const COMMAND_PATTERN = '([^\\s]+),(.),(.),([^\\s]+)';
 
 /**
- * Parse program text into commands. The function never throws on an empty
- * program: that is detected later by {@link createProgram}, so the UI can show
- * a dedicated "program is empty" message.
+ * Parse program text into commands in O(N) time and memory using sticky
+ * regular expressions and an integer cursor (no per-token string slicing).
+ * The function never throws on an empty program: that is detected later by
+ * {@link createProgram}, so the UI can show a dedicated "program is empty" message.
  *
  * @throws {ParseError} when a non-space, non-comment chunk cannot be parsed
  */
 export function parseProgram(text: string, options: ParseOptions = {}): Command[] {
   const commands: Command[] = [];
-  let rest = text;
+  // Local sticky RegExp instances keep `parseProgram` re-entrant even if
+  // `options.onCommand` invokes `parseProgram` nestedly.
+  const skipRe = new RegExp(SKIP_PATTERN, 'y');
+  const commandRe = new RegExp(COMMAND_PATTERN, 'y');
+
+  const length = text.length;
   let offset = 0;
 
-  while (rest.length > 0) {
-    const skip = SKIP_RE.exec(rest);
+  while (offset < length) {
+    skipRe.lastIndex = offset;
+    const skip = skipRe.exec(text);
     if (skip !== null) {
-      offset += skip[0].length;
-      rest = rest.slice(skip[0].length);
+      offset = skipRe.lastIndex;
       continue;
     }
 
-    const match = COMMAND_RE.exec(rest);
+    commandRe.lastIndex = offset;
+    const match = commandRe.exec(text);
     if (match === null) {
       throw new ParseError({
         offset,
-        text: rest.slice(0, 10).replace(/\n/g, ' ').trim(),
+        text: text
+          .slice(offset, offset + 10)
+          .replace(/\n/g, ' ')
+          .trim(),
       });
     }
 
@@ -59,8 +69,7 @@ export function parseProgram(text: string, options: ParseOptions = {}): Command[
     commands.push(command);
     options.onCommand?.(command, commands.length - 1);
 
-    offset += source.length;
-    rest = rest.slice(source.length);
+    offset = commandRe.lastIndex;
   }
 
   return commands;

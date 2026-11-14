@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { NoSuchCommandError, OutOfTapeError } from '../src/core/errors';
 import { parseProgram } from '../src/core/parser';
 import { createProgram } from '../src/core/program';
-import { MachineRun } from '../src/core/run';
+import { DEFAULT_MAX_HISTORY, MachineRun } from '../src/core/run';
 
 const start = (program: string, tape: string): MachineRun =>
   new MachineRun(createProgram(parseProgram(program)), tape);
@@ -237,5 +237,84 @@ describe('MachineRun', () => {
     expect(run.headPosition).toBe(2);
     expect(run.tapeText).toBe('hi ');
     expect(run.cellsUsed).toBe(3);
+  });
+
+  it('bounds undo history with an O(1) ring buffer across wrap-around, stepBack, and reset', () => {
+    const program = createProgram(parseProgram('0, ,>,1  1, ,a,2  2,a,>,0'));
+    const run = new MachineRun(program, '', { maxHistory: 5 });
+
+    expect(run.historyLimit).toBe(5);
+    expect(run.historyLength).toBe(0);
+    expect(run.isHistoryTruncated).toBe(false);
+
+    type StateSnap = {
+      readonly tapeText: string;
+      readonly headPosition: number;
+      readonly currentState: string | number;
+      readonly cellsUsed: number;
+      readonly stepsCount: number;
+    };
+    const snap = (): StateSnap => ({
+      tapeText: run.tapeText,
+      headPosition: run.headPosition,
+      currentState: run.currentState,
+      cellsUsed: run.cellsUsed,
+      stepsCount: run.stepsCount,
+    });
+
+    const states: StateSnap[] = [snap()];
+    for (let i = 0; i < 12; i += 1) {
+      run.step();
+      states.push(snap());
+    }
+
+    expect(run.stepsCount).toBe(12);
+    expect(run.historyLength).toBe(5);
+    expect(run.isHistoryTruncated).toBe(true);
+    expect(run.canStepBack).toBe(true);
+
+    // Undo the most recent 3 steps, then advance 2 more to exercise ring wrap-around after pop
+    for (let s = 11; s >= 9; s -= 1) {
+      expect(run.stepBack()).not.toBeNull();
+      expect(snap()).toEqual(states[s]);
+    }
+    expect(run.historyLength).toBe(2);
+
+    run.step();
+    run.step();
+    expect(run.stepsCount).toBe(11);
+    expect(run.historyLength).toBe(4);
+
+    // Undo all 4 retained steps down to the ring boundary (step 7)
+    for (let s = 10; s >= 7; s -= 1) {
+      expect(run.stepBack()).not.toBeNull();
+      expect(snap()).toEqual(states[s]);
+    }
+
+    expect(run.stepsCount).toBe(7);
+    expect(run.historyLength).toBe(0);
+    expect(run.canStepBack).toBe(false);
+    expect(run.isAtStart).toBe(false);
+    expect(run.isHistoryTruncated).toBe(true);
+    expect(run.stepBack()).toBeNull();
+
+    // Reset clears truncation and restores step 0
+    run.reset();
+    expect(run.stepsCount).toBe(0);
+    expect(run.historyLength).toBe(0);
+    expect(run.isAtStart).toBe(true);
+    expect(run.isHistoryTruncated).toBe(false);
+  });
+
+  it('supports maxHistory: 0 and exposes DEFAULT_MAX_HISTORY', () => {
+    expect(DEFAULT_MAX_HISTORY).toBe(100_000);
+    const program = createProgram(parseProgram('0, ,>,0'));
+    const run = new MachineRun(program, '', { maxHistory: 0 });
+    run.step();
+    expect(run.stepsCount).toBe(1);
+    expect(run.historyLength).toBe(0);
+    expect(run.canStepBack).toBe(false);
+    expect(run.isHistoryTruncated).toBe(true);
+    expect(run.stepBack()).toBeNull();
   });
 });

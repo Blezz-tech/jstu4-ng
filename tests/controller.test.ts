@@ -35,6 +35,7 @@ function makeController(
   overrides: {
     lang?: Lang;
     i18n?: I18n;
+    maxHistory?: number;
     onModeChange?: (mode: UIMode) => void;
     onRunningChange?: (isRunning: boolean) => void;
     onRunStateChange?: (state: RunControlState) => void;
@@ -46,6 +47,7 @@ function makeController(
   return new AppController({
     i18n: overrides.i18n ?? createI18n(overrides.lang ?? 'ru'),
     elements,
+    ...(overrides.maxHistory !== undefined ? { maxHistory: overrides.maxHistory } : {}),
     onModeChange: overrides.onModeChange ?? (() => undefined),
     ...(overrides.onRunningChange ? { onRunningChange: overrides.onRunningChange } : {}),
     ...(overrides.onRunStateChange ? { onRunStateChange: overrides.onRunStateChange } : {}),
@@ -724,5 +726,30 @@ describe('AppController', () => {
 
     controller.backToEdit();
     expect(el.programInput.selectionStart).toBe(program.indexOf('1, ,1,2'));
+  });
+
+  it('reports log.reachedHistoryLimit when stepping back hits bounded history limit and allows restart', () => {
+    const el = setupDom();
+    const controller = makeController(el, { maxHistory: 3 });
+    el.programInput.value = '0, ,>,0';
+    el.tapeInput.value = '';
+
+    controller.start();
+    for (let i = 0; i < 5; i += 1) controller.step();
+    expect(controller.canStepBack).toBe(true);
+
+    // 3 backward steps succeed, stopping right at the undo buffer boundary (step 2)
+    expect(controller.stepBack()).toBe(true);
+    expect(controller.stepBack()).toBe(true);
+    expect(controller.stepBack()).toBe(false);
+    expect(controller.canStepBack).toBe(false);
+    expect(controller.canRestart).toBe(true);
+    expect(el.log.dataset.kind).toBe('info');
+    expect(el.log.textContent).toContain('предел истории отката');
+
+    // Restart still resets cleanly back to step 0
+    controller.restart();
+    expect(controller.canStepBack).toBe(false);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
   });
 });

@@ -1,6 +1,6 @@
 import type { I18n } from '../../i18n';
 import type { AppController } from '../controller';
-import { debounce, el, type DebouncedFn } from '../dom';
+import { debounce, el, svgIcon, type DebouncedFn } from '../dom';
 import {
   AutosaveTracker,
   formatSaveClock,
@@ -15,28 +15,6 @@ import { DeleteSnapshotDialog } from './dialogs';
 import { listen, type AppDom } from './dom';
 import type { SettingsStore } from './settings-store';
 import { isNarrowViewport } from './sidepanels';
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
-
-function createSvgIcon(paths: readonly string[], size = 14): SVGSVGElement {
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', String(size));
-  svg.setAttribute('height', String(size));
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  for (const d of paths) {
-    const path = document.createElementNS(SVG_NS, 'path');
-    path.setAttribute('d', d);
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', 'currentColor');
-    path.setAttribute('stroke-width', '2');
-    path.setAttribute('stroke-linecap', 'round');
-    path.setAttribute('stroke-linejoin', 'round');
-    svg.append(path);
-  }
-  return svg;
-}
 
 const ICON_RENAME = ['M12 20h9', 'M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5Z'];
 const ICON_DELETE = [
@@ -375,7 +353,7 @@ export class HistoryPanel {
           title: this.i18n.t('history.renameSave'),
           'aria-label': this.i18n.t('history.renameSave'),
         },
-        createSvgIcon(ICON_CHECK),
+        svgIcon(ICON_CHECK),
       );
 
       const cancelBtn = el(
@@ -386,7 +364,7 @@ export class HistoryPanel {
           title: this.i18n.t('history.renameCancel'),
           'aria-label': this.i18n.t('history.renameCancel'),
         },
-        createSvgIcon(ICON_CANCEL),
+        svgIcon(ICON_CANCEL),
       );
 
       listen(
@@ -461,7 +439,7 @@ export class HistoryPanel {
         title: this.i18n.t('history.rename'),
         'aria-label': this.i18n.t('history.rename'),
       },
-      createSvgIcon(ICON_RENAME),
+      svgIcon(ICON_RENAME),
     );
     listen(
       renameBtn,
@@ -487,7 +465,7 @@ export class HistoryPanel {
         title: this.i18n.t('history.delete'),
         'aria-label': this.i18n.t('history.delete'),
       },
-      createSvgIcon(ICON_DELETE),
+      svgIcon(ICON_DELETE),
     );
     listen(deleteBtn, 'click', () => this.requestDeleteSnapshot(snapshot), this.signal);
 
