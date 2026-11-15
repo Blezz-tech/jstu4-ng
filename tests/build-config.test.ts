@@ -42,4 +42,32 @@ describe('transformBuiltHtml (file:// compatibility & production HTML minificati
     expect(prodHtml).not.toContain('crossorigin');
     expect(prodHtml.length).toBeLessThan(sampleHtml.length);
   });
+
+  it('trims button glyph newlines and HTML5 void slashes while preserving SVG and preformatted bodies', () => {
+    const richHtml = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <button id="btn-close" type="button">
+      ×
+    </button>
+    <svg viewBox="0 0 24 24">
+      <path d="M0 0h24" />
+    </svg>
+    <pre
+      id="code"
+    >  line 1
+  line 2</pre>
+  </body>
+</html>`;
+
+    const prodHtml = transformBuiltHtml(richHtml, true);
+
+    expect(prodHtml).toContain('<meta charset="utf-8">');
+    expect(prodHtml).toContain('<button id="btn-close" type="button">×</button>');
+    expect(prodHtml).toContain('<path d="M0 0h24"/>');
+    expect(prodHtml).toContain('<pre id="code">  line 1\n  line 2</pre>');
+  });
 });
