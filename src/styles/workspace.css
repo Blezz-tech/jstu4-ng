@@ -179,6 +179,20 @@ body[data-mode='error'] #input-program {
   color: var(--text-muted);
 }
 
+/* Fixed cell slot width in windowed mode (>500 cells) keeps scroll math O(1). */
+.tape-view--virtual .cell {
+  flex: none;
+  width: 1.5ch;
+  min-width: 1.5ch;
+  overflow: hidden;
+}
+
+.tape-view__spacer {
+  flex: none;
+  display: inline-block;
+  pointer-events: none;
+}
+
 .tape-view .cell.current {
   background: var(--cell-current);
   border-radius: 4px;

@@ -350,7 +350,7 @@ export class AppController {
     this.notifications.clear();
     this.notifyRunState();
     // Flush layout-dependent scroll calls after all DOM writes.
-    scrollIntoView(this.tapeRenderer.currentCell, { block: 'nearest', inline: 'nearest' });
+    this.tapeRenderer.scrollToHead();
     scrollIntoView(this.currentCommandNode);
     // Move focus out of `#input-tape` (e.g. after pressing Enter) so Space/Enter/Esc work.
     this.el.programView.focus({ preventScroll: true });
@@ -512,6 +512,7 @@ export class AppController {
   dispose(): void {
     this.stopAutoRun();
     this.unsubscribeI18n();
+    this.tapeRenderer.clear();
     this.statsNodes = null;
     if (this.ownsNotifications) this.notifications.dispose();
   }
@@ -588,7 +589,7 @@ export class AppController {
     this.renderTapeView(false);
     this.setStepDirection(direction);
     if (highlight) this.markCommand('current', run.nextCommand, false);
-    scrollIntoView(this.tapeRenderer.currentCell, { block: 'nearest', inline: 'nearest' });
+    this.tapeRenderer.scrollToHead();
     if (highlight) scrollIntoView(this.currentCommandNode);
   }
 
