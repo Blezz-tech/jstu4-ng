@@ -50,7 +50,6 @@ export class ToolbarView {
       () => {
         sound.unlock();
         controller.stepBack();
-        this.syncRunToggleLabel();
       },
       signal,
     );
@@ -60,7 +59,6 @@ export class ToolbarView {
       () => {
         sound.unlock();
         controller.step();
-        this.syncRunToggleLabel();
       },
       signal,
     );
@@ -70,19 +68,10 @@ export class ToolbarView {
       () => {
         sound.unlock();
         controller.toggleAutoRun();
-        this.syncRunToggleLabel();
       },
       signal,
     );
-    listen(
-      this.dom.restartButton,
-      'click',
-      () => {
-        controller.restart();
-        this.syncRunToggleLabel();
-      },
-      signal,
-    );
+    listen(this.dom.restartButton, 'click', () => controller.restart(), signal);
 
     listen(this.dom.speedInput, 'pointerdown', () => controller.beginSpeedDrag(), signal);
     listen(window, 'pointerup', () => controller.endSpeedDrag(), signal);
@@ -99,15 +88,7 @@ export class ToolbarView {
       signal,
     );
 
-    listen(
-      this.dom.unmarkButton,
-      'click',
-      () => {
-        controller.unmark();
-        this.syncRunToggleLabel();
-      },
-      signal,
-    );
+    listen(this.dom.unmarkButton, 'click', () => controller.unmark(), signal);
     listen(this.dom.editButton, 'click', () => controller.backToEdit('program'), signal);
     listen(this.dom.editErrButton, 'click', () => controller.backToEdit('program'), signal);
     listen(this.dom.copyButton, 'click', () => void controller.copyProgram(), signal);

@@ -178,4 +178,9 @@ describe('storage', () => {
     ).not.toThrow();
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
   });
+
+  it('falls back cleanly when jstu4:settings stores a JSON array instead of an object', () => {
+    window.localStorage.setItem('jstu4:settings', '[]');
+    expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
+  });
 });

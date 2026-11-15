@@ -61,15 +61,9 @@ export class Command {
 /** Numeric states are stored as numbers, named states as strings. */
 export type StateId = number | string;
 
-/** Parse a state name: digit-only names become numbers. */
+/** Parse a state name: safe-integer digit-only names become numbers. */
 export function parseStateName(name: string): StateId {
-  return /^\d+$/.test(name) ? Number.parseInt(name, 10) : name;
-}
-
-/**
- * Normalised comparison key for a state. `1` and `'01'` must be the same
- * state, but `'1'` and `'a'` must not collide with each other.
- */
-export function stateKey(id: StateId): string {
-  return typeof id === 'number' ? `#${id}` : `$${id}`;
+  if (!/^\d+$/.test(name)) return name;
+  const parsed = Number.parseInt(name, 10);
+  return Number.isSafeInteger(parsed) ? parsed : name;
 }

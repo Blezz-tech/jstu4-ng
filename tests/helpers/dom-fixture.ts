@@ -82,6 +82,7 @@ export function setupAppDom(prefersDark = false): MockMql {
 }
 
 export function teardownAppDom(): void {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   window.localStorage.clear();

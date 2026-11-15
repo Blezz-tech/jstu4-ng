@@ -120,6 +120,11 @@ export function formatMessage(
   params?: FormatParams,
   pluralHashReplacement?: string,
 ): string {
+  // Fast path: static strings without ICU placeholders need no character scan.
+  if (pluralHashReplacement === undefined && (params === undefined || !template.includes('{'))) {
+    return template;
+  }
+
   let out = '';
   let i = 0;
 

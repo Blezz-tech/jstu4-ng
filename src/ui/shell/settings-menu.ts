@@ -301,15 +301,17 @@ export class SettingsMenu {
 
   private commitSpeedBound(kind: SpeedBoundKind, nextBound: number, writeInput: boolean): void {
     const { input } = this.boundNodes(kind);
+    let value: number;
     if (kind === 'min') {
       const result = this.controller.setMinSpeed(nextBound);
       this.settings.update({ minSpeed: result.minSpeed, speed: result.speed });
-      if (writeInput) input.value = String(result.minSpeed);
+      value = result.minSpeed;
     } else {
       const result = this.controller.setMaxSpeed(nextBound);
       this.settings.update({ maxSpeed: result.maxSpeed, speed: result.speed });
-      if (writeInput) input.value = String(result.maxSpeed);
+      value = result.maxSpeed;
     }
+    if (writeInput) input.value = String(value);
     this.syncSpeedControls();
   }
 }

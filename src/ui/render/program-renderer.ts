@@ -1,5 +1,12 @@
 import { el } from '../dom';
-import { renderProgramWithError, type ProgramListing } from './listing';
+import { buildProgramFragment, renderProgramWithError, type ProgramListing } from './listing';
+import {
+  appendParseErrorSlice,
+  countTextLines,
+  exceedsLineThreshold,
+  indexProgramLines,
+  type ProgramLine,
+} from './program-lines';
 import {
   computeScrollToIndex,
   computeWindowRange,
@@ -21,88 +28,11 @@ const PROGRAM_VIRTUAL_OVERSCAN = 30;
 const DEFAULT_LINE_HEIGHT_PX = 24;
 /** Fallback program viewport height (px) when `host.clientHeight` is 0. */
 const DEFAULT_PROGRAM_VIEWPORT_HEIGHT_PX = 480;
-/** Matches `tab-size: 4` on `.program`. */
-const PROGRAM_TAB_SIZE = 4;
 
 export interface ProgramRendererOptions {
   readonly lineThreshold?: number;
   readonly commandThreshold?: number;
   readonly overscan?: number;
-}
-
-interface ProgramLine {
-  readonly start: number;
-  readonly end: number;
-  readonly firstCommand: number;
-  readonly commandCount: number;
-}
-
-interface LineIndexResult {
-  readonly lines: ProgramLine[];
-  readonly commandLine: Int32Array;
-  readonly maxLineChars: number;
-  readonly parseErrorLine: number | null;
-}
-
-function exceedsLineThreshold(text: string, threshold: number): boolean {
-  let lines = 1;
-  let pos = -1;
-  while ((pos = text.indexOf('\n', pos + 1)) !== -1) {
-    lines += 1;
-    if (lines > threshold) return true;
-  }
-  return false;
-}
-
-function indexProgramLines(
-  text: string,
-  ranges: readonly { readonly start: number; readonly end: number }[],
-  parseErrorOffset: number | null,
-): LineIndexResult {
-  const lines: ProgramLine[] = [];
-  const commandLine = new Int32Array(ranges.length);
-  const len = text.length;
-  let cmdCursor = 0;
-  let lineStart = 0;
-  let maxLineChars = 0;
-  let parseErrorLine: number | null = null;
-
-  for (;;) {
-    const nl = text.indexOf('\n', lineStart);
-    const rawEnd = nl === -1 ? len : nl;
-    const end = rawEnd > lineStart && text.charCodeAt(rawEnd - 1) === 13 ? rawEnd - 1 : rawEnd;
-    const lineIdx = lines.length;
-
-    const firstCommand = cmdCursor;
-    while (cmdCursor < ranges.length) {
-      const range = ranges[cmdCursor];
-      if (range === undefined || range.start > rawEnd) break;
-      commandLine[cmdCursor] = lineIdx;
-      cmdCursor += 1;
-    }
-
-    if (
-      parseErrorOffset !== null &&
-      parseErrorLine === null &&
-      (parseErrorOffset <= rawEnd || nl === -1)
-    ) {
-      parseErrorLine = lineIdx;
-    }
-
-    let visualCols = 0;
-    for (let i = lineStart; i < end; i += 1) {
-      visualCols +=
-        text.charCodeAt(i) === 9 ? PROGRAM_TAB_SIZE - (visualCols % PROGRAM_TAB_SIZE) : 1;
-    }
-    if (visualCols > maxLineChars) maxLineChars = visualCols;
-
-    lines.push({ start: lineStart, end, firstCommand, commandCount: cmdCursor - firstCommand });
-
-    if (nl === -1) break;
-    lineStart = nl + 1;
-  }
-
-  return { lines, commandLine, maxLineChars, parseErrorLine };
 }
 
 /**
@@ -144,6 +74,7 @@ export class ProgramRenderer {
   private readonly visibleCommandNodes = new Map<number, HTMLSpanElement>();
   private lineHeightPx = DEFAULT_LINE_HEIGHT_PX;
   private padding: HostPadding = ZERO_PADDING;
+  private horizontalPadding: HostPadding = ZERO_PADDING;
   private geometryMeasured = false;
   private lastScrollTop = 0;
 
@@ -324,6 +255,7 @@ export class ProgramRenderer {
     this.visibleCommandNodes.clear();
     this.lineHeightPx = DEFAULT_LINE_HEIGHT_PX;
     this.padding = ZERO_PADDING;
+    this.horizontalPadding = ZERO_PADDING;
     this.geometryMeasured = false;
     this.lastScrollTop = 0;
   }
@@ -333,34 +265,12 @@ export class ProgramRenderer {
   }
 
   private countDirectLines(): number {
-    let lines = 1;
-    let pos = -1;
-    while ((pos = this.text.indexOf('\n', pos + 1)) !== -1) lines += 1;
-    return lines;
+    return countTextLines(this.text);
   }
 
   private mountDirect(host: HTMLElement, listing: ProgramListing): void {
-    const fragment = document.createDocumentFragment();
     const nodes: HTMLSpanElement[] = [];
-    let cursor = 0;
-
-    for (let i = 0; i < listing.ranges.length; i += 1) {
-      const range = listing.ranges[i];
-      if (range === undefined) continue;
-      if (range.start > cursor) {
-        fragment.appendChild(document.createTextNode(listing.text.slice(cursor, range.start)));
-      }
-      const span = document.createElement('span');
-      span.className = this.errorIndices.has(i) ? 'cmd error' : 'cmd';
-      span.textContent = listing.text.slice(range.start, range.end);
-      nodes.push(span);
-      fragment.appendChild(span);
-      cursor = range.end;
-    }
-
-    if (cursor < listing.text.length) {
-      fragment.appendChild(document.createTextNode(listing.text.slice(cursor)));
-    }
+    const fragment = buildProgramFragment(listing, this.errorIndices, nodes);
     this.directNodes = nodes;
     host.replaceChildren(fragment);
   }
@@ -401,19 +311,22 @@ export class ProgramRenderer {
       : this.lastScrollTop;
   }
 
-  private measureGeometry(): void {
-    if (this.geometryMeasured || !this.virtualized || this.host === null) return;
+  private measureGeometry(): boolean {
+    if (this.geometryMeasured || !this.virtualized || this.host === null) return false;
     const sample = this.renderedLines.values().next().value;
-    if (sample === undefined || typeof sample.getBoundingClientRect !== 'function') return;
+    if (sample === undefined || typeof sample.getBoundingClientRect !== 'function') return false;
     const height = sample.getBoundingClientRect().height;
     if (height > 0) {
       this.geometryMeasured = true;
       this.padding = measureHostPadding(this.host, 'y');
+      this.horizontalPadding = measureHostPadding(this.host, 'x');
       if (Math.abs(height - this.lineHeightPx) > 0.25) {
         this.lineHeightPx = height;
         this.syncVirtualWindow(true, this.readScrollTop());
+        return true;
       }
     }
+    return false;
   }
 
   private scrollToLine(lineIdx: number): void {
@@ -454,10 +367,13 @@ export class ProgramRenderer {
     const nodeRect = node.getBoundingClientRect();
     if (nodeRect.width <= 0) return;
 
-    if (nodeRect.left < hostRect.left) {
-      host.scrollLeft = Math.max(0, host.scrollLeft - (hostRect.left - nodeRect.left));
-    } else if (nodeRect.right > hostRect.right) {
-      host.scrollLeft += nodeRect.right - hostRect.right;
+    const visibleLeft = hostRect.left + this.horizontalPadding.start;
+    const visibleRight = hostRect.left + host.clientWidth - this.horizontalPadding.end;
+
+    if (nodeRect.left < visibleLeft) {
+      host.scrollLeft = Math.max(0, host.scrollLeft - (visibleLeft - nodeRect.left));
+    } else if (nodeRect.right > visibleRight) {
+      host.scrollLeft += nodeRect.right - visibleRight;
     }
   }
 
@@ -540,25 +456,7 @@ export class ProgramRenderer {
     if (line === undefined) return div;
 
     if (this.parseErrorOffset !== null && this.parseErrorLine === lineIdx) {
-      const offset = this.parseErrorOffset;
-      const mark = document.createElement('mark');
-      mark.className = 'error';
-      if (offset >= line.end) {
-        if (line.end > line.start) {
-          div.appendChild(document.createTextNode(this.text.slice(line.start, line.end)));
-        }
-        mark.textContent = ' ';
-        div.appendChild(mark);
-      } else {
-        if (offset > line.start) {
-          div.appendChild(document.createTextNode(this.text.slice(line.start, offset)));
-        }
-        mark.textContent = this.text.charAt(offset) || ' ';
-        div.appendChild(mark);
-        if (offset + 1 < line.end) {
-          div.appendChild(document.createTextNode(this.text.slice(offset + 1, line.end)));
-        }
-      }
+      appendParseErrorSlice(div, this.text, line.start, line.end, this.parseErrorOffset);
     } else if (line.commandCount === 0) {
       if (line.end > line.start) div.textContent = this.text.slice(line.start, line.end);
     } else {
@@ -602,7 +500,8 @@ export class ProgramRenderer {
   private readonly handleResize = (): void => {
     if (!this.virtualized) return;
     this.geometryMeasured = false;
-    this.measureGeometry();
-    this.syncVirtualWindow(true, this.readScrollTop());
+    if (!this.measureGeometry()) {
+      this.syncVirtualWindow(true, this.readScrollTop());
+    }
   };
 }

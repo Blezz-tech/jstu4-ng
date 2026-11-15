@@ -112,7 +112,9 @@ body[data-mode='error'] #input-program {
 .tape,
 .program,
 .field--program,
-.help__body {
+.help__body,
+.sidepanel__body,
+.tu4-dialog__code {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
@@ -120,7 +122,9 @@ body[data-mode='error'] #input-program {
 .tape::-webkit-scrollbar,
 .program::-webkit-scrollbar,
 .field--program::-webkit-scrollbar,
-.help__body::-webkit-scrollbar {
+.help__body::-webkit-scrollbar,
+.sidepanel__body::-webkit-scrollbar,
+.tu4-dialog__code::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
@@ -128,14 +132,18 @@ body[data-mode='error'] #input-program {
 .tape::-webkit-scrollbar-track,
 .program::-webkit-scrollbar-track,
 .field--program::-webkit-scrollbar-track,
-.help__body::-webkit-scrollbar-track {
+.help__body::-webkit-scrollbar-track,
+.sidepanel__body::-webkit-scrollbar-track,
+.tu4-dialog__code::-webkit-scrollbar-track {
   background: var(--scrollbar-track);
 }
 
 .tape::-webkit-scrollbar-thumb,
 .program::-webkit-scrollbar-thumb,
 .field--program::-webkit-scrollbar-thumb,
-.help__body::-webkit-scrollbar-thumb {
+.help__body::-webkit-scrollbar-thumb,
+.sidepanel__body::-webkit-scrollbar-thumb,
+.tu4-dialog__code::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 999px;
 }
@@ -143,7 +151,9 @@ body[data-mode='error'] #input-program {
 .tape::-webkit-scrollbar-thumb:hover,
 .program::-webkit-scrollbar-thumb:hover,
 .field--program::-webkit-scrollbar-thumb:hover,
-.help__body::-webkit-scrollbar-thumb:hover {
+.help__body::-webkit-scrollbar-thumb:hover,
+.sidepanel__body::-webkit-scrollbar-thumb:hover,
+.tu4-dialog__code::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 

@@ -187,7 +187,7 @@ export class Tu4Dialog {
 
   private async copy(): Promise<void> {
     const copied = await copyTextToClipboard(this.dom.tu4Output.value, this.dom.tu4Output);
-    if (!copied) return;
+    if (!copied || !this.isOpen) return;
 
     this.clearStatus();
     this.dom.tu4Status.textContent = this.i18n.t('tu4Dialog.copied');
