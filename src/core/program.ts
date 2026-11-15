@@ -1,10 +1,6 @@
+import type { ProgramValidationError } from './errors';
 import type { Command, StateId } from './machine';
-import {
-  AmbiguousCommandError,
-  EmptyProgramError,
-  NonexistentInitialStateError,
-  NonexistentTargetStateError,
-} from './errors';
+import { err, ok, type Result } from './result';
 
 /** Immutable, validated machine program. */
 export interface Program {
@@ -17,23 +13,18 @@ export interface Program {
 }
 
 /**
- * Build a program from parsed commands.
+ * Build a validated program from parsed commands.
  *
  * @param commands parsed commands in source order
  * @param initialState requested initial state; when omitted, the state of the
  *   first command is used (same heuristic as the original emulator)
- *
- * @throws {EmptyProgramError} when there are no commands
- * @throws {AmbiguousCommandError} when two commands share `q` and `a`
- * @throws {NonexistentInitialStateError} when the initial state is not used
- * @throws {NonexistentTargetStateError} when some target state is unreachable
  */
 export function createProgram(
   commands: readonly Command[],
   initialState?: StateId | null,
-): Program {
+): Result<Program, ProgramValidationError> {
   const first = commands[0];
-  if (first === undefined) throw new EmptyProgramError();
+  if (first === undefined) return err({ kind: 'emptyProgram' });
 
   const q0 = initialState ?? first.q;
 
@@ -48,22 +39,22 @@ export function createProgram(
     }
     const original = bySymbol.get(command.a);
     if (original !== undefined) {
-      throw new AmbiguousCommandError({ command, original });
+      return err({ kind: 'ambiguousCommand', command, original });
     }
     bySymbol.set(command.a, command);
   }
 
   if (!transitions.has(q0)) {
-    throw new NonexistentInitialStateError({ state: q0 });
+    return err({ kind: 'nonexistentInitialState', state: q0 });
   }
 
   for (const command of commands) {
     if (!transitions.has(command.w)) {
-      throw new NonexistentTargetStateError({ command });
+      return err({ kind: 'nonexistentTargetState', command });
     }
   }
 
-  return { initialState: q0, commands: Object.freeze([...commands]), transitions };
+  return ok({ initialState: q0, commands: Object.freeze([...commands]), transitions });
 }
 
 /** Look up the transition for a state/symbol pair. */
