@@ -903,4 +903,29 @@ describe('AppController', () => {
       });
     }
   });
+
+  it('counts non-BMP tape cells accurately in stats and stops auto-run on compile error via toTu4()', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,>,1  1, ,>,0';
+    el.tapeInput.value = '🚀a';
+    controller.start();
+
+    // '🚀a' has 2 initial tape cells (not 3 UTF-16 code units)
+    const values = Array.from(el.stats.querySelectorAll('.stat-row__value')).map(
+      (n) => n.textContent,
+    );
+    expect(values[1]).toBe('2');
+
+    // Start auto-run, corrupt source, and trigger toTu4() -> auto-run must halt cleanly on error mode
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    el.programInput.value = 'BROKEN';
+    expect(controller.toTu4()).toBeNull();
+    expect(controller.currentMode).toBe('error');
+    expect(controller.isAutoRunning).toBe(false);
+    expect(el.tapeView.childNodes).toHaveLength(0);
+
+    controller.dispose();
+  });
 });

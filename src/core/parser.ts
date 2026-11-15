@@ -51,13 +51,12 @@ export function parseProgram(text: string, options: ParseOptions = {}): Command[
     commandRe.lastIndex = offset;
     const match = commandRe.exec(text);
     if (match === null) {
-      throw new ParseError({
-        offset,
-        text: text
-          .slice(offset, offset + 10)
-          .replace(/\n/g, ' ')
-          .trim(),
-      });
+      const snippet = Array.from(text.slice(offset, offset + 20))
+        .slice(0, 10)
+        .join('')
+        .replace(/[\r\n]/g, ' ')
+        .trim();
+      throw new ParseError({ offset, text: snippet });
     }
 
     const [source, q, a, v, w] = match as unknown as [string, string, string, string, string];

@@ -152,7 +152,6 @@ export function mountApp(doc: Document = document): MountedApp {
     closeHistoryDrawer: () => sidepanels.setHistoryOpen(false, false),
     closeSidepanelDrawer: () => sidepanels.setSidepanelOpen(false, false),
     saveSnapshot: () => historyPanel.createManualSnapshot(),
-    syncRunToggleLabel: () => activeToolbar.syncRunToggleLabel(),
     signal,
   });
 

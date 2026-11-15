@@ -306,4 +306,33 @@ describe('history (SnapshotStore)', () => {
     tracker.dispose();
     store.dispose();
   });
+
+  it('never silently drops a newly created autosave when localStorage quota is exceeded', () => {
+    const onPersistError = vi.fn();
+    const store = new SnapshotStore({ onPersistError });
+    const existingManual = store.create('manual', '0, ,#,0', '1', 1000);
+
+    // Reject only payloads larger than the existing manual snapshot (simulates quota full for the new autosave)
+    const maxBytes = window.localStorage.getItem(SNAPSHOTS_STORAGE_KEY)!.length;
+    const origSetItem = Storage.prototype.setItem.bind(window.localStorage);
+    const spy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation((key: string, value: string) => {
+        if (key === SNAPSHOTS_STORAGE_KEY && value.length > maxBytes) {
+          throw new DOMException('Quota exceeded', 'QuotaExceededError');
+        }
+        origSetItem(key, value);
+      });
+
+    try {
+      const created = store.maybeAutosave('0,1,0,0\n'.repeat(20), '111', 2000);
+      expect(created).toBeNull();
+      expect(store.lastPersistOk).toBe(false);
+      expect(onPersistError).toHaveBeenCalledTimes(1);
+      expect(store.list().map((s) => s.id)).toEqual([existingManual.id]);
+    } finally {
+      spy.mockRestore();
+      store.dispose();
+    }
+  });
 });

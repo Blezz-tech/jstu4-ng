@@ -337,4 +337,16 @@ describe('version control UI (public/index.html + src/main.ts)', () => {
     expect(historyList.children).toHaveLength(0);
     expect(saveStatus.dataset.state).toBe('dirty');
   });
+
+  it('triggers manual snapshot on Ctrl+S even when a non-Latin keyboard layout emits KeyS', async () => {
+    await boot();
+    const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
+    const historyList = document.querySelector<HTMLUListElement>('#history-list')!;
+
+    editField(programInput, '0, ,#,0');
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ы', code: 'KeyS', ctrlKey: true, bubbles: true }),
+    );
+    expect(historyList.children).toHaveLength(1);
+  });
 });

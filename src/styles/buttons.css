@@ -30,7 +30,7 @@
   background: var(--surface-2);
 }
 
-.btn:active {
+.btn:active:not(:disabled) {
   transform: translateY(1px);
 }
 
@@ -104,7 +104,6 @@
   color: var(--text);
 }
 
-.icon-btn[data-on='true'],
 .icon-btn[aria-expanded='true'] {
   background: var(--accent-soft);
   border-color: var(--accent);

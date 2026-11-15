@@ -18,7 +18,6 @@ export interface ShortcutsOptions {
   readonly closeHistoryDrawer: () => void;
   readonly closeSidepanelDrawer: () => void;
   readonly saveSnapshot: () => void;
-  readonly syncRunToggleLabel: () => void;
   readonly signal: AbortSignal;
 }
 
@@ -145,7 +144,7 @@ export function bindShortcuts(options: ShortcutsOptions): void {
         hasModifier &&
         !event.altKey &&
         !event.shiftKey &&
-        event.key.toLowerCase() === 's' &&
+        (event.key.toLowerCase() === 's' || event.code === 'KeyS') &&
         controller.currentMode === 'edit'
       ) {
         event.preventDefault();
@@ -158,7 +157,6 @@ export function bindShortcuts(options: ShortcutsOptions): void {
           event.preventDefault();
           sound.unlock();
           controller.handleEnter(hasModifier);
-          options.syncRunToggleLabel();
         }
         return;
       }
@@ -175,13 +173,11 @@ export function bindShortcuts(options: ShortcutsOptions): void {
         sound.unlock();
         if (event.shiftKey) controller.handleShiftSpace();
         else controller.handleSpace();
-        options.syncRunToggleLabel();
         return;
       }
 
       if (event.key === 'Escape' && (!inEditable || controller.currentMode === 'error')) {
         controller.handleEscape();
-        options.syncRunToggleLabel();
       }
     },
     signal,

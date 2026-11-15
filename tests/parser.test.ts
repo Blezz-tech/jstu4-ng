@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ParseError } from '../src/core/errors';
+import { parseStateName } from '../src/core/machine';
 import { parseProgram } from '../src/core/parser';
 
 describe('parseProgram', () => {
@@ -97,5 +98,25 @@ describe('parseProgram', () => {
     });
     expect(outer.map((c) => c.toString())).toEqual(['0, ,>,1', '1, ,#,1']);
     expect(nestedCounts).toEqual([1, 1]);
+  });
+
+  it('keeps huge numeric state names beyond MAX_SAFE_INTEGER as distinct strings and preserves surrogate pairs in ParseError snippets', () => {
+    const big1 = '9007199254740993';
+    const big2 = '9007199254740994';
+    expect(parseStateName(big1)).toBe(big1);
+    expect(parseStateName(big2)).toBe(big2);
+    expect(parseStateName(big1)).not.toBe(parseStateName(big2));
+    expect(parseStateName('007')).toBe(7);
+
+    // 9 ASCII chars + non-BMP emoji + CRLF: slicing at 10 code points must not split the surrogate pair
+    const broken = '123456789🚀\r\nmore';
+    let caught: ParseError | null = null;
+    try {
+      parseProgram(broken);
+    } catch (err) {
+      if (err instanceof ParseError) caught = err;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught?.data.text).toBe('123456789🚀');
   });
 });

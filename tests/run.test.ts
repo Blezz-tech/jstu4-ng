@@ -404,6 +404,7 @@ describe('MachineRun', () => {
   it('evaluates checkNormality() accurately with non-BMP Unicode symbols on the tape', () => {
     // '🚀' is 2 UTF-16 code units but 1 tape cell; head starts on the trailing blank at cell 2
     const normalRun = start('0, ,>,1  1, ,🎯,2  2,🎯,>,3  3, ,#,3', '🚀a');
+    expect(normalRun.initialLength).toBe(2);
     while (normalRun.isRunning) normalRun.step();
     expect(normalRun.headPosition).toBe(4);
     expect(normalRun.checkNormality()).toBe('normal');

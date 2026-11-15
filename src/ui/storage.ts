@@ -87,7 +87,7 @@ export function loadSettings(): AppSettings {
   if (raw !== null) {
     try {
       const parsed: unknown = JSON.parse(raw);
-      if (typeof parsed === 'object' && parsed !== null) {
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         const rec = parsed as Record<string, unknown>;
         const minSpeed =
           typeof rec['minSpeed'] === 'number'

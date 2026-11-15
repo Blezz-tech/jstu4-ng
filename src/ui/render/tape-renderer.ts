@@ -334,10 +334,10 @@ export class TapeRenderer {
       : this.lastScrollLeft;
   }
 
-  private measureGeometry(): void {
-    if (this.geometryMeasured || !this.virtualized || this.host === null) return;
+  private measureGeometry(): boolean {
+    if (this.geometryMeasured || !this.virtualized || this.host === null) return false;
     const sample = this.cells[0];
-    if (sample === undefined || typeof sample.getBoundingClientRect !== 'function') return;
+    if (sample === undefined || typeof sample.getBoundingClientRect !== 'function') return false;
     const width = sample.getBoundingClientRect().width;
     if (width > 0) {
       this.geometryMeasured = true;
@@ -345,8 +345,10 @@ export class TapeRenderer {
       if (Math.abs(width - this.cellWidthPx) > 0.25) {
         this.cellWidthPx = width;
         this.syncVirtualWindow(true, this.readScrollLeft());
+        return true;
       }
     }
+    return false;
   }
 
   private syncVirtualWindow(force: boolean, scrollLeft: number): void {
@@ -446,8 +448,9 @@ export class TapeRenderer {
   private readonly handleResize = (): void => {
     if (!this.virtualized) return;
     this.geometryMeasured = false;
-    this.measureGeometry();
-    this.syncVirtualWindow(true, this.readScrollLeft());
+    if (!this.measureGeometry()) {
+      this.syncVirtualWindow(true, this.readScrollLeft());
+    }
   };
 
   private syncCell(index: number, next: string): void {

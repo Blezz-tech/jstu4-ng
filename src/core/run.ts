@@ -1,14 +1,9 @@
 import type { Command, StateId } from './machine';
 import type { Program } from './program';
 import { NoSuchCommandError, OutOfTapeError } from './errors';
+import { DEFAULT_MAX_HISTORY, UndoHistory } from './undo-history';
 
-/** Default maximum number of reversible steps kept in memory per run. */
-export const DEFAULT_MAX_HISTORY = 100_000;
-
-/** Initial backing capacity for the growable SoA undo ring buffer. */
-const INITIAL_HISTORY_CAPACITY = 256;
-
-const EMPTY_INT32 = new Int32Array(0);
+export { DEFAULT_MAX_HISTORY };
 
 /**
  * Cap on individually tracked dirty cell indices between renders. Exceeding it
@@ -46,17 +41,8 @@ function isBlankCell(symbol: string): boolean {
 export class MachineRun {
   private readonly tape: string[];
   private readonly initialTapeCells: readonly string[];
-  private readonly maxHistory: number;
-  // Growable Structure-of-Arrays ring buffer for O(1) reversible history:
-  // avoids allocating a StepRecord object per step and cuts 100k-step memory ~4×.
-  // `prevState` is omitted because it always equals `command.q`.
-  private historyCmd: (Command | undefined)[] = [];
-  private historyPos: Int32Array = EMPTY_INT32;
-  private historyLen: Int32Array = EMPTY_INT32;
-  private historySym: (string | undefined)[] = [];
-  private historyCap = 0;
-  private historyHead = 0;
-  private historySize = 0;
+  private readonly initialTapeText: string;
+  private readonly history: UndoHistory;
   private dirtyCells: number[] = [];
   private dirtySnapshot: number[] = [];
   private dirtyAll = false;
@@ -66,19 +52,13 @@ export class MachineRun {
   private running = true;
   private next: Command | undefined;
   private steps = 0;
-  private readonly initialTapeText: string;
 
   constructor(
     private readonly program: Program,
     tapeText: string,
     options: MachineRunOptions = {},
   ) {
-    const limit = options.maxHistory ?? DEFAULT_MAX_HISTORY;
-    this.maxHistory = Number.isFinite(limit)
-      ? Math.max(0, Math.floor(limit))
-      : limit === Number.POSITIVE_INFINITY
-        ? Number.POSITIVE_INFINITY
-        : DEFAULT_MAX_HISTORY;
+    this.history = new UndoHistory(options.maxHistory);
 
     // Trailing whitespace is not a part of the data: the machine starts
     // immediately after the last visible symbol (original behaviour).
@@ -107,81 +87,6 @@ export class MachineRun {
     return this.stateTransitions?.get(symbolAt(this.tape, this.position));
   }
 
-  private clearHistory(): void {
-    this.historyCmd = [];
-    this.historyPos = EMPTY_INT32;
-    this.historyLen = EMPTY_INT32;
-    this.historySym = [];
-    this.historyCap = 0;
-    this.historyHead = 0;
-    this.historySize = 0;
-  }
-
-  private growHistory(): void {
-    const oldCap = this.historyCap;
-    const rawNext = oldCap === 0 ? INITIAL_HISTORY_CAPACITY : oldCap * 2;
-    const nextCap = Math.min(this.maxHistory, rawNext);
-
-    const nextCmd = new Array<Command | undefined>(nextCap);
-    const nextPos = new Int32Array(nextCap);
-    const nextLen = new Int32Array(nextCap);
-    const nextSym = new Array<string | undefined>(nextCap);
-
-    if (this.historySize > 0) {
-      if (this.historyHead === 0) {
-        for (let i = 0; i < this.historySize; i += 1) {
-          nextCmd[i] = this.historyCmd[i];
-          nextSym[i] = this.historySym[i];
-        }
-        nextPos.set(this.historyPos.subarray(0, this.historySize));
-        nextLen.set(this.historyLen.subarray(0, this.historySize));
-      } else {
-        for (let i = 0; i < this.historySize; i += 1) {
-          const src = (this.historyHead + i) % oldCap;
-          nextCmd[i] = this.historyCmd[src];
-          nextPos[i] = this.historyPos[src] ?? 0;
-          nextLen[i] = this.historyLen[src] ?? 0;
-          nextSym[i] = this.historySym[src];
-        }
-        this.historyHead = 0;
-      }
-    }
-
-    this.historyCmd = nextCmd;
-    this.historyPos = nextPos;
-    this.historyLen = nextLen;
-    this.historySym = nextSym;
-    this.historyCap = nextCap;
-  }
-
-  private pushHistory(
-    command: Command,
-    prevPosition: number,
-    prevTapeLength: number,
-    prevSymbol: string | undefined,
-  ): void {
-    if (this.maxHistory === 0) return;
-
-    if (this.historySize === this.historyCap && this.historyCap < this.maxHistory) {
-      this.growHistory();
-    }
-
-    let writeIdx: number;
-    if (this.historySize < this.historyCap) {
-      writeIdx = (this.historyHead + this.historySize) % this.historyCap;
-      this.historySize += 1;
-    } else {
-      // Buffer is full: overwrite the oldest record in O(1).
-      writeIdx = this.historyHead;
-      this.historyHead = (this.historyHead + 1) % this.historyCap;
-    }
-
-    this.historyCmd[writeIdx] = command;
-    this.historyPos[writeIdx] = prevPosition;
-    this.historyLen[writeIdx] = prevTapeLength;
-    this.historySym[writeIdx] = prevSymbol;
-  }
-
   get isRunning(): boolean {
     return this.running;
   }
@@ -191,22 +96,22 @@ export class MachineRun {
   }
 
   get canStepBack(): boolean {
-    return this.historySize > 0;
+    return this.history.size > 0;
   }
 
   /** Number of steps currently retained in the undo buffer. */
   get historyLength(): number {
-    return this.historySize;
+    return this.history.size;
   }
 
   /** Configured maximum undo history capacity. */
   get historyLimit(): number {
-    return this.maxHistory;
+    return this.history.limit;
   }
 
   /** True when earlier steps were evicted because total steps exceeded {@link historyLimit}. */
   get isHistoryTruncated(): boolean {
-    return this.steps > this.historySize;
+    return this.steps > this.history.size;
   }
 
   get currentState(): StateId {
@@ -232,6 +137,11 @@ export class MachineRun {
 
   get initialTape(): string {
     return this.initialTapeText;
+  }
+
+  /** Number of initial non-trailing-space cells (exact for non-BMP Unicode symbols). */
+  get initialLength(): number {
+    return this.initialTapeCells.length;
   }
 
   /** Current tape as a read-only cell array (zero-copy view for incremental rendering). */
@@ -314,12 +224,11 @@ export class MachineRun {
         }
         break;
       case 'stay':
-        break;
       case 'halt':
         break;
     }
 
-    this.pushHistory(command, prevPosition, prevTapeLength, prevSymbol);
+    this.history.push(command, prevPosition, prevTapeLength, prevSymbol);
     this.steps += 1;
 
     if (command.isHalt) {
@@ -345,21 +254,10 @@ export class MachineRun {
    *   no undo history remains (at step 0 or at the history buffer boundary)
    */
   stepBack(): Command | null {
-    if (this.historySize === 0) return null;
+    const popped = this.history.pop();
+    if (popped === null) return null;
 
-    this.historySize -= 1;
-    const readIdx = (this.historyHead + this.historySize) % this.historyCap;
-    const command = this.historyCmd[readIdx];
-    const prevPosition = this.historyPos[readIdx] ?? 0;
-    const prevTapeLength = this.historyLen[readIdx] ?? 0;
-    const prevSymbol = this.historySym[readIdx];
-
-    this.historyCmd[readIdx] = undefined;
-    this.historySym[readIdx] = undefined;
-    if (this.historySize === 0) this.clearHistory();
-
-    if (command === undefined) return null;
-
+    const { command, prevPosition, prevTapeLength, prevSymbol } = popped;
     this.tape.length = prevTapeLength;
     if (command.kind === 'write') {
       const restored = prevSymbol ?? ' ';
@@ -391,7 +289,7 @@ export class MachineRun {
     this.tape[initial.length] = ' ';
     this.dirtyAll = true;
     this.dirtyCells.length = 0;
-    this.clearHistory();
+    this.history.clear();
     this.state = this.program.initialState;
     this.stateTransitions = this.program.transitions.get(this.state);
     this.position = initial.length;
@@ -407,10 +305,6 @@ export class MachineRun {
    * matches original jstu4 v2.3 exactly.
    */
   checkNormality(): 'normal' | 'sourceAltered' | 'misplaced' {
-    // Original v2.3's `initialTape()` is `initialTapeText + ' '` (length + 1),
-    // so overwriting that separating blank cell (appending output with no
-    // space) is also flagged as altering the source data. Comparing cell-by-cell
-    // avoids joining large tapes into strings and stays exact for non-BMP chars.
     const init = this.initialTapeCells;
     for (let i = 0; i < init.length; i += 1) {
       if ((this.tape[i] ?? ' ') !== init[i]) return 'sourceAltered';

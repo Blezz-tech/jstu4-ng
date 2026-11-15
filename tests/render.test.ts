@@ -9,6 +9,7 @@ import {
   PROGRAM_VIRTUALIZE_COMMAND_THRESHOLD,
   PROGRAM_VIRTUALIZE_LINE_THRESHOLD,
   ProgramRenderer,
+  renderProgramWithError,
   TAPE_VIRTUALIZE_THRESHOLD,
   TapeRenderer,
 } from '../src/ui/render';
@@ -595,5 +596,23 @@ describe('ProgramRenderer (dual-mode line-windowed virtualization)', () => {
         force: true,
       }),
     ).toEqual({ start: 42, end: 50 });
+  });
+
+  it('highlights full non-BMP Unicode code points in ParseError for both direct and virtual modes', () => {
+    const directHost = document.createElement('div');
+    directHost.appendChild(renderProgramWithError('0, ,>,1\n🚀bad', 8));
+    expect(directHost.querySelector('mark.error')?.textContent).toBe('🚀');
+    expect(directHost.textContent).toBe('0, ,>,1\n🚀bad');
+
+    const lines = Array.from({ length: 500 }, (_, i) => `${i}, ,>,${i + 1}`);
+    lines[450] = '🚀broken';
+    const text = lines.join('\n');
+    const offset = text.indexOf('🚀broken');
+    const virtualHost = document.createElement('div');
+    const renderer = new ProgramRenderer();
+    renderer.mountParseError(virtualHost, text, offset);
+    renderer.scrollToFirstError();
+    expect(virtualHost.querySelector('mark.error')?.textContent).toBe('🚀');
+    renderer.clear();
   });
 });

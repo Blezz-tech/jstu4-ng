@@ -112,18 +112,27 @@ interface PersistResult {
   readonly saved: ProgramSnapshot[];
 }
 
-function persistSnapshots(snapshots: readonly ProgramSnapshot[]): PersistResult {
+function persistSnapshots(
+  snapshots: readonly ProgramSnapshot[],
+  protectedId?: string,
+): PersistResult {
   const payload = [...snapshots];
   while (true) {
     try {
       window.localStorage.setItem(SNAPSHOTS_STORAGE_KEY, JSON.stringify(payload));
       return { ok: true, saved: payload };
     } catch {
-      // If localStorage is full, prune the oldest unnamed autosave and retry.
+      // If localStorage is full, prune the oldest unnamed autosave (never the
+      // newly created snapshot itself) and retry.
       let oldestIdx = -1;
       for (let i = payload.length - 1; i >= 0; i -= 1) {
         const entry = payload[i];
-        if (entry !== undefined && entry.kind === 'autosave' && entry.customName === null) {
+        if (
+          entry !== undefined &&
+          entry.id !== protectedId &&
+          entry.kind === 'autosave' &&
+          entry.customName === null
+        ) {
           oldestIdx = i;
           break;
         }
@@ -273,10 +282,11 @@ export class SnapshotStore {
       program,
       tape,
     };
+    const prevTop = this.snapshots[0]?.createdAt ?? Number.NEGATIVE_INFINITY;
     this.snapshots.unshift(snapshot);
-    this.snapshots.sort((a, b) => b.createdAt - a.createdAt);
+    if (now < prevTop) this.snapshots.sort((a, b) => b.createdAt - a.createdAt);
     if (kind === 'autosave') this.trimAutosaves();
-    this.commit(previous);
+    this.commit(previous, snapshot.id);
     return snapshot;
   }
 
@@ -319,13 +329,13 @@ export class SnapshotStore {
     }
   }
 
-  private commit(previous: ProgramSnapshot[]): void {
+  private commit(previous: ProgramSnapshot[], protectedId?: string): void {
     if (!this.storageBacked) {
       this.persistOk = true;
       this.notify('local');
       return;
     }
-    const result = persistSnapshots(this.snapshots);
+    const result = persistSnapshots(this.snapshots, protectedId);
     this.persistOk = result.ok;
     if (result.ok) {
       this.snapshots = result.saved;
