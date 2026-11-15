@@ -710,10 +710,11 @@ export class AppController {
     const run = this.run;
     if (run === null) return;
     const label = this.i18n.t('a11y.tapeViewLabel');
+    const dirty = run.consumeDirtyCells();
     if (mount) {
-      this.tapeRenderer.mount(this.el.tapeView, run.tapeText, run.headPosition, label);
+      this.tapeRenderer.mount(this.el.tapeView, run.tapeCells, run.headPosition, label);
     } else {
-      this.tapeRenderer.update(run.tapeText, run.headPosition, label);
+      this.tapeRenderer.update(run.tapeCells, run.headPosition, label, dirty);
     }
     if (scrollToHead) {
       scrollIntoView(this.tapeRenderer.currentCell, { block: 'nearest', inline: 'nearest' });

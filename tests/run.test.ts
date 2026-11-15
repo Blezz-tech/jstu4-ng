@@ -317,4 +317,63 @@ describe('MachineRun', () => {
     expect(run.isHistoryTruncated).toBe(true);
     expect(run.stepBack()).toBeNull();
   });
+
+  it('exposes zero-copy tapeCells and tracks dirty indices across write, stepBack, overflow, and reset', () => {
+    const program = createProgram(
+      parseProgram(
+        [
+          '0, ,<,1',
+          '1,a,a,2', // no-op write (same symbol)
+          '2,a,b,3', // actual write at index 0
+          '3,b,>,4',
+          '4, ,c,5', // actual write at index 1
+          '5,c,>,6',
+          '6, ,d,5', // loop writing to the right
+        ].join('\n'),
+      ),
+    );
+    const run = new MachineRun(program, 'a');
+
+    expect(run.tapeCells).toEqual(['a', ' ']);
+    expect(run.consumeDirtyCells()).toEqual([]);
+
+    // Step 1: move left -> no cell content changed
+    run.step();
+    expect(run.consumeDirtyCells()).toEqual([]);
+
+    // Step 2: write 'a' over 'a' -> no-op, not dirty
+    run.step();
+    expect(run.consumeDirtyCells()).toEqual([]);
+
+    // Step 3: write 'b' over 'a' at index 0 -> dirty [0]
+    run.step();
+    expect(run.tapeCells).toEqual(['b', ' ']);
+    expect(run.consumeDirtyCells()).toEqual([0]);
+    // Second drain with no changes returns empty
+    expect(run.consumeDirtyCells()).toEqual([]);
+
+    // Step 4 (move right) + Step 5 (write 'c' at index 1) batched
+    run.step();
+    run.step();
+    expect(run.tapeCells).toEqual(['b', 'c']);
+    expect(run.consumeDirtyCells()).toEqual([1]);
+
+    // Step back undoes write 'c' -> dirty [1]
+    run.stepBack();
+    expect(run.tapeCells).toEqual(['b', ' ']);
+    expect(run.consumeDirtyCells()).toEqual([1]);
+
+    // Reset forces a full sync (`null`) and restores initial cells
+    run.reset();
+    expect(run.tapeCells).toEqual(['a', ' ']);
+    expect(run.consumeDirtyCells()).toBeNull();
+    expect(run.consumeDirtyCells()).toEqual([]);
+
+    // More than 256 writes without consuming coalesces to `null` (bounded memory)
+    const writer = createProgram(parseProgram('0, ,1,1  1,1,0,2  2,0,1,1'));
+    const busy = new MachineRun(writer, '');
+    for (let i = 0; i < 300; i += 1) busy.step();
+    expect(busy.consumeDirtyCells()).toBeNull();
+    expect(busy.consumeDirtyCells()).toEqual([]);
+  });
 });
