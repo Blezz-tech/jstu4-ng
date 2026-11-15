@@ -1,7 +1,7 @@
 import { TM_VERSION } from './core/version';
 import { bindDomI18n, createI18n, detectLang } from './i18n';
-import { StepSound } from './ui/audio';
-import { AppController } from './ui/controller';
+import { createStepSound } from './ui/audio';
+import { createAppController } from './ui/controller';
 import { createNotificationLog } from './ui/notifications';
 import { createHelpDialog, createTu4Dialog } from './ui/shell/dialogs';
 import { queryAppDom } from './ui/shell/dom';
@@ -40,7 +40,7 @@ export function mountApp(doc: Document = document): MountedApp {
     themeButtons: dom.themeButtons,
     store: settings,
   });
-  const sound = new StepSound(settings.get().sound);
+  const sound = createStepSound(settings.get().sound);
 
   let toolbar: ToolbarView | null = null;
   let settingsMenu: SettingsMenu | null = null;
@@ -75,7 +75,7 @@ export function mountApp(doc: Document = document): MountedApp {
   });
 
   const initialSettings = settings.get();
-  const controller = new AppController({
+  const controller = createAppController({
     i18n,
     notifications,
     initialSpeed: initialSettings.speed,

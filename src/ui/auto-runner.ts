@@ -17,127 +17,148 @@ export interface AutoRunnerOptions {
   readonly onRunStateNotify: () => void;
 }
 
+export interface AutoRunner {
+  readonly isRunning: boolean;
+  readonly lastStepTime: number;
+  markSteppedNow(): void;
+  schedule(initialDelayMs?: number): void;
+  cancel(): void;
+}
+
+/** Pure frame step-budget accumulator for high-speed `requestAnimationFrame` batching. */
+export function computeFrameBatch(
+  elapsedMs: number,
+  speed: number,
+  prevBudget: number,
+): { readonly budget: number; readonly targetSteps: number } {
+  const clampedElapsed = Math.max(0, Math.min(100, elapsedMs));
+  const budget = prevBudget + (clampedElapsed * BASE_STEPS_PER_SECOND * Math.abs(speed)) / 1000;
+  const targetSteps = Math.min(MAX_BATCH_STEPS_PER_FRAME, Math.max(1, Math.floor(budget)));
+  return { budget, targetSteps };
+}
+
 /**
  * Generation-guarded auto-execution scheduler supporting both `setTimeout`
  * (low/normal speeds) and time-budgeted `requestAnimationFrame` frame batching
  * (`|speed| > 10×`, flushing DOM once per frame).
  */
-export class AutoRunner {
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private raf: number | null = null;
-  private running = false;
-  private generation = 0;
-  private lastStepAt = 0;
+export function createAutoRunner({
+  getSpeed,
+  getOpsCount,
+  step,
+  onBatchFlush,
+  onSound,
+  onHalt,
+  onModeNotify,
+  onRunStateNotify,
+}: AutoRunnerOptions): AutoRunner {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let raf: number | null = null;
+  let running = false;
+  let generation = 0;
+  let lastStepAt = 0;
 
-  constructor(private readonly options: AutoRunnerOptions) {}
+  return {
+    get isRunning(): boolean {
+      return running;
+    },
+    get lastStepTime(): number {
+      return lastStepAt;
+    },
+    markSteppedNow() {
+      lastStepAt = performance.now();
+    },
+    schedule(initialDelayMs) {
+      const speed = getSpeed();
+      if (speed === 0) return;
 
-  get isRunning(): boolean {
-    return this.running;
-  }
+      running = true;
+      const gen = ++generation;
+      const interval = stepIntervalMs(speed);
 
-  get lastStepTime(): number {
-    return this.lastStepAt;
-  }
+      if (interval < RAF_THRESHOLD_MS) {
+        let lastFrameAt = performance.now();
+        let stepBudget = 0;
 
-  markSteppedNow(): void {
-    this.lastStepAt = performance.now();
-  }
+        const frame = (now: number): void => {
+          if (gen !== generation) return;
+          raf = null;
+          const curSpeed = getSpeed();
+          if (curSpeed === 0) {
+            onHalt();
+            return;
+          }
 
-  schedule(initialDelayMs?: number): void {
-    const speed = this.options.getSpeed();
-    if (speed === 0) return;
+          const batch = computeFrameBatch(now - lastFrameAt, curSpeed, stepBudget);
+          lastFrameAt = now;
+          stepBudget = batch.budget;
 
-    this.running = true;
-    const generation = ++this.generation;
-    const interval = stepIntervalMs(speed);
+          const deadline = performance.now() + MAX_BATCH_MS_PER_FRAME;
+          const opsBefore = getOpsCount();
+          const direction: StepDirection = curSpeed > 0 ? 'forward' : 'reverse';
+          let stepped = 0;
+          let keepGoing = true;
 
-    if (interval < RAF_THRESHOLD_MS) {
-      let lastFrameAt = performance.now();
-      let stepBudget = 0;
+          while (
+            keepGoing &&
+            stepped < batch.targetSteps &&
+            (stepped === 0 || performance.now() < deadline)
+          ) {
+            keepGoing = step(direction, false, false);
+            stepped += 1;
+          }
+          stepBudget = Math.max(0, stepBudget - stepped);
+          lastStepAt = performance.now();
 
-      const frame = (now: number): void => {
-        if (generation !== this.generation) return;
-        this.raf = null;
-        const curSpeed = this.options.getSpeed();
-        if (curSpeed === 0) {
-          this.options.onHalt();
-          return;
-        }
+          if (stepped > 0 && keepGoing && gen === generation) {
+            onBatchFlush(direction);
+          }
+          if (getOpsCount() !== opsBefore) onSound();
 
-        const elapsedMs = Math.max(0, Math.min(100, now - lastFrameAt));
-        lastFrameAt = now;
-        stepBudget += (elapsedMs * BASE_STEPS_PER_SECOND * Math.abs(curSpeed)) / 1000;
+          if (!keepGoing || gen !== generation) {
+            onModeNotify();
+            return;
+          }
+          raf = requestAnimationFrame(frame);
+        };
 
-        const targetSteps = Math.min(
-          MAX_BATCH_STEPS_PER_FRAME,
-          Math.max(1, Math.floor(stepBudget)),
-        );
-        const deadline = performance.now() + MAX_BATCH_MS_PER_FRAME;
-        const opsBefore = this.options.getOpsCount();
-        const direction: StepDirection = curSpeed > 0 ? 'forward' : 'reverse';
-        let stepped = 0;
-        let keepGoing = true;
+        raf = requestAnimationFrame(frame);
+      } else {
+        const tick = (): void => {
+          if (gen !== generation) return;
+          timer = null;
+          lastStepAt = performance.now();
+          const curSpeed = getSpeed();
+          if (curSpeed === 0) {
+            onHalt();
+            return;
+          }
 
-        while (
-          keepGoing &&
-          stepped < targetSteps &&
-          (stepped === 0 || performance.now() < deadline)
-        ) {
-          keepGoing = this.options.step(direction, false, false);
-          stepped += 1;
-        }
-        stepBudget = Math.max(0, stepBudget - stepped);
-        this.lastStepAt = performance.now();
+          const direction: StepDirection = curSpeed > 0 ? 'forward' : 'reverse';
+          if (!step(direction, true, true) || gen !== generation) {
+            onModeNotify();
+            return;
+          }
+          timer = setTimeout(tick, Math.round(stepIntervalMs(getSpeed())));
+        };
 
-        if (stepped > 0 && keepGoing && generation === this.generation) {
-          this.options.onBatchFlush(direction);
-        }
-        if (this.options.getOpsCount() !== opsBefore) this.options.onSound();
+        timer = setTimeout(tick, initialDelayMs ?? Math.round(interval));
+      }
 
-        if (!keepGoing || generation !== this.generation) {
-          this.options.onModeNotify();
-          return;
-        }
-        this.raf = requestAnimationFrame(frame);
-      };
-
-      this.raf = requestAnimationFrame(frame);
-    } else {
-      const tick = (): void => {
-        if (generation !== this.generation) return;
-        this.timer = null;
-        this.lastStepAt = performance.now();
-        const curSpeed = this.options.getSpeed();
-        if (curSpeed === 0) {
-          this.options.onHalt();
-          return;
-        }
-
-        const direction: StepDirection = curSpeed > 0 ? 'forward' : 'reverse';
-        if (!this.options.step(direction, true, true) || generation !== this.generation) {
-          this.options.onModeNotify();
-          return;
-        }
-        this.timer = setTimeout(tick, Math.round(stepIntervalMs(this.options.getSpeed())));
-      };
-
-      this.timer = setTimeout(tick, initialDelayMs ?? Math.round(interval));
-    }
-
-    this.options.onModeNotify();
-    this.options.onRunStateNotify();
-  }
-
-  cancel(): void {
-    this.running = false;
-    this.generation += 1;
-    if (this.timer !== null) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    if (this.raf !== null) {
-      cancelAnimationFrame(this.raf);
-      this.raf = null;
-    }
-  }
+      onModeNotify();
+      onRunStateNotify();
+    },
+    cancel() {
+      running = false;
+      generation += 1;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (raf !== null) {
+        cancelAnimationFrame(raf);
+        raf = null;
+      }
+    },
+  };
 }
