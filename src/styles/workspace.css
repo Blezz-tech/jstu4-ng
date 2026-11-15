@@ -179,6 +179,20 @@ body[data-mode='error'] #input-program {
   color: var(--text-muted);
 }
 
+/* Fixed cell slot width in windowed mode (>500 cells) keeps scroll math O(1). */
+.tape-view--virtual .cell {
+  flex: none;
+  width: 1.5ch;
+  min-width: 1.5ch;
+  overflow: hidden;
+}
+
+.tape-view__spacer {
+  flex: none;
+  display: inline-block;
+  pointer-events: none;
+}
+
 .tape-view .cell.current {
   background: var(--cell-current);
   border-radius: 4px;
@@ -273,4 +287,18 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   color: var(--err);
   text-decoration: underline wavy var(--err);
   text-underline-offset: 3px;
+}
+
+/* Line-windowed virtual program view (> 400 lines or > 800 commands). */
+.program-virtual {
+  display: block;
+}
+
+.program-virtual__spacer {
+  pointer-events: none;
+}
+
+.program--virtual .program-line {
+  height: 1.6em;
+  line-height: 1.6;
 }

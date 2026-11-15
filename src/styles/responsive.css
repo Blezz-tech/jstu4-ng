@@ -138,4 +138,8 @@
     overflow: visible;
     white-space: pre-wrap;
   }
+
+  .program--virtual .program-line {
+    height: auto;
+  }
 }

@@ -806,6 +806,39 @@ describe('AppController', () => {
     expect(el.tapeView.childNodes).toHaveLength(0);
   });
 
+  it('virtualizes large program listings (> 400 lines) in run mode and tracks distant jumps and stepBack', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+
+    // 1,000-line program: state 0 jumps straight to state 999, which halts
+    const lines = ['0, ,>,999'];
+    for (let i = 1; i < 999; i += 1) lines.push(`${i}, ,>,${i}`);
+    lines.push('999, ,#,999');
+    el.programInput.value = lines.join('\n');
+    el.tapeInput.value = '';
+
+    controller.start();
+    expect(el.programView.classList.contains('program--virtual')).toBe(true);
+    expect(el.programView.querySelectorAll('.program-line').length).toBeLessThanOrEqual(120);
+    expect(el.programView.querySelector('.cmd.current')?.textContent).toBe('0, ,>,999');
+
+    // Step forward jumps from line 0 to line 999
+    controller.step();
+    expect(el.programView.querySelector('.cmd.current')?.textContent).toBe('999, ,#,999');
+    expect(el.programView.querySelectorAll('.program-line').length).toBeLessThanOrEqual(120);
+
+    // Step back returns to line 0 and clears visited mark on 0
+    controller.stepBack();
+    expect(el.programView.querySelector('.cmd.current')?.textContent).toBe('0, ,>,999');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(0);
+
+    // Returning to edit cleans up virtual class and DOM
+    controller.backToEdit();
+    expect(el.programView.classList.contains('program--virtual')).toBe(false);
+    expect(el.programView.childNodes).toHaveLength(0);
+    controller.dispose();
+  });
+
   it('StepSound suspends AudioContext when idle, resumes on next tick, and closes on dispose', () => {
     const suspend = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const resume = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);

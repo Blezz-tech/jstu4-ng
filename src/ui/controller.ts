@@ -18,8 +18,7 @@ import { NotificationLog, type LogKind } from './notifications';
 import {
   compileProgram,
   listProgram,
-  renderProgram,
-  renderProgramWithError,
+  ProgramRenderer,
   TapeRenderer,
   type CompiledProgram,
 } from './render';
@@ -115,15 +114,6 @@ export function coerceTape(value: string): string {
   return value.replace(/[\t\r\n]/g, ' ');
 }
 
-function scrollIntoView(
-  node: Element | null,
-  options: ScrollIntoViewOptions = { block: 'nearest' },
-): void {
-  if (node !== null && typeof node.scrollIntoView === 'function') {
-    node.scrollIntoView(options);
-  }
-}
-
 /**
  * Execution controller for the Turing machine emulator: owns compile/run/error
  * modes, stepping, high-speed frame batching, incremental tape rendering, and
@@ -140,10 +130,8 @@ export class AppController {
   private mode: UIMode = 'edit';
   private run: MachineRun | null = null;
   private readonly tapeRenderer = new TapeRenderer();
+  private readonly programRenderer = new ProgramRenderer();
   private readonly commandIndex = new Map<Command, number>();
-  private commandNodes: HTMLElement[] = [];
-  private currentCommandNode: HTMLElement | null = null;
-  private errorCommandNode: HTMLElement | null = null;
   private readonly visitCounts = new Map<number, number>();
 
   private autoTimer: ReturnType<typeof setTimeout> | null = null;
@@ -331,7 +319,7 @@ export class AppController {
     this.options.onProgramChange(this.el.programInput.value);
     this.options.onTapeChange(tape);
 
-    this.el.programView.replaceChildren(renderProgram(parsed));
+    this.programRenderer.mount(this.el.programView, parsed);
     this.indexCompiledCommands(parsed);
     this.renderTapeView(true);
 
@@ -344,14 +332,14 @@ export class AppController {
     this.renderStats();
 
     this.setMode('run');
-    this.el.programView.scrollTop = scrollTop;
+    this.programRenderer.syncScroll(scrollTop);
     this.setStepDirection('forward');
     this.markCommand('current', this.run.nextCommand, false);
     this.notifications.clear();
     this.notifyRunState();
     // Flush layout-dependent scroll calls after all DOM writes.
-    scrollIntoView(this.tapeRenderer.currentCell, { block: 'nearest', inline: 'nearest' });
-    scrollIntoView(this.currentCommandNode);
+    this.tapeRenderer.scrollToHead();
+    this.programRenderer.scrollToCurrent();
     // Move focus out of `#input-tape` (e.g. after pressing Enter) so Space/Enter/Esc work.
     this.el.programView.focus({ preventScroll: true });
   }
@@ -512,6 +500,8 @@ export class AppController {
   dispose(): void {
     this.stopAutoRun();
     this.unsubscribeI18n();
+    this.tapeRenderer.clear();
+    this.programRenderer.clear();
     this.statsNodes = null;
     if (this.ownsNotifications) this.notifications.dispose();
   }
@@ -524,9 +514,7 @@ export class AppController {
   }
 
   private clearVisitedMarks(): void {
-    for (const index of this.visitCounts.keys()) {
-      this.commandNodes[index]?.classList.remove('visited');
-    }
+    this.programRenderer.clearVisited();
     this.visitCounts.clear();
   }
 
@@ -534,12 +522,9 @@ export class AppController {
     this.stopAutoRun();
     this.run = null;
     this.commandIndex.clear();
-    this.commandNodes = [];
-    this.currentCommandNode = null;
-    this.errorCommandNode = null;
     this.visitCounts.clear();
     this.tapeRenderer.clear();
-    this.el.programView.replaceChildren();
+    this.programRenderer.clear();
     this.el.tapeView.replaceChildren();
     this.returnCursorOffset = null;
   }
@@ -547,9 +532,6 @@ export class AppController {
   private indexCompiledCommands(compiled: CompiledProgram): void {
     this.commandIndex.clear();
     compiled.commands.forEach((command, index) => this.commandIndex.set(command, index));
-    this.commandNodes = Array.from(this.el.programView.querySelectorAll<HTMLElement>('.cmd'));
-    this.currentCommandNode = null;
-    this.errorCommandNode = null;
   }
 
   private canStepInDirection(speed: number): boolean {
@@ -588,8 +570,8 @@ export class AppController {
     this.renderTapeView(false);
     this.setStepDirection(direction);
     if (highlight) this.markCommand('current', run.nextCommand, false);
-    scrollIntoView(this.tapeRenderer.currentCell, { block: 'nearest', inline: 'nearest' });
-    if (highlight) scrollIntoView(this.currentCommandNode);
+    this.tapeRenderer.scrollToHead();
+    if (highlight) this.programRenderer.scrollToCurrent();
   }
 
   private flushRunView(direction: 'forward' | 'reverse'): void {
@@ -683,9 +665,10 @@ export class AppController {
 
     if (error instanceof ParseError) {
       this.returnCursorOffset = error.data.offset;
-      this.el.programView.replaceChildren(renderProgramWithError(text, error.data.offset));
+      this.programRenderer.mountParseError(this.el.programView, text, error.data.offset);
       this.notifications.show('error', (i) => i.t('error.parseError', { text: error.data.text }));
     } else if (error instanceof EmptyProgramError) {
+      this.programRenderer.clear();
       this.el.programView.textContent = text;
       this.notifications.show('error', (i) => i.t('error.programIsEmpty'));
     } else if (error instanceof AmbiguousCommandError) {
@@ -706,8 +689,8 @@ export class AppController {
       throw error;
     }
 
-    this.el.programView.scrollTop = scrollTop;
-    scrollIntoView(this.el.programView.querySelector('mark.error, .cmd.error'));
+    this.programRenderer.syncScroll(scrollTop);
+    this.programRenderer.scrollToFirstError();
     // Move focus out of `#input-tape` so Enter/Escape immediately return to edit mode.
     this.el.programView.focus({ preventScroll: true });
   }
@@ -716,15 +699,15 @@ export class AppController {
   private renderProgramWithErrors(text: string, commands: readonly Command[]): void {
     try {
       const listing = listProgram(text);
-      this.el.programView.replaceChildren(renderProgram(listing));
-      const nodes = Array.from(this.el.programView.querySelectorAll<HTMLElement>('.cmd'));
       const offsets = new Set(commands.map((command) => command.source.offset));
+      const errorIndices: number[] = [];
       listing.commands.forEach((command, index) => {
-        if (offsets.has(command.source.offset)) nodes[index]?.classList.add('error');
+        if (offsets.has(command.source.offset)) errorIndices.push(index);
       });
+      this.programRenderer.mount(this.el.programView, listing, errorIndices);
     } catch (parseFailure) {
       if (!(parseFailure instanceof ParseError)) throw parseFailure;
-      this.el.programView.replaceChildren(renderProgramWithError(text, parseFailure.data.offset));
+      this.programRenderer.mountParseError(this.el.programView, text, parseFailure.data.offset);
     }
   }
 
@@ -747,14 +730,13 @@ export class AppController {
 
     const prev = this.visitCounts.get(index) ?? 0;
     const next = Math.max(0, prev + delta);
-    const node = this.commandNodes[index];
 
     if (next === 0) {
       this.visitCounts.delete(index);
-      if (prev > 0) node?.classList.remove('visited');
+      if (prev > 0) this.programRenderer.setVisited(index, false);
     } else {
       this.visitCounts.set(index, next);
-      if (prev === 0) node?.classList.add('visited');
+      if (prev === 0) this.programRenderer.setVisited(index, true);
     }
   }
 
@@ -771,23 +753,17 @@ export class AppController {
     command: Command | null | undefined,
     scroll = true,
   ): void {
-    const prev = kind === 'current' ? this.currentCommandNode : this.errorCommandNode;
-
-    let nextNode: HTMLElement | null = null;
+    let index: number | null = null;
     if (command !== null && command !== undefined) {
-      const index = this.commandIndex.get(command);
-      nextNode = index !== undefined ? (this.commandNodes[index] ?? null) : null;
+      index = this.commandIndex.get(command) ?? null;
       this.returnCursorOffset = command.source.offset;
     }
 
-    if (prev !== nextNode) {
-      prev?.classList.remove(kind);
-      nextNode?.classList.add(kind);
-      if (kind === 'current') this.currentCommandNode = nextNode;
-      else this.errorCommandNode = nextNode;
+    if (kind === 'current') {
+      this.programRenderer.setCurrent(index, scroll);
+    } else {
+      this.programRenderer.setError(index, scroll);
     }
-
-    if (scroll && nextNode !== null) scrollIntoView(nextNode);
   }
 
   private reportRuntimeError(error: unknown): void {
