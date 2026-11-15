@@ -288,3 +288,17 @@ body:not([data-mode='edit']) .pane__stack[data-overflow-bottom='true']::after {
   text-decoration: underline wavy var(--err);
   text-underline-offset: 3px;
 }
+
+/* Line-windowed virtual program view (> 400 lines or > 800 commands). */
+.program-virtual {
+  display: block;
+}
+
+.program-virtual__spacer {
+  pointer-events: none;
+}
+
+.program--virtual .program-line {
+  height: 1.6em;
+  line-height: 1.6;
+}
