@@ -2,12 +2,13 @@ import { el } from '../dom';
 import {
   computeScrollToIndex,
   computeWindowRange,
+  createSpacerPair,
+  createVirtualHostObserver,
   measureHostPadding,
   scrollNodeIntoView,
-  SpacerPair,
-  VirtualHostObserver,
   ZERO_PADDING,
   type HostPadding,
+  type SpacerPair,
 } from './virtual-window';
 
 function formatTapeCell(symbol: string): string {
@@ -40,7 +41,7 @@ export interface TapeRendererOptions {
 export class TapeRenderer {
   private readonly threshold: number;
   private readonly overscan: number;
-  private readonly observer = new VirtualHostObserver();
+  private readonly observer = createVirtualHostObserver();
 
   private host: HTMLElement | null = null;
   private container: HTMLElement | null = null;
@@ -243,7 +244,7 @@ export class TapeRenderer {
 
     const leftSpacer = el('span', { class: 'tape-view__spacer', 'aria-hidden': 'true' });
     const rightSpacer = el('span', { class: 'tape-view__spacer', 'aria-hidden': 'true' });
-    this.spacers = new SpacerPair(leftSpacer, rightSpacer, 'width');
+    this.spacers = createSpacerPair(leftSpacer, rightSpacer, 'width');
 
     container.classList.add('tape-view--virtual');
     container.replaceChildren(leftSpacer, rightSpacer);

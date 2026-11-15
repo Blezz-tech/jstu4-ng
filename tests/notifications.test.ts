@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { createI18n } from '../src/i18n';
-import { NotificationLog } from '../src/ui/notifications';
+import { createNotificationLog } from '../src/ui/notifications';
 
 describe('NotificationLog', () => {
   it('renders localized messages, reacts to locale switches, clears cleanly, and disposes', () => {
     const element = document.createElement('div');
     const i18n = createI18n('ru');
     const onChange = vi.fn();
-    const log = new NotificationLog({ element, i18n, onChange });
+    const log = createNotificationLog({ element, i18n, onChange });
 
     expect(log.currentKind).toBeNull();
 

@@ -37,98 +37,100 @@ function bindModalDialog(
   }
 }
 
+function buildHelpContentFragment(content: HelpContent): DocumentFragment {
+  const fragment = document.createDocumentFragment();
+  for (const section of content.sections) {
+    fragment.append(el('h3', {}, section.title));
+    for (const block of section.blocks) {
+      switch (block.kind) {
+        case 'p':
+          fragment.append(el('p', {}, block.text));
+          break;
+        case 'rich': {
+          const p = el('p');
+          for (const part of block.parts) {
+            p.append(
+              typeof part === 'string'
+                ? document.createTextNode(part)
+                : el(
+                    'a',
+                    { href: part.href, target: '_blank', rel: 'noopener noreferrer' },
+                    part.label,
+                  ),
+            );
+          }
+          fragment.append(p);
+          break;
+        }
+        case 'list': {
+          const list = el('ul');
+          for (const item of block.items) list.append(el('li', {}, item));
+          fragment.append(list);
+          break;
+        }
+        case 'code':
+          fragment.append(el('pre', { class: 'help__code' }, block.lines.join('\n')));
+          break;
+      }
+    }
+  }
+  return fragment;
+}
+
 export interface HelpDialogOptions {
   readonly dom: AppDom;
   readonly onBeforeOpen: () => void;
   readonly signal: AbortSignal;
 }
 
-export class HelpDialog {
-  private readonly dom: AppDom;
-  private readonly onBeforeOpen: () => void;
-  private content: HelpContent | null = null;
-  private renderedContent: HelpContent | null = null;
-
-  constructor(options: HelpDialogOptions) {
-    this.dom = options.dom;
-    this.onBeforeOpen = options.onBeforeOpen;
-    const { signal } = options;
-
-    listen(this.dom.helpButton, 'click', () => this.open(), signal);
-    bindModalDialog(this.dom.helpDialog, [this.dom.helpBack, this.dom.helpClose], signal, () => {
-      // Release help body DOM nodes while the dialog is closed.
-      this.dom.helpBody.replaceChildren();
-      this.renderedContent = null;
-      if (location.hash === '#help') {
-        safeReplaceState(location.pathname + location.search);
-      }
-    });
-  }
-
-  get isOpen(): boolean {
-    return this.dom.helpDialog.open;
-  }
-
+export interface HelpDialog {
+  readonly isOpen: boolean;
   /** Store localized help content; builds `#help-body` lazily only when open. */
-  render(content: HelpContent): void {
-    this.content = content;
-    this.dom.helpTitle.textContent = content.title;
-    this.dom.helpBack.textContent = content.back;
-    if (this.isOpen) this.mountContent(content);
-  }
+  render(content: HelpContent): void;
+  open(): void;
+  close(): void;
+}
 
-  open(): void {
-    this.onBeforeOpen();
-    if (this.content !== null && this.renderedContent !== this.content) {
-      this.mountContent(this.content);
+export function createHelpDialog({ dom, onBeforeOpen, signal }: HelpDialogOptions): HelpDialog {
+  let content: HelpContent | null = null;
+  let renderedContent: HelpContent | null = null;
+
+  const mountContent = (next: HelpContent): void => {
+    dom.helpBody.replaceChildren(buildHelpContentFragment(next));
+    renderedContent = next;
+  };
+
+  const open = (): void => {
+    onBeforeOpen();
+    if (content !== null && renderedContent !== content) {
+      mountContent(content);
     }
-    openModalDialog(this.dom.helpDialog);
-  }
+    openModalDialog(dom.helpDialog);
+  };
 
-  close(): void {
-    closeModalDialog(this.dom.helpDialog);
-  }
-
-  private mountContent(content: HelpContent): void {
-    const fragment = document.createDocumentFragment();
-    for (const section of content.sections) {
-      fragment.append(el('h3', {}, section.title));
-      for (const block of section.blocks) {
-        switch (block.kind) {
-          case 'p':
-            fragment.append(el('p', {}, block.text));
-            break;
-          case 'rich': {
-            const p = el('p');
-            for (const part of block.parts) {
-              p.append(
-                typeof part === 'string'
-                  ? document.createTextNode(part)
-                  : el(
-                      'a',
-                      { href: part.href, target: '_blank', rel: 'noopener noreferrer' },
-                      part.label,
-                    ),
-              );
-            }
-            fragment.append(p);
-            break;
-          }
-          case 'list': {
-            const list = el('ul');
-            for (const item of block.items) list.append(el('li', {}, item));
-            fragment.append(list);
-            break;
-          }
-          case 'code':
-            fragment.append(el('pre', { class: 'help__code' }, block.lines.join('\n')));
-            break;
-        }
-      }
+  listen(dom.helpButton, 'click', open, signal);
+  bindModalDialog(dom.helpDialog, [dom.helpBack, dom.helpClose], signal, () => {
+    // Release help body DOM nodes while the dialog is closed.
+    dom.helpBody.replaceChildren();
+    renderedContent = null;
+    if (location.hash === '#help') {
+      safeReplaceState(location.pathname + location.search);
     }
-    this.dom.helpBody.replaceChildren(fragment);
-    this.renderedContent = content;
-  }
+  });
+
+  return {
+    get isOpen(): boolean {
+      return dom.helpDialog.open;
+    },
+    render(next) {
+      content = next;
+      dom.helpTitle.textContent = next.title;
+      dom.helpBack.textContent = next.back;
+      if (dom.helpDialog.open) mountContent(next);
+    },
+    open,
+    close: () => closeModalDialog(dom.helpDialog),
+  };
 }
 
 export interface Tu4DialogOptions {
@@ -138,64 +140,56 @@ export interface Tu4DialogOptions {
   readonly signal: AbortSignal;
 }
 
-export class Tu4Dialog {
-  private readonly dom: AppDom;
-  private readonly i18n: I18n;
-  private readonly onBeforeOpen: () => void;
-  private statusTimer: number | null = null;
+export interface Tu4Dialog {
+  readonly isOpen: boolean;
+  open(converted: string): void;
+  close(): void;
+  dispose(): void;
+}
 
-  constructor(options: Tu4DialogOptions) {
-    this.dom = options.dom;
-    this.i18n = options.i18n;
-    this.onBeforeOpen = options.onBeforeOpen;
-    const { signal } = options;
+export function createTu4Dialog({ dom, i18n, onBeforeOpen, signal }: Tu4DialogOptions): Tu4Dialog {
+  let statusTimer: number | null = null;
 
-    listen(this.dom.tu4Copy, 'click', () => void this.copy(), signal);
-    bindModalDialog(this.dom.tu4Dialog, [this.dom.tu4Close, this.dom.tu4Done], signal, () =>
-      this.clearStatus(),
-    );
-  }
-
-  get isOpen(): boolean {
-    return this.dom.tu4Dialog.open;
-  }
-
-  open(converted: string): void {
-    this.onBeforeOpen();
-    this.clearStatus();
-    this.dom.tu4Output.value = converted;
-    this.dom.tu4Output.scrollTop = 0;
-    openModalDialog(this.dom.tu4Dialog);
-  }
-
-  close(): void {
-    this.clearStatus();
-    closeModalDialog(this.dom.tu4Dialog);
-  }
-
-  dispose(): void {
-    this.clearStatus();
-  }
-
-  private clearStatus(): void {
-    if (this.statusTimer !== null) {
-      window.clearTimeout(this.statusTimer);
-      this.statusTimer = null;
+  const clearStatus = (): void => {
+    if (statusTimer !== null) {
+      window.clearTimeout(statusTimer);
+      statusTimer = null;
     }
-    this.dom.tu4Status.textContent = '';
-  }
+    dom.tu4Status.textContent = '';
+  };
 
-  private async copy(): Promise<void> {
-    const copied = await copyTextToClipboard(this.dom.tu4Output.value, this.dom.tu4Output);
-    if (!copied || !this.isOpen) return;
+  const copy = async (): Promise<void> => {
+    const copied = await copyTextToClipboard(dom.tu4Output.value, dom.tu4Output);
+    if (!copied || !dom.tu4Dialog.open) return;
 
-    this.clearStatus();
-    this.dom.tu4Status.textContent = this.i18n.t('tu4Dialog.copied');
-    this.statusTimer = window.setTimeout(() => {
-      this.statusTimer = null;
-      this.dom.tu4Status.textContent = '';
+    clearStatus();
+    dom.tu4Status.textContent = i18n.t('tu4Dialog.copied');
+    statusTimer = window.setTimeout(() => {
+      statusTimer = null;
+      dom.tu4Status.textContent = '';
     }, 2500);
-  }
+  };
+
+  listen(dom.tu4Copy, 'click', () => void copy(), signal);
+  bindModalDialog(dom.tu4Dialog, [dom.tu4Close, dom.tu4Done], signal, clearStatus);
+
+  return {
+    get isOpen(): boolean {
+      return dom.tu4Dialog.open;
+    },
+    open(converted) {
+      onBeforeOpen();
+      clearStatus();
+      dom.tu4Output.value = converted;
+      dom.tu4Output.scrollTop = 0;
+      openModalDialog(dom.tu4Dialog);
+    },
+    close() {
+      clearStatus();
+      closeModalDialog(dom.tu4Dialog);
+    },
+    dispose: clearStatus,
+  };
 }
 
 export interface DeleteSnapshotDialogOptions {
@@ -205,61 +199,59 @@ export interface DeleteSnapshotDialogOptions {
   readonly signal: AbortSignal;
 }
 
-export class DeleteSnapshotDialog {
-  private readonly dom: AppDom;
-  private readonly onBeforeOpen: () => void;
-  private readonly onConfirm: (id: string, skipFutureConfirm: boolean) => void;
-  private pendingId: string | null = null;
+export interface DeleteSnapshotDialog {
+  readonly isOpen: boolean;
+  readonly currentPendingId: string | null;
+  open(id: string, displayName: string): void;
+  syncName(displayName: string): void;
+  close(): void;
+}
 
-  constructor(options: DeleteSnapshotDialogOptions) {
-    this.dom = options.dom;
-    this.onBeforeOpen = options.onBeforeOpen;
-    this.onConfirm = options.onConfirm;
-    const { signal } = options;
+export function createDeleteSnapshotDialog({
+  dom,
+  onBeforeOpen,
+  onConfirm,
+  signal,
+}: DeleteSnapshotDialogOptions): DeleteSnapshotDialog {
+  let pendingId: string | null = null;
 
-    bindModalDialog(
-      this.dom.deleteDialog,
-      [this.dom.deleteDialogClose, this.dom.deleteDialogCancel],
-      signal,
-      () => {
-        this.pendingId = null;
-      },
-    );
-    listen(
-      this.dom.deleteDialogConfirm,
-      'click',
-      () => {
-        const id = this.pendingId;
-        const skipConfirm = this.dom.skipDeleteConfirm.checked;
-        this.close();
-        if (id !== null) this.onConfirm(id, skipConfirm);
-      },
-      signal,
-    );
-  }
+  const close = (): void => {
+    pendingId = null;
+    closeModalDialog(dom.deleteDialog);
+  };
 
-  get isOpen(): boolean {
-    return this.dom.deleteDialog.open;
-  }
+  bindModalDialog(dom.deleteDialog, [dom.deleteDialogClose, dom.deleteDialogCancel], signal, () => {
+    pendingId = null;
+  });
+  listen(
+    dom.deleteDialogConfirm,
+    'click',
+    () => {
+      const id = pendingId;
+      const skipConfirm = dom.skipDeleteConfirm.checked;
+      close();
+      if (id !== null) onConfirm(id, skipConfirm);
+    },
+    signal,
+  );
 
-  get currentPendingId(): string | null {
-    return this.pendingId;
-  }
-
-  open(id: string, displayName: string): void {
-    this.pendingId = id;
-    this.dom.deleteSnapshotName.textContent = displayName;
-    this.dom.skipDeleteConfirm.checked = false;
-    this.onBeforeOpen();
-    openModalDialog(this.dom.deleteDialog);
-  }
-
-  syncName(displayName: string): void {
-    this.dom.deleteSnapshotName.textContent = displayName;
-  }
-
-  close(): void {
-    this.pendingId = null;
-    closeModalDialog(this.dom.deleteDialog);
-  }
+  return {
+    get isOpen(): boolean {
+      return dom.deleteDialog.open;
+    },
+    get currentPendingId(): string | null {
+      return pendingId;
+    },
+    open(id, displayName) {
+      pendingId = id;
+      dom.deleteSnapshotName.textContent = displayName;
+      dom.skipDeleteConfirm.checked = false;
+      onBeforeOpen();
+      openModalDialog(dom.deleteDialog);
+    },
+    syncName(displayName) {
+      dom.deleteSnapshotName.textContent = displayName;
+    },
+    close,
+  };
 }

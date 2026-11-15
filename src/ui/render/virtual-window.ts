@@ -105,60 +105,76 @@ export function computeScrollToIndex(
   return viewStart;
 }
 
+export interface VirtualHostObserver {
+  attach(host: HTMLElement, onScroll: () => void, onResize: () => void): void;
+  detach(): void;
+}
+
 /**
  * Manages passive `scroll` and `ResizeObserver` subscriptions on a virtualized
  * scroll host, guaranteeing clean detachment on mode exit or `clear()`.
  */
-export class VirtualHostObserver {
-  private host: HTMLElement | null = null;
-  private scrollFn: (() => void) | null = null;
-  private resizeObserver: ResizeObserver | null = null;
+export function createVirtualHostObserver(): VirtualHostObserver {
+  let host: HTMLElement | null = null;
+  let scrollFn: (() => void) | null = null;
+  let resizeObserver: ResizeObserver | null = null;
 
-  attach(host: HTMLElement, onScroll: () => void, onResize: () => void): void {
-    this.detach();
-    this.host = host;
-    this.scrollFn = onScroll;
-    host.addEventListener('scroll', onScroll, { passive: true });
-    if (typeof ResizeObserver !== 'undefined') {
-      this.resizeObserver = new ResizeObserver(onResize);
-      this.resizeObserver.observe(host);
+  const detach = (): void => {
+    if (host !== null && scrollFn !== null) {
+      host.removeEventListener('scroll', scrollFn);
     }
-  }
+    if (resizeObserver !== null) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
+    }
+    host = null;
+    scrollFn = null;
+  };
 
-  detach(): void {
-    if (this.host !== null && this.scrollFn !== null) {
-      this.host.removeEventListener('scroll', this.scrollFn);
-    }
-    if (this.resizeObserver !== null) {
-      this.resizeObserver.disconnect();
-      this.resizeObserver = null;
-    }
-    this.host = null;
-    this.scrollFn = null;
-  }
+  return {
+    attach(nextHost, onScroll, onResize) {
+      detach();
+      host = nextHost;
+      scrollFn = onScroll;
+      nextHost.addEventListener('scroll', onScroll, { passive: true });
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(onResize);
+        resizeObserver.observe(nextHost);
+      }
+    },
+    detach,
+  };
+}
+
+export interface SpacerPair {
+  readonly startEl: HTMLElement;
+  readonly endEl: HTMLElement;
+  sync(startPx: number, endPx: number): void;
 }
 
 /** Pair of leading/trailing spacers with string-cached inline sizes to skip redundant writes. */
-export class SpacerPair {
-  private lastStart = '';
-  private lastEnd = '';
+export function createSpacerPair(
+  startEl: HTMLElement,
+  endEl: HTMLElement,
+  prop: 'width' | 'height',
+): SpacerPair {
+  let lastStart = '';
+  let lastEnd = '';
 
-  constructor(
-    readonly startEl: HTMLElement,
-    readonly endEl: HTMLElement,
-    private readonly prop: 'width' | 'height',
-  ) {}
-
-  sync(startPx: number, endPx: number): void {
-    const startVal = `${startPx}px`;
-    const endVal = `${endPx}px`;
-    if (this.lastStart !== startVal) {
-      this.startEl.style[this.prop] = startVal;
-      this.lastStart = startVal;
-    }
-    if (this.lastEnd !== endVal) {
-      this.endEl.style[this.prop] = endVal;
-      this.lastEnd = endVal;
-    }
-  }
+  return {
+    startEl,
+    endEl,
+    sync(startPx, endPx) {
+      const startVal = `${startPx}px`;
+      const endVal = `${endPx}px`;
+      if (lastStart !== startVal) {
+        startEl.style[prop] = startVal;
+        lastStart = startVal;
+      }
+      if (lastEnd !== endVal) {
+        endEl.style[prop] = endVal;
+        lastEnd = endVal;
+      }
+    },
+  };
 }

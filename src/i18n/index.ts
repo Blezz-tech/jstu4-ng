@@ -94,71 +94,75 @@ export type LocaleListener = (locale: Lang) => void;
  * native Web Platform `Intl` APIs (`Intl.Locale`, `Intl.NumberFormat`,
  * `Intl.PluralRules`).
  */
-export class I18n {
-  private current: Lang;
-  private readonly catalogs: Readonly<Record<Lang, MessageCatalog>> = defaultCatalogs;
-  private readonly listeners = new Set<LocaleListener>();
-
-  constructor(initialLocale: Lang = DEFAULT_LANG) {
-    this.current = initialLocale;
-  }
-
-  get locale(): Lang {
-    return this.current;
-  }
-
-  get meta(): LocaleMeta {
-    return LOCALES[this.current];
-  }
-
-  get help(): HelpContent {
-    return this.catalogs[this.current].help;
-  }
-
+export interface I18n {
+  readonly locale: Lang;
+  readonly meta: LocaleMeta;
+  readonly help: HelpContent;
   /** Switch active locale and notify all subscribers. */
-  setLocale(next: Lang): void {
-    if (next === this.current) return;
-    this.current = next;
-    this.emit();
-  }
-
+  setLocale(next: Lang): void;
   /** Cycle to the next registered locale (RU ↔ EN) and return it. */
-  toggleLocale(): Lang {
-    const index = LANGS.indexOf(this.current);
-    const next = LANGS[(index + 1) % LANGS.length] ?? DEFAULT_LANG;
-    this.setLocale(next);
-    return next;
-  }
-
+  toggleLocale(): Lang;
   /** Subscribe to locale changes; returns an unsubscribe callback. */
-  subscribe(listener: LocaleListener): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
+  subscribe(listener: LocaleListener): () => void;
   /** Type-safe translation lookup with automatic fallback to `DEFAULT_LANG`. */
   t<K extends PlainMessageKey>(key: K): string;
   t<K extends ParameterizedMessageKey>(key: K, params: MessageParamsMap[K]): string;
-  t(key: MessageKey, params?: FormatParams): string {
-    const template =
-      lookupRaw(this.catalogs[this.current], key) ??
-      lookupRaw(this.catalogs[DEFAULT_LANG], key) ??
-      key;
-    return formatMessage(template, this.meta.bcp47, params);
-  }
-
   /** Locale-aware number formatting via cached `Intl.NumberFormat`. */
-  formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
-    return formatNumber(value, this.meta.bcp47, options);
-  }
-
-  private emit(): void {
-    for (const listener of this.listeners) listener(this.current);
-  }
+  formatNumber(value: number, options?: Intl.NumberFormatOptions): string;
 }
 
 export function createI18n(initialLocale: Lang = DEFAULT_LANG): I18n {
-  return new I18n(initialLocale);
+  let current: Lang = initialLocale;
+  const listeners = new Set<LocaleListener>();
+
+  const emit = (): void => {
+    for (const listener of listeners) listener(current);
+  };
+
+  const setLocale = (next: Lang): void => {
+    if (next === current) return;
+    current = next;
+    emit();
+  };
+
+  const toggleLocale = (): Lang => {
+    const index = LANGS.indexOf(current);
+    const next = LANGS[(index + 1) % LANGS.length] ?? DEFAULT_LANG;
+    setLocale(next);
+    return next;
+  };
+
+  const subscribe = (listener: LocaleListener): (() => void) => {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  };
+
+  function t<K extends PlainMessageKey>(key: K): string;
+  function t<K extends ParameterizedMessageKey>(key: K, params: MessageParamsMap[K]): string;
+  function t(key: MessageKey, params?: FormatParams): string {
+    const template =
+      lookupRaw(defaultCatalogs[current], key) ??
+      lookupRaw(defaultCatalogs[DEFAULT_LANG], key) ??
+      key;
+    return formatMessage(template, LOCALES[current].bcp47, params);
+  }
+
+  return {
+    get locale(): Lang {
+      return current;
+    },
+    get meta(): LocaleMeta {
+      return LOCALES[current];
+    },
+    get help(): HelpContent {
+      return defaultCatalogs[current].help;
+    },
+    setLocale,
+    toggleLocale,
+    subscribe,
+    t,
+    formatNumber: (value, options) => formatNumber(value, LOCALES[current].bcp47, options),
+  };
 }
