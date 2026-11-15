@@ -37,7 +37,6 @@ function makeController(
     i18n?: I18n;
     maxHistory?: number;
     onModeChange?: (mode: UIMode) => void;
-    onRunningChange?: (isRunning: boolean) => void;
     onRunStateChange?: (state: RunControlState) => void;
     onProgramChange?: (text: string) => void;
     onTu4Converted?: (converted: string) => void;
@@ -49,7 +48,6 @@ function makeController(
     elements,
     ...(overrides.maxHistory !== undefined ? { maxHistory: overrides.maxHistory } : {}),
     onModeChange: overrides.onModeChange ?? (() => undefined),
-    ...(overrides.onRunningChange ? { onRunningChange: overrides.onRunningChange } : {}),
     ...(overrides.onRunStateChange ? { onRunStateChange: overrides.onRunStateChange } : {}),
     onProgramChange: overrides.onProgramChange ?? (() => undefined),
     onTapeChange: () => undefined,
@@ -516,12 +514,12 @@ describe('AppController', () => {
     expect(el.programInput.scrollTop).toBe(120);
   });
 
-  it('reports isAutoRunning === false when onRunningChange(false) fires on auto-run halt', () => {
+  it('reports isAutoRunning === false when onRunStateChange fires with isRunning === false on halt', () => {
     const el = setupDom();
     const seenAutoDuringHalt: boolean[] = [];
     const controller = makeController(el, {
-      onRunningChange: (isRunning) => {
-        if (!isRunning) seenAutoDuringHalt.push(controller.isAutoRunning);
+      onRunStateChange: ({ isRunning, isAutoRunning }) => {
+        if (!isRunning) seenAutoDuringHalt.push(isAutoRunning);
       },
     });
     el.programInput.value = '0, ,>,1\n1, ,#,1';
