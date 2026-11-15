@@ -1,5 +1,4 @@
 import type { Command, StateId } from './machine';
-import { stateKey } from './machine';
 import {
   AmbiguousCommandError,
   EmptyProgramError,
@@ -13,12 +12,9 @@ export interface Program {
   readonly initialState: StateId;
   /** Transitions in program order. */
   readonly commands: readonly Command[];
-  /** `stateKey(q) + '\u0000' + symbol` → command. */
-  readonly transitions: ReadonlyMap<string, Command>;
+  /** Two-level transition index: `state → (symbol → command)` (zero allocations per lookup). */
+  readonly transitions: ReadonlyMap<StateId, ReadonlyMap<string, Command>>;
 }
-
-const transitionKey = (state: StateId, symbol: string): string =>
-  `${stateKey(state)}\u0000${symbol}`;
 
 /**
  * Build a program from parsed commands.
@@ -41,24 +37,28 @@ export function createProgram(
 
   const q0 = initialState ?? first.q;
 
-  const transitions = new Map<string, Command>();
-  const definedStates = new Set<string>();
+  // JS Map keys distinguish numbers from strings (`1 !== '1'`), so numeric
+  // and named StateIds never collide without allocating composite string keys.
+  const transitions = new Map<StateId, Map<string, Command>>();
   for (const command of commands) {
-    const key = transitionKey(command.q, command.a);
-    const original = transitions.get(key);
+    let bySymbol = transitions.get(command.q);
+    if (bySymbol === undefined) {
+      bySymbol = new Map<string, Command>();
+      transitions.set(command.q, bySymbol);
+    }
+    const original = bySymbol.get(command.a);
     if (original !== undefined) {
       throw new AmbiguousCommandError({ command, original });
     }
-    transitions.set(key, command);
-    definedStates.add(stateKey(command.q));
+    bySymbol.set(command.a, command);
   }
 
-  if (!definedStates.has(stateKey(q0))) {
+  if (!transitions.has(q0)) {
     throw new NonexistentInitialStateError({ state: q0 });
   }
 
   for (const command of commands) {
-    if (!definedStates.has(stateKey(command.w))) {
+    if (!transitions.has(command.w)) {
       throw new NonexistentTargetStateError({ command });
     }
   }
@@ -72,5 +72,5 @@ export function findTransition(
   state: StateId,
   symbol: string,
 ): Command | undefined {
-  return program.transitions.get(transitionKey(state, symbol));
+  return program.transitions.get(state)?.get(symbol);
 }

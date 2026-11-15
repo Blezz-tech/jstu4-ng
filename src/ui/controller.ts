@@ -92,8 +92,22 @@ interface RunStats {
   operationsCount: number;
 }
 
+const STAT_LABEL_KEYS = [
+  'stats.commands',
+  'stats.initialLength',
+  'stats.cellsUsed',
+  'stats.operations',
+] as const;
+
+interface StatRowNodes {
+  readonly row: HTMLElement;
+  readonly label: HTMLElement;
+  readonly value: HTMLElement;
+  lastValue: number;
+}
+
 const RAF_THRESHOLD_MS = 20;
-const MAX_BATCH_STEPS_PER_FRAME = 64;
+const MAX_BATCH_STEPS_PER_FRAME = 256;
 const MAX_BATCH_MS_PER_FRAME = 6;
 
 /** Normalise tabs and pasted line breaks to spaces (1-to-1 per tape cell). */
@@ -146,6 +160,7 @@ export class AppController {
 
   private returnCursorOffset: number | null = null;
   private stats: RunStats | null = null;
+  private statsNodes: StatRowNodes[] | null = null;
 
   constructor(options: ControllerOptions) {
     this.options = options;
@@ -159,8 +174,8 @@ export class AppController {
     this.maxSpeed = clampMaxSpeed(options.initialMaxSpeed ?? DEFAULT_MAX_SPEED);
     this.speed = clampSpeed(options.initialSpeed ?? DEFAULT_SPEED, this.minSpeed, this.maxSpeed);
     this.unsubscribeI18n = this.i18n.subscribe(() => {
-      if (this.stats !== null) this.renderStats();
-      if (this.mode === 'run') this.renderTapeView(false, false);
+      if (this.stats !== null) this.renderStats(true);
+      if (this.mode === 'run') this.renderTapeView(false);
     });
   }
 
@@ -318,7 +333,7 @@ export class AppController {
 
     this.el.programView.replaceChildren(renderProgram(parsed));
     this.indexCompiledCommands(parsed);
-    this.renderTapeView(true, true);
+    this.renderTapeView(true);
 
     this.stats = {
       commandsCount: parsed.commands.length,
@@ -331,9 +346,12 @@ export class AppController {
     this.setMode('run');
     this.el.programView.scrollTop = scrollTop;
     this.setStepDirection('forward');
-    this.markCommand('current', this.run.nextCommand);
+    this.markCommand('current', this.run.nextCommand, false);
     this.notifications.clear();
     this.notifyRunState();
+    // Flush layout-dependent scroll calls after all DOM writes.
+    scrollIntoView(this.tapeRenderer.currentCell, { block: 'nearest', inline: 'nearest' });
+    scrollIntoView(this.currentCommandNode);
     // Move focus out of `#input-tape` (e.g. after pressing Enter) so Space/Enter/Esc work.
     this.el.programView.focus({ preventScroll: true });
   }
@@ -494,6 +512,7 @@ export class AppController {
   dispose(): void {
     this.stopAutoRun();
     this.unsubscribeI18n();
+    this.statsNodes = null;
     if (this.ownsNotifications) this.notifications.dispose();
   }
 
@@ -560,14 +579,17 @@ export class AppController {
   private syncRunView(direction: 'forward' | 'reverse', highlight = true): void {
     const run = this.run;
     if (run === null) return;
+    // Batch all DOM writes first, then issue layout-reading scrollIntoView calls.
     if (this.stats !== null) {
       this.stats.operationsCount = run.stepsCount;
       this.stats.maxDataLength = run.cellsUsed;
       this.renderStats();
     }
-    this.renderTapeView(false, true);
+    this.renderTapeView(false);
     this.setStepDirection(direction);
-    if (highlight) this.markCommand('current', run.nextCommand);
+    if (highlight) this.markCommand('current', run.nextCommand, false);
+    scrollIntoView(this.tapeRenderer.currentCell, { block: 'nearest', inline: 'nearest' });
+    if (highlight) scrollIntoView(this.currentCommandNode);
   }
 
   private flushRunView(direction: 'forward' | 'reverse'): void {
@@ -706,7 +728,7 @@ export class AppController {
     }
   }
 
-  private renderTapeView(mount: boolean, scrollToHead: boolean): void {
+  private renderTapeView(mount: boolean): void {
     const run = this.run;
     if (run === null) return;
     const label = this.i18n.t('a11y.tapeViewLabel');
@@ -715,9 +737,6 @@ export class AppController {
       this.tapeRenderer.mount(this.el.tapeView, run.tapeCells, run.headPosition, label);
     } else {
       this.tapeRenderer.update(run.tapeCells, run.headPosition, label, dirty);
-    }
-    if (scrollToHead) {
-      scrollIntoView(this.tapeRenderer.currentCell, { block: 'nearest', inline: 'nearest' });
     }
   }
 
@@ -740,27 +759,35 @@ export class AppController {
   }
 
   private setStepDirection(direction: 'forward' | 'reverse'): void {
+    if (this.stepDirection === direction && this.el.programView.dataset.stepDir === direction) {
+      return;
+    }
     this.stepDirection = direction;
     this.el.programView.dataset.stepDir = direction;
   }
 
-  private markCommand(kind: 'current' | 'error', command: Command | null | undefined): void {
+  private markCommand(
+    kind: 'current' | 'error',
+    command: Command | null | undefined,
+    scroll = true,
+  ): void {
     const prev = kind === 'current' ? this.currentCommandNode : this.errorCommandNode;
-    prev?.classList.remove(kind);
 
     let nextNode: HTMLElement | null = null;
     if (command !== null && command !== undefined) {
       const index = this.commandIndex.get(command);
       nextNode = index !== undefined ? (this.commandNodes[index] ?? null) : null;
-      if (nextNode !== null) {
-        nextNode.classList.add(kind);
-        scrollIntoView(nextNode);
-      }
       this.returnCursorOffset = command.source.offset;
     }
 
-    if (kind === 'current') this.currentCommandNode = nextNode;
-    else this.errorCommandNode = nextNode;
+    if (prev !== nextNode) {
+      prev?.classList.remove(kind);
+      nextNode?.classList.add(kind);
+      if (kind === 'current') this.currentCommandNode = nextNode;
+      else this.errorCommandNode = nextNode;
+    }
+
+    if (scroll && nextNode !== null) scrollIntoView(nextNode);
   }
 
   private reportRuntimeError(error: unknown): void {
@@ -900,27 +927,46 @@ export class AppController {
     }
   }
 
-  private renderStats(): void {
+  private renderStats(refreshLabels = false): void {
     if (this.stats === null) return;
-    const rows: ReadonlyArray<readonly [string, number]> = [
-      [this.i18n.t('stats.commands'), this.stats.commandsCount],
-      [this.i18n.t('stats.initialLength'), this.stats.initialDataLength],
-      [this.i18n.t('stats.cellsUsed'), this.stats.maxDataLength],
-      [this.i18n.t('stats.operations'), this.stats.operationsCount],
+    const values: readonly [number, number, number, number] = [
+      this.stats.commandsCount,
+      this.stats.initialDataLength,
+      this.stats.maxDataLength,
+      this.stats.operationsCount,
     ];
-    const fragment = document.createDocumentFragment();
-    rows.forEach(([label, value], index) => {
-      if (index > 0) fragment.append(document.createTextNode('\n'));
-      fragment.append(
-        el(
-          'div',
-          { class: 'stat-row' },
-          el('span', { class: 'stat-row__label' }, `${label}: `),
-          el('strong', { class: 'stat-row__value' }, this.i18n.formatNumber(value)),
-        ),
-      );
-    });
-    this.el.stats.replaceChildren(fragment);
+
+    if (this.statsNodes === null || !this.el.stats.contains(this.statsNodes[0]?.row ?? null)) {
+      const fragment = document.createDocumentFragment();
+      const nodes: StatRowNodes[] = [];
+      STAT_LABEL_KEYS.forEach((key, index) => {
+        if (index > 0) fragment.append(document.createTextNode('\n'));
+        const val = values[index] ?? 0;
+        const label = el('span', { class: 'stat-row__label' }, `${this.i18n.t(key)}: `);
+        const value = el('strong', { class: 'stat-row__value' }, this.i18n.formatNumber(val));
+        const row = el('div', { class: 'stat-row' }, label, value);
+        fragment.append(row);
+        nodes.push({ row, label, value, lastValue: val });
+      });
+      this.el.stats.replaceChildren(fragment);
+      this.statsNodes = nodes;
+      return;
+    }
+
+    for (let i = 0; i < this.statsNodes.length; i += 1) {
+      const node = this.statsNodes[i];
+      const key = STAT_LABEL_KEYS[i];
+      const val = values[i];
+      if (node === undefined || key === undefined || val === undefined) continue;
+      if (refreshLabels) {
+        node.label.textContent = `${this.i18n.t(key)}: `;
+        node.lastValue = val;
+        node.value.textContent = this.i18n.formatNumber(val);
+      } else if (node.lastValue !== val) {
+        node.lastValue = val;
+        node.value.textContent = this.i18n.formatNumber(val);
+      }
+    }
   }
 
   private setMode(mode: UIMode): void {
