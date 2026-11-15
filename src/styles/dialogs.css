@@ -102,7 +102,8 @@
   width: min(640px, calc(100vw - 32px));
 }
 
-.tu4-dialog__body {
+.tu4-dialog__body,
+.confirm-dialog__body {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -155,8 +156,6 @@
 }
 
 .confirm-dialog__body {
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 

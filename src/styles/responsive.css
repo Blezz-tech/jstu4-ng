@@ -113,15 +113,14 @@
     display: none !important;
   }
 
-  .app-shell {
-    display: block;
+  .app-shell,
+  .app {
     height: auto;
     max-width: none;
   }
 
-  .app {
-    height: auto;
-    max-width: none;
+  .app-shell {
+    display: block;
   }
 
   .sidepanel,

@@ -1,9 +1,5 @@
 /* ——— version control left panel ———————————————————————————————————— */
 
-.history-backdrop[hidden] {
-  display: none;
-}
-
 .historypanel__title-wrap {
   display: inline-flex;
   align-items: center;

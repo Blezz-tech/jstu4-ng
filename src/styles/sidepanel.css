@@ -1,9 +1,5 @@
 /* ——— side panel (notifications, metrics, hover hints) —————————————— */
 
-.sidepanel-backdrop[hidden] {
-  display: none;
-}
-
 .sidepanel {
   display: flex;
   flex-direction: column;
@@ -14,10 +10,6 @@
   background: var(--surface);
   box-shadow: var(--shadow);
   overflow: hidden;
-}
-
-.sidepanel[hidden] {
-  display: none;
 }
 
 .sidepanel__header {
@@ -77,18 +69,19 @@
   background: var(--surface-2);
 }
 
-.sidepanel__card--log {
-  min-height: 52px;
+.sidepanel__card--log,
+.sidepanel__card--hint {
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 
+.sidepanel__card--log {
+  min-height: 52px;
+}
+
 .sidepanel__card--hint {
   min-height: 76px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
 }
 
 .sidepanel__empty {

@@ -23,9 +23,10 @@
   display: none;
 }
 
-/* Uniform fixed-width transport controls (←, →, ▶/■) prevent horizontal shift. */
+/* Uniform fixed-width icon/transport controls prevent horizontal shift. */
 
-.btn--transport {
+.btn--transport,
+.btn--icon-only {
   width: 38px;
   min-width: 38px;
   height: 36px;
@@ -41,10 +42,7 @@
   display: block;
 }
 
-.btn--run-toggle .btn__media-icon--stop {
-  display: none;
-}
-
+.btn--run-toggle .btn__media-icon--stop,
 .btn--run-toggle[data-state='stop'] .btn__media-icon--play {
   display: none;
 }
@@ -213,14 +211,7 @@
   color: var(--accent);
 }
 
-/* ——— toolbar icon-only, save status & danger buttons ——————————————— */
-
-.btn--icon-only {
-  width: 38px;
-  min-width: 38px;
-  height: 36px;
-  padding: 0;
-}
+/* ——— toolbar save status indicator ————————————————————————————————— */
 
 .save-status {
   display: inline-flex;
@@ -267,16 +258,4 @@
 
 .save-status[data-state='autosaved']::before {
   background: var(--accent);
-}
-
-.btn--danger {
-  border-color: var(--err);
-  background: var(--err);
-  color: #ffffff;
-}
-
-.btn--danger:hover:not(:disabled) {
-  filter: brightness(1.08);
-  border-color: var(--err);
-  background: var(--err);
 }

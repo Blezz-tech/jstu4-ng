@@ -1,8 +1,5 @@
 /* ==========================================================================
-   jstu4 — modern vanilla rebuild
-   Single stylesheet: design tokens, light/dark themes, layout, components.
-   No CSS frameworks, no resets from npm: 40 lines of a modern reset + custom
-   properties do the job.
+   jstu4 — design tokens & light/dark themes
    ========================================================================== */
 
 /* ——— design tokens ——————————————————————————————————————————————— */

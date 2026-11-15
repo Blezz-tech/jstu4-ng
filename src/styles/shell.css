@@ -41,13 +41,6 @@
   position: relative;
 }
 
-.icon-btn--history[aria-expanded='true'],
-.icon-btn--sidepanel[aria-expanded='true'] {
-  background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  color: var(--accent);
-}
-
 .icon-btn__badge {
   position: absolute;
   top: 5px;
