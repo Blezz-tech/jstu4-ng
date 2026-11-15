@@ -90,8 +90,9 @@ function formatTapeCell(symbol: string): string {
 
 /**
  * Incremental DOM renderer for the tape pane during execution.
- * Mutates only cells whose symbol changed, appends/trims tail cells, and moves
- * the `.current` marker in O(1) without rebuilding the whole tape on every step.
+ * Mutates only cells whose symbol changed (in O(k) when given dirty indices),
+ * appends/trims tail cells, and moves the `.current` marker in O(1) without
+ * copying or rescanning the whole tape on every step.
  */
 export class TapeRenderer {
   private host: HTMLElement | null = null;
@@ -104,18 +105,23 @@ export class TapeRenderer {
     return this.currentIndex !== null ? (this.cells[this.currentIndex] ?? null) : null;
   }
 
-  mount(host: HTMLElement, tape: string, position: number | null, label: string): void {
+  mount(host: HTMLElement, cells: readonly string[], position: number | null, label: string): void {
     const container = el('div', { class: 'tape-view', role: 'img', 'aria-label': label });
     this.host = host;
     this.container = container;
     this.cells = [];
     this.symbols = [];
     this.currentIndex = null;
-    this.update(tape, position, label);
+    this.update(cells, position, label, null);
     host.replaceChildren(container);
   }
 
-  update(tape: string, position: number | null, label: string): void {
+  update(
+    cells: readonly string[],
+    position: number | null,
+    label: string,
+    dirtyIndices: readonly number[] | null = null,
+  ): void {
     const container = this.container;
     if (container === null) return;
 
@@ -126,13 +132,10 @@ export class TapeRenderer {
       this.host.setAttribute('aria-label', label);
     }
 
-    const nextSymbols = Array.from(tape);
-    if (position !== null && position >= nextSymbols.length) {
-      while (nextSymbols.length <= position) nextSymbols.push(' ');
-    }
+    const targetLength = position !== null ? Math.max(cells.length, position + 1) : cells.length;
 
     // Trim trailing cells if the tape shrank (e.g. after `stepBack` or `reset`).
-    while (this.cells.length > nextSymbols.length) {
+    while (this.cells.length > targetLength) {
       const removed = this.cells.pop();
       this.symbols.pop();
       removed?.remove();
@@ -141,26 +144,29 @@ export class TapeRenderer {
       this.currentIndex = null;
     }
 
-    // Update only existing cells whose symbol actually changed.
+    // Update existing cells: O(k) via dirty indices, or O(N) full diff after reset / overflow.
     const existingCount = this.cells.length;
-    for (let i = 0; i < existingCount; i += 1) {
-      const next = nextSymbols[i] ?? ' ';
-      if (this.symbols[i] !== next) {
-        this.symbols[i] = next;
-        const cell = this.cells[i];
-        if (cell !== undefined) cell.textContent = formatTapeCell(next);
+    if (dirtyIndices === null) {
+      for (let i = 0; i < existingCount; i += 1) {
+        this.syncCell(i, cells[i] ?? ' ');
+      }
+    } else {
+      for (let k = 0; k < dirtyIndices.length; k += 1) {
+        const i = dirtyIndices[k];
+        if (i !== undefined && i >= 0 && i < existingCount) {
+          this.syncCell(i, cells[i] ?? ' ');
+        }
       }
     }
 
-    // Append newly visited cells on the right in one batch.
-    if (nextSymbols.length > existingCount) {
+    // Append newly visited cells on the right.
+    const addedCount = targetLength - existingCount;
+    if (addedCount === 1) {
+      container.append(this.createCell(cells[existingCount] ?? ' '));
+    } else if (addedCount > 1) {
       const fragment = document.createDocumentFragment();
-      for (let i = existingCount; i < nextSymbols.length; i += 1) {
-        const sym = nextSymbols[i] ?? ' ';
-        const cell = el('span', { class: 'cell' }, formatTapeCell(sym));
-        this.cells.push(cell);
-        this.symbols.push(sym);
-        fragment.append(cell);
+      for (let i = existingCount; i < targetLength; i += 1) {
+        fragment.append(this.createCell(cells[i] ?? ' '));
       }
       container.append(fragment);
     }
@@ -191,5 +197,19 @@ export class TapeRenderer {
     this.cells = [];
     this.symbols = [];
     this.currentIndex = null;
+  }
+
+  private syncCell(index: number, next: string): void {
+    if (this.symbols[index] === next) return;
+    this.symbols[index] = next;
+    const cell = this.cells[index];
+    if (cell !== undefined) cell.textContent = formatTapeCell(next);
+  }
+
+  private createCell(sym: string): HTMLSpanElement {
+    const cell = el('span', { class: 'cell' }, formatTapeCell(sym));
+    this.cells.push(cell);
+    this.symbols.push(sym);
+    return cell;
   }
 }

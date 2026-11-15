@@ -6,6 +6,15 @@ import { NoSuchCommandError, OutOfTapeError } from './errors';
 /** Default maximum number of reversible steps kept in memory per run. */
 export const DEFAULT_MAX_HISTORY = 100_000;
 
+/**
+ * Cap on individually tracked dirty cell indices between renders. Exceeding it
+ * (e.g. headless runs or huge frame batches) coalesces into a full sync (`null`)
+ * so memory stays O(1) even if nobody consumes dirty cells.
+ */
+const MAX_DIRTY_CELLS = 256;
+
+const EMPTY_DIRTY: readonly number[] = [];
+
 export interface MachineRunOptions {
   /**
    * Maximum number of steps retained in the undo ring buffer (default:
@@ -37,10 +46,14 @@ interface StepRecord {
  */
 export class MachineRun {
   private readonly tape: string[];
+  private readonly initialTapeCells: readonly string[];
   private readonly maxHistory: number;
   private readonly history: (StepRecord | undefined)[] = [];
   private historyHead = 0;
   private historySize = 0;
+  private dirtyCells: number[] = [];
+  private dirtySnapshot: number[] = [];
+  private dirtyAll = false;
   private state: StateId;
   private position: number;
   private running = true;
@@ -63,15 +76,23 @@ export class MachineRun {
     // Trailing whitespace is not a part of the data: the machine starts
     // immediately after the last visible symbol (original behaviour).
     const normalised = tapeText.replace(/\s+$/, '');
-    this.tape = Array.from(normalised);
+    this.initialTapeCells = Array.from(normalised);
+    this.tape = [...this.initialTapeCells, ' '];
     this.initialTapeText = normalised;
     this.state = program.initialState;
     // The head starts *after* the last symbol, on an empty (space) cell.
-    this.position = this.tape.length;
-    // Materialise the initial cell under the head so `tapeText` and `cellsUsed`
-    // stay monotonically non-shrinking when the head moves left (matches v2.3).
-    this.tape.push(' ');
+    this.position = this.initialTapeCells.length;
     this.next = this.lookup();
+  }
+
+  private markCellDirty(index: number): void {
+    if (this.dirtyAll) return;
+    if (this.dirtyCells.length >= MAX_DIRTY_CELLS) {
+      this.dirtyAll = true;
+      this.dirtyCells.length = 0;
+      return;
+    }
+    this.dirtyCells.push(index);
   }
 
   private lookup(): Command | undefined {
@@ -165,6 +186,11 @@ export class MachineRun {
     return this.initialTapeText;
   }
 
+  /** Current tape as a read-only cell array (zero-copy view for incremental rendering). */
+  get tapeCells(): readonly string[] {
+    return this.tape;
+  }
+
   /** Current tape as a string; every cell visited by the head is kept. */
   get tapeText(): string {
     return this.tape.join('');
@@ -173,6 +199,29 @@ export class MachineRun {
   /** Highest number of cells the run has ever occupied up to the current step. */
   get cellsUsed(): number {
     return this.tape.length;
+  }
+
+  /**
+   * Drain cell indices overwritten since the last call.
+   *
+   * - Returns an empty array when only head/tail length changed (zero allocations).
+   * - Returns a swapped backing array of modified indices when `<= 256` writes occurred.
+   * - Returns `null` when a full resync is needed (`reset()` or more than 256 writes).
+   *
+   * Note: the returned array is reused on the *next* call; iterate synchronously.
+   */
+  consumeDirtyCells(): readonly number[] | null {
+    if (this.dirtyAll) {
+      this.dirtyAll = false;
+      this.dirtyCells.length = 0;
+      return null;
+    }
+    if (this.dirtyCells.length === 0) return EMPTY_DIRTY;
+    const out = this.dirtyCells;
+    this.dirtySnapshot.length = 0;
+    this.dirtyCells = this.dirtySnapshot;
+    this.dirtySnapshot = out;
+    return out;
   }
 
   /**
@@ -211,7 +260,10 @@ export class MachineRun {
         break;
       case 'write':
         while (this.tape.length <= this.position) this.tape.push(' ');
-        this.tape[this.position] = command.v;
+        if (this.tape[this.position] !== command.v) {
+          this.tape[this.position] = command.v;
+          this.markCellDirty(this.position);
+        }
         break;
       case 'stay':
         break;
@@ -252,8 +304,9 @@ export class MachineRun {
     if (record === undefined) return null;
 
     this.tape.length = record.prevTapeLength;
-    if (record.command.kind === 'write') {
+    if (record.command.kind === 'write' && this.tape[record.prevPosition] !== record.prevSymbol) {
       this.tape[record.prevPosition] = record.prevSymbol;
+      this.markCellDirty(record.prevPosition);
     }
 
     this.position = record.prevPosition;
@@ -267,13 +320,19 @@ export class MachineRun {
 
   /** Reset the run back to step 0 with the original tape and initial state. */
   reset(): void {
-    this.tape.length = 0;
-    this.tape.push(...Array.from(this.initialTapeText), ' ');
+    const initial = this.initialTapeCells;
+    this.tape.length = initial.length + 1;
+    for (let i = 0; i < initial.length; i += 1) {
+      this.tape[i] = initial[i] ?? ' ';
+    }
+    this.tape[initial.length] = ' ';
+    this.dirtyAll = true;
+    this.dirtyCells.length = 0;
     this.history.length = 0;
     this.historyHead = 0;
     this.historySize = 0;
     this.state = this.program.initialState;
-    this.position = this.initialTapeText.length;
+    this.position = initial.length;
     this.running = true;
     this.steps = 0;
     this.next = this.lookup();
