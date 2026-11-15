@@ -32,10 +32,10 @@ const COMMAND_PATTERN = '([^\\s]+),(.),(.),([^\\s]+)';
  */
 export function parseProgram(text: string, options: ParseOptions = {}): Command[] {
   const commands: Command[] = [];
-  // Local sticky RegExp instances keep `parseProgram` re-entrant even if
-  // `options.onCommand` invokes `parseProgram` nestedly.
-  const skipRe = new RegExp(SKIP_PATTERN, 'y');
-  const commandRe = new RegExp(COMMAND_PATTERN, 'y');
+  // Local sticky Unicode RegExp instances keep `parseProgram` re-entrant and
+  // match single code points (including non-BMP symbols) consistently with tape cells.
+  const skipRe = new RegExp(SKIP_PATTERN, 'yu');
+  const commandRe = new RegExp(COMMAND_PATTERN, 'yu');
 
   const length = text.length;
   let offset = 0;

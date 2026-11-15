@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
+import { computeScrollToIndex, computeWindowRange } from '../src/ui/render/virtual-window';
 import { parseProgram } from '../src/core/parser';
 import { createProgram } from '../src/core/program';
 import { MachineRun } from '../src/core/run';
@@ -536,5 +537,63 @@ describe('ProgramRenderer (dual-mode line-windowed virtualization)', () => {
     } finally {
       globalThis.ResizeObserver = OriginalRO;
     }
+  });
+
+  it('TapeRenderer.clear() empties host DOM in both direct and virtualized modes', () => {
+    const directHost = document.createElement('div');
+    const direct = new TapeRenderer();
+    direct.mount(directHost, ['a', 'b', ' '], 2, 'tape');
+    expect(directHost.childNodes.length).toBeGreaterThan(0);
+    direct.clear();
+    expect(directHost.childNodes).toHaveLength(0);
+
+    const virtualHost = document.createElement('div');
+    const virtual = new TapeRenderer();
+    const cells = Array.from({ length: TAPE_VIRTUALIZE_THRESHOLD + 50 }, () => '1');
+    virtual.mount(virtualHost, cells, 10, 'tape');
+    expect(virtual.isVirtualized).toBe(true);
+    expect(virtualHost.childNodes.length).toBeGreaterThan(0);
+    virtual.clear();
+    expect(virtualHost.childNodes).toHaveLength(0);
+    expect(virtualHost.classList.contains('tape-view--virtual')).toBe(false);
+  });
+
+  it('accounts for host CSS padding when computing virtual scroll targets and window ranges', () => {
+    const padding = { start: 10, end: 12 };
+    // 100 items × 20px, viewport 100px, top/bottom padding 10px/12px -> total scroll height 2022px
+    expect(computeScrollToIndex(99, 20, 0, 100, padding)).toBe(10 + 100 * 20 + 12 - 100);
+    // Index 0 sits at offset 10..30; when scroll is at 25 it must scroll back up to 0
+    expect(computeScrollToIndex(0, 20, 25, 100, padding)).toBe(0);
+    // Already fully visible inside padded viewport -> keeps current scroll position unchanged
+    expect(computeScrollToIndex(2, 20, 10, 100, padding)).toBe(10);
+    // Window range clamps safely at both ends and respects start padding
+    expect(
+      computeWindowRange({
+        scrollPos: 0,
+        viewportSize: 100,
+        itemSize: 20,
+        total: 50,
+        overscan: 5,
+        paddingStart: 10,
+        curStart: 0,
+        curEnd: 0,
+        renderedCount: 0,
+        force: true,
+      }),
+    ).toEqual({ start: 0, end: 10 });
+    expect(
+      computeWindowRange({
+        scrollPos: 950,
+        viewportSize: 100,
+        itemSize: 20,
+        total: 50,
+        overscan: 5,
+        paddingStart: 10,
+        curStart: 0,
+        curEnd: 0,
+        renderedCount: 0,
+        force: true,
+      }),
+    ).toEqual({ start: 42, end: 50 });
   });
 });

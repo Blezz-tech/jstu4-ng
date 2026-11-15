@@ -179,11 +179,12 @@ body[data-mode='error'] #input-program {
   color: var(--text-muted);
 }
 
-/* Fixed cell slot width in windowed mode (>500 cells) keeps scroll math O(1). */
+/* Fixed cell slot width in windowed mode (>500 cells) keeps scroll math O(1)
+   while leaving enough padding room for bold/wide glyphs (e.g. `Ж`, `W`). */
 .tape-view--virtual .cell {
   flex: none;
-  width: 1.5ch;
-  min-width: 1.5ch;
+  width: calc(1.1ch + 6px);
+  min-width: calc(1.1ch + 6px);
   overflow: hidden;
 }
 

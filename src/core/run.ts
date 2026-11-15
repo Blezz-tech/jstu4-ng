@@ -33,6 +33,10 @@ export function symbolAt(tape: readonly string[], index: number): string {
   return tape[index] ?? ' ';
 }
 
+function isBlankCell(symbol: string): boolean {
+  return symbol === ' ' || symbol === '\t' || symbol === '\n' || symbol === '\r';
+}
+
 /**
  * One machine run. The tape is a plain array of single-character cells,
  * mutable — all mutations go through {@link step}, {@link stepBack}, and
@@ -405,13 +409,19 @@ export class MachineRun {
   checkNormality(): 'normal' | 'sourceAltered' | 'misplaced' {
     // Original v2.3's `initialTape()` is `initialTapeText + ' '` (length + 1),
     // so overwriting that separating blank cell (appending output with no
-    // space) is also flagged as altering the source data.
-    const sourceWithSeparatorLength = this.initialTapeText.length + 1;
-    const current = this.tapeText;
-    const sourcePrefix = current.slice(0, sourceWithSeparatorLength).replace(/\s+$/, '');
+    // space) is also flagged as altering the source data. Comparing cell-by-cell
+    // avoids joining large tapes into strings and stays exact for non-BMP chars.
+    const init = this.initialTapeCells;
+    for (let i = 0; i < init.length; i += 1) {
+      if ((this.tape[i] ?? ' ') !== init[i]) return 'sourceAltered';
+    }
+    if (!isBlankCell(this.tape[init.length] ?? ' ')) return 'sourceAltered';
 
-    if (sourcePrefix !== this.initialTapeText) return 'sourceAltered';
-    if (current.replace(/\s+$/, '').length !== this.position) return 'misplaced';
+    let trimmedEnd = this.tape.length;
+    while (trimmedEnd > 0 && isBlankCell(this.tape[trimmedEnd - 1] ?? ' ')) {
+      trimmedEnd -= 1;
+    }
+    if (trimmedEnd !== this.position) return 'misplaced';
     return 'normal';
   }
 }

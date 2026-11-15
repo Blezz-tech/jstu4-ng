@@ -273,4 +273,37 @@ describe('history (SnapshotStore)', () => {
 
     store.dispose();
   });
+
+  it('keeps AutosaveTracker dirty when persistence fails so a later flush can succeed', () => {
+    const store = new SnapshotStore();
+    let current = { program: '0, ,#,0', tape: '1' };
+    const tracker = new AutosaveTracker({
+      store,
+      readState: () => current,
+    });
+    tracker.reset(current.program, current.tape);
+
+    current = { program: '0,1,0,0', tape: '1' };
+    tracker.markEdited(current.program, current.tape);
+    expect(tracker.isDirty).toBe(true);
+
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    });
+
+    // Persistence fails -> flush returns null and keeps dirty=true without advancing baseline
+    expect(tracker.flush()).toBeNull();
+    expect(store.lastPersistOk).toBe(false);
+    expect(tracker.isDirty).toBe(true);
+
+    // Once storage recovers, a retry flush persists the snapshot cleanly
+    setItemSpy.mockRestore();
+    const saved = tracker.flush();
+    expect(saved).not.toBeNull();
+    expect(saved?.program).toBe('0,1,0,0');
+    expect(tracker.isDirty).toBe(false);
+
+    tracker.dispose();
+    store.dispose();
+  });
 });

@@ -191,4 +191,55 @@ describe('mountApp lifecycle & shell modules', () => {
 
     app.dispose();
   });
+
+  it('closes the history drawer on wide-to-narrow resize when both drawers are open', () => {
+    const originalInnerWidth = window.innerWidth;
+    try {
+      Object.defineProperty(window, 'innerWidth', {
+        value: 1400,
+        configurable: true,
+      });
+
+      const app = mountApp(document);
+      const appShell = document.querySelector<HTMLElement>('.app-shell')!;
+      const sidepanel = document.querySelector<HTMLElement>('#sidepanel')!;
+      const sidepanelBackdrop = document.querySelector<HTMLElement>('#sidepanel-backdrop')!;
+      const historyPanel = document.querySelector<HTMLElement>('#history-panel')!;
+      const historyBackdrop = document.querySelector<HTMLElement>('#history-backdrop')!;
+      const btnHistory = document.querySelector<HTMLButtonElement>('#btn-history')!;
+
+      // Desktop default: sidepanel open, history closed
+      expect(sidepanel.hidden).toBe(false);
+      expect(historyPanel.hidden).toBe(true);
+      expect(appShell.dataset.sidepanel).toBe('open');
+      expect(appShell.dataset.history).toBe('closed');
+
+      // Open history on wide screen -> both panels are simultaneously open without backdrops
+      btnHistory.click();
+      expect(sidepanel.hidden).toBe(false);
+      expect(historyPanel.hidden).toBe(false);
+      expect(sidepanelBackdrop.hidden).toBe(true);
+      expect(historyBackdrop.hidden).toBe(true);
+
+      // Shrink viewport below single-drawer breakpoint -> history auto-closes & sidepanel backdrop shows
+      Object.defineProperty(window, 'innerWidth', {
+        value: 800,
+        configurable: true,
+      });
+      window.dispatchEvent(new Event('resize'));
+      expect(sidepanel.hidden).toBe(false);
+      expect(historyPanel.hidden).toBe(true);
+      expect(appShell.dataset.sidepanel).toBe('open');
+      expect(appShell.dataset.history).toBe('closed');
+      expect(sidepanelBackdrop.hidden).toBe(false);
+      expect(historyBackdrop.hidden).toBe(true);
+
+      app.dispose();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', {
+        value: originalInnerWidth,
+        configurable: true,
+      });
+    }
+  });
 });

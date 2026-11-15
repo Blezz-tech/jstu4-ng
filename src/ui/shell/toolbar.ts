@@ -148,11 +148,8 @@ export class ToolbarView {
   }
 
   applyMode(mode: UIMode): void {
-    this.dom.controls.dataset.mode = mode;
-    this.doc.body.dataset.mode = mode;
     this.dom.skipLink.href = mode === 'edit' ? '#input-program' : '#display-program';
     this.syncRunToggleLabel();
-    this.syncHint();
     this.scheduleProgramOverflow();
   }
 

@@ -87,8 +87,12 @@ src/
     types.ts, index.ts      реактивный стор I18n, BCP-47 через Intl.Locale, строгие ключи
   ui/
     controller.ts           ядро UI-состояния, цикл выполнения, синхронизация ленты и кода
-    render.ts               двухрежимные TapeRenderer (≤ 500 ячеек / виртуализация > 500) и ProgramRenderer (≤ 400 строк / виртуализация)
+    auto-runner.ts          планировщик автоисполнения (setTimeout + rAF-батчинг)
+    stats-view.ts           инкрементальный рендерер блока статистики (#stats)
+    render.ts               реэкспорт-точка входа модулей рендеринга (render/*)
+    render/                 listing.ts, virtual-window.ts, tape-renderer.ts, program-renderer.ts
     history.ts              хранилище снимков версий (ручные и автосохранения)
+    autosave.ts             отслеживание изменений и автосохранение черновиков
     notifications.ts        лента уведомлений боковой панели с историей записей
     dom.ts, storage.ts, audio.ts, speed.ts, clipboard.ts
     shell/                  модули оболочки приложения
@@ -103,7 +107,7 @@ src/
   styles/                   main.css + 11 тематических CSS-модулей (tokens, base, shell, buttons, …)
   app.ts                    корень композиции mountApp() с жизненным циклом dispose()
   main.ts                   точка входа браузера
-tests/                      Vitest: 17 наборов (153 юнит/DOM-теста) + tests/helpers/dom-fixture.ts
+tests/                      Vitest: 17 наборов (159 юнит/DOM-тестов) + tests/helpers/dom-fixture.ts
 e2e/                        Playwright: 31 сценарий (app.spec.ts) + скриншоты (visual.spec.ts)
 public/index.html           единственная HTML-точка входа (root для Vite)
 ```
