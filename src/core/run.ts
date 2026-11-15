@@ -1,10 +1,14 @@
 import type { Command, StateId } from './machine';
 import type { Program } from './program';
-import { findTransition } from './program';
 import { NoSuchCommandError, OutOfTapeError } from './errors';
 
 /** Default maximum number of reversible steps kept in memory per run. */
 export const DEFAULT_MAX_HISTORY = 100_000;
+
+/** Initial backing capacity for the growable SoA undo ring buffer. */
+const INITIAL_HISTORY_CAPACITY = 256;
+
+const EMPTY_INT32 = new Int32Array(0);
 
 /**
  * Cap on individually tracked dirty cell indices between renders. Exceeding it
@@ -29,15 +33,6 @@ export function symbolAt(tape: readonly string[], index: number): string {
   return tape[index] ?? ' ';
 }
 
-/** O(1) diff captured for each executed command so `stepBack()` is exact. */
-interface StepRecord {
-  readonly command: Command;
-  readonly prevState: StateId;
-  readonly prevPosition: number;
-  readonly prevTapeLength: number;
-  readonly prevSymbol: string;
-}
-
 /**
  * One machine run. The tape is a plain array of single-character cells,
  * mutable — all mutations go through {@link step}, {@link stepBack}, and
@@ -48,13 +43,21 @@ export class MachineRun {
   private readonly tape: string[];
   private readonly initialTapeCells: readonly string[];
   private readonly maxHistory: number;
-  private readonly history: (StepRecord | undefined)[] = [];
+  // Growable Structure-of-Arrays ring buffer for O(1) reversible history:
+  // avoids allocating a StepRecord object per step and cuts 100k-step memory ~4×.
+  // `prevState` is omitted because it always equals `command.q`.
+  private historyCmd: (Command | undefined)[] = [];
+  private historyPos: Int32Array = EMPTY_INT32;
+  private historyLen: Int32Array = EMPTY_INT32;
+  private historySym: (string | undefined)[] = [];
+  private historyCap = 0;
   private historyHead = 0;
   private historySize = 0;
   private dirtyCells: number[] = [];
   private dirtySnapshot: number[] = [];
   private dirtyAll = false;
   private state: StateId;
+  private stateTransitions: ReadonlyMap<string, Command> | undefined;
   private position: number;
   private running = true;
   private next: Command | undefined;
@@ -80,6 +83,7 @@ export class MachineRun {
     this.tape = [...this.initialTapeCells, ' '];
     this.initialTapeText = normalised;
     this.state = program.initialState;
+    this.stateTransitions = program.transitions.get(this.state);
     // The head starts *after* the last symbol, on an empty (space) cell.
     this.position = this.initialTapeCells.length;
     this.next = this.lookup();
@@ -96,42 +100,82 @@ export class MachineRun {
   }
 
   private lookup(): Command | undefined {
-    return findTransition(this.program, this.state, symbolAt(this.tape, this.position));
+    return this.stateTransitions?.get(symbolAt(this.tape, this.position));
   }
 
-  private pushHistory(record: StepRecord): void {
+  private clearHistory(): void {
+    this.historyCmd = [];
+    this.historyPos = EMPTY_INT32;
+    this.historyLen = EMPTY_INT32;
+    this.historySym = [];
+    this.historyCap = 0;
+    this.historyHead = 0;
+    this.historySize = 0;
+  }
+
+  private growHistory(): void {
+    const oldCap = this.historyCap;
+    const rawNext = oldCap === 0 ? INITIAL_HISTORY_CAPACITY : oldCap * 2;
+    const nextCap = Math.min(this.maxHistory, rawNext);
+
+    const nextCmd = new Array<Command | undefined>(nextCap);
+    const nextPos = new Int32Array(nextCap);
+    const nextLen = new Int32Array(nextCap);
+    const nextSym = new Array<string | undefined>(nextCap);
+
+    if (this.historySize > 0) {
+      if (this.historyHead === 0) {
+        for (let i = 0; i < this.historySize; i += 1) {
+          nextCmd[i] = this.historyCmd[i];
+          nextSym[i] = this.historySym[i];
+        }
+        nextPos.set(this.historyPos.subarray(0, this.historySize));
+        nextLen.set(this.historyLen.subarray(0, this.historySize));
+      } else {
+        for (let i = 0; i < this.historySize; i += 1) {
+          const src = (this.historyHead + i) % oldCap;
+          nextCmd[i] = this.historyCmd[src];
+          nextPos[i] = this.historyPos[src] ?? 0;
+          nextLen[i] = this.historyLen[src] ?? 0;
+          nextSym[i] = this.historySym[src];
+        }
+        this.historyHead = 0;
+      }
+    }
+
+    this.historyCmd = nextCmd;
+    this.historyPos = nextPos;
+    this.historyLen = nextLen;
+    this.historySym = nextSym;
+    this.historyCap = nextCap;
+  }
+
+  private pushHistory(
+    command: Command,
+    prevPosition: number,
+    prevTapeLength: number,
+    prevSymbol: string | undefined,
+  ): void {
     if (this.maxHistory === 0) return;
-    if (!Number.isFinite(this.maxHistory)) {
-      this.history.push(record);
-      this.historySize += 1;
-      return;
-    }
-    if (this.historySize < this.maxHistory) {
-      const writeIdx = (this.historyHead + this.historySize) % this.maxHistory;
-      this.history[writeIdx] = record;
-      this.historySize += 1;
-      return;
-    }
-    // Buffer is full: overwrite the oldest record in O(1).
-    this.history[this.historyHead] = record;
-    this.historyHead = (this.historyHead + 1) % this.maxHistory;
-  }
 
-  private popHistory(): StepRecord | undefined {
-    if (this.historySize === 0) return undefined;
-    if (!Number.isFinite(this.maxHistory)) {
-      this.historySize -= 1;
-      return this.history.pop();
+    if (this.historySize === this.historyCap && this.historyCap < this.maxHistory) {
+      this.growHistory();
     }
-    this.historySize -= 1;
-    const readIdx = (this.historyHead + this.historySize) % this.maxHistory;
-    const record = this.history[readIdx];
-    this.history[readIdx] = undefined;
-    if (this.historySize === 0) {
-      this.historyHead = 0;
-      this.history.length = 0;
+
+    let writeIdx: number;
+    if (this.historySize < this.historyCap) {
+      writeIdx = (this.historyHead + this.historySize) % this.historyCap;
+      this.historySize += 1;
+    } else {
+      // Buffer is full: overwrite the oldest record in O(1).
+      writeIdx = this.historyHead;
+      this.historyHead = (this.historyHead + 1) % this.historyCap;
     }
-    return record;
+
+    this.historyCmd[writeIdx] = command;
+    this.historyPos[writeIdx] = prevPosition;
+    this.historyLen[writeIdx] = prevTapeLength;
+    this.historySym[writeIdx] = prevSymbol;
   }
 
   get isRunning(): boolean {
@@ -245,10 +289,9 @@ export class MachineRun {
       throw new OutOfTapeError({ command });
     }
 
-    const prevState = this.state;
     const prevPosition = this.position;
     const prevTapeLength = this.tape.length;
-    const prevSymbol = symbolAt(this.tape, prevPosition);
+    let prevSymbol: string | undefined;
 
     switch (command.kind) {
       case 'left':
@@ -260,7 +303,8 @@ export class MachineRun {
         break;
       case 'write':
         while (this.tape.length <= this.position) this.tape.push(' ');
-        if (this.tape[this.position] !== command.v) {
+        prevSymbol = this.tape[this.position] ?? ' ';
+        if (prevSymbol !== command.v) {
           this.tape[this.position] = command.v;
           this.markCellDirty(this.position);
         }
@@ -271,20 +315,17 @@ export class MachineRun {
         break;
     }
 
-    this.pushHistory({
-      command,
-      prevState,
-      prevPosition,
-      prevTapeLength,
-      prevSymbol,
-    });
+    this.pushHistory(command, prevPosition, prevTapeLength, prevSymbol);
     this.steps += 1;
 
     if (command.isHalt) {
       this.running = false;
       this.next = undefined;
     } else {
-      this.state = command.w;
+      if (command.w !== this.state) {
+        this.state = command.w;
+        this.stateTransitions = this.program.transitions.get(command.w);
+      }
       this.next = this.lookup();
     }
 
@@ -300,22 +341,40 @@ export class MachineRun {
    *   no undo history remains (at step 0 or at the history buffer boundary)
    */
   stepBack(): Command | null {
-    const record = this.popHistory();
-    if (record === undefined) return null;
+    if (this.historySize === 0) return null;
 
-    this.tape.length = record.prevTapeLength;
-    if (record.command.kind === 'write' && this.tape[record.prevPosition] !== record.prevSymbol) {
-      this.tape[record.prevPosition] = record.prevSymbol;
-      this.markCellDirty(record.prevPosition);
+    this.historySize -= 1;
+    const readIdx = (this.historyHead + this.historySize) % this.historyCap;
+    const command = this.historyCmd[readIdx];
+    const prevPosition = this.historyPos[readIdx] ?? 0;
+    const prevTapeLength = this.historyLen[readIdx] ?? 0;
+    const prevSymbol = this.historySym[readIdx];
+
+    this.historyCmd[readIdx] = undefined;
+    this.historySym[readIdx] = undefined;
+    if (this.historySize === 0) this.clearHistory();
+
+    if (command === undefined) return null;
+
+    this.tape.length = prevTapeLength;
+    if (command.kind === 'write') {
+      const restored = prevSymbol ?? ' ';
+      if (this.tape[prevPosition] !== restored) {
+        this.tape[prevPosition] = restored;
+        this.markCellDirty(prevPosition);
+      }
     }
 
-    this.position = record.prevPosition;
-    this.state = record.prevState;
+    this.position = prevPosition;
+    if (command.q !== this.state) {
+      this.state = command.q;
+      this.stateTransitions = this.program.transitions.get(command.q);
+    }
     this.steps -= 1;
     this.running = true;
-    this.next = record.command;
+    this.next = command;
 
-    return record.command;
+    return command;
   }
 
   /** Reset the run back to step 0 with the original tape and initial state. */
@@ -328,10 +387,9 @@ export class MachineRun {
     this.tape[initial.length] = ' ';
     this.dirtyAll = true;
     this.dirtyCells.length = 0;
-    this.history.length = 0;
-    this.historyHead = 0;
-    this.historySize = 0;
+    this.clearHistory();
     this.state = this.program.initialState;
+    this.stateTransitions = this.program.transitions.get(this.state);
     this.position = initial.length;
     this.running = true;
     this.steps = 0;

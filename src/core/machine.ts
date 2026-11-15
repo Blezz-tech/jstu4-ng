@@ -23,34 +23,34 @@ export interface CommandSource {
 export type MoveKind = 'left' | 'right' | 'stay' | 'halt';
 
 export class Command {
-  constructor(
-    readonly q: StateId,
-    readonly a: string,
-    readonly v: string,
-    readonly w: StateId,
-    readonly source: CommandSource,
-  ) {}
-
   /**
    * What this command does. Note that `rep,0,0,rep` is a halt and `rep,0,0,nxt`
    * is a stay rather than a write (same as original jstu4 v2.3).
    */
-  get kind(): MoveKind | 'write' {
-    if (this.v === '<') return 'left';
-    if (this.v === '>') return 'right';
-    if (this.v === '#') return 'halt';
-    if (this.a === this.v) return this.q === this.w ? 'halt' : 'stay';
-    if (this.v === '=') return 'stay';
-    return 'write';
-  }
+  readonly kind: MoveKind | 'write';
 
   /**
    * `true` when the machine stops after this command. Matches original v2.3
    * `isStop()`: `#` always halts, and `a === v && q === w` also halts even
    * when `v` is `<` or `>` (after performing the move).
    */
-  get isHalt(): boolean {
-    return this.v === '#' || (this.a === this.v && this.q === this.w);
+  readonly isHalt: boolean;
+
+  constructor(
+    readonly q: StateId,
+    readonly a: string,
+    readonly v: string,
+    readonly w: StateId,
+    readonly source: CommandSource,
+  ) {
+    if (v === '<') this.kind = 'left';
+    else if (v === '>') this.kind = 'right';
+    else if (v === '#') this.kind = 'halt';
+    else if (a === v) this.kind = q === w ? 'halt' : 'stay';
+    else if (v === '=') this.kind = 'stay';
+    else this.kind = 'write';
+
+    this.isHalt = v === '#' || (a === v && q === w);
   }
 
   toString(): string {

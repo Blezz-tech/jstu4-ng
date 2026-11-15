@@ -103,7 +103,7 @@ src/
   styles/                   main.css + 11 тематических CSS-модулей (tokens, base, shell, buttons, …)
   app.ts                    корень композиции mountApp() с жизненным циклом dispose()
   main.ts                   точка входа браузера
-tests/                      Vitest: 17 наборов (139 юнит/DOM-тестов) + tests/helpers/dom-fixture.ts
+tests/                      Vitest: 17 наборов (141 юнит/DOM-тест) + tests/helpers/dom-fixture.ts
 e2e/                        Playwright: 31 сценарий (app.spec.ts) + скриншоты (visual.spec.ts)
 public/index.html           единственная HTML-точка входа (root для Vite)
 ```

@@ -751,6 +751,39 @@ describe('AppController', () => {
     expect(el.stats.textContent).toContain('Выполнено операций: 0');
   });
 
+  it('reuses #stats DOM rows incrementally across steps and locale switches', () => {
+    const el = setupDom();
+    const i18n = createI18n('ru');
+    const controller = new AppController({
+      i18n,
+      elements: el,
+      onModeChange: () => undefined,
+      onProgramChange: () => undefined,
+      onTapeChange: () => undefined,
+    });
+    el.programInput.value = '0, ,>,1\n1, ,a,2\n2,a,#,2';
+    el.tapeInput.value = '0';
+
+    controller.start();
+    const initialRows = Array.from(el.stats.querySelectorAll('.stat-row'));
+    expect(initialRows).toHaveLength(4);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
+
+    controller.step();
+    controller.step();
+    const rowsAfterSteps = Array.from(el.stats.querySelectorAll('.stat-row'));
+    expect(rowsAfterSteps).toEqual(initialRows);
+    expect(el.stats.textContent).toContain('Выполнено операций: 2');
+
+    // Locale switch updates labels in place without replacing `.stat-row` nodes
+    i18n.setLocale('en');
+    const rowsAfterLocale = Array.from(el.stats.querySelectorAll('.stat-row'));
+    expect(rowsAfterLocale).toEqual(initialRows);
+    expect(el.stats.textContent).toContain('Steps performed: 2');
+
+    controller.dispose();
+  });
+
   it('clears hidden #display-program and #display-tape DOM nodes when returning to edit mode', () => {
     const el = setupDom();
     const controller = makeController(el);

@@ -376,4 +376,28 @@ describe('MachineRun', () => {
     expect(busy.consumeDirtyCells()).toBeNull();
     expect(busy.consumeDirtyCells()).toEqual([]);
   });
+
+  it('grows the SoA undo buffer past its initial 256 capacity and rewinds every step accurately', () => {
+    const program = createProgram(parseProgram('0, ,a,1  1,a,>,2  2, ,b,3  3,b,>,0'));
+    const run = new MachineRun(program, '', { maxHistory: 1000 });
+    const totalSteps = 600;
+
+    for (let i = 0; i < totalSteps; i += 1) {
+      expect(run.step()).toBe(true);
+    }
+    expect(run.stepsCount).toBe(totalSteps);
+    expect(run.historyLength).toBe(totalSteps);
+    expect(run.isHistoryTruncated).toBe(false);
+    expect(run.cellsUsed).toBe(301);
+
+    for (let i = totalSteps; i > 0; i -= 1) {
+      expect(run.stepBack()).not.toBeNull();
+    }
+    expect(run.stepsCount).toBe(0);
+    expect(run.historyLength).toBe(0);
+    expect(run.isAtStart).toBe(true);
+    expect(run.tapeText).toBe(' ');
+    expect(run.headPosition).toBe(0);
+    expect(run.currentState).toBe(0);
+  });
 });

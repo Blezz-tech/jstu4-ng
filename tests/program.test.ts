@@ -21,9 +21,10 @@ describe('createProgram', () => {
 
   it('treats 01 and 1 as the same state', () => {
     const program = compile('01,0,>,1  1,1,<,1');
-    // Both commands belong to state "1", so a single map entry per symbol.
+    // Both commands belong to state "1", so one state entry with two symbols.
     expect(program.commands[0]?.q).toBe(1);
-    expect(program.transitions.size).toBe(2);
+    expect(program.transitions.size).toBe(1);
+    expect(program.transitions.get(1)?.size).toBe(2);
   });
 
   it('rejects an empty program', () => {
