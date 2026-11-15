@@ -73,13 +73,15 @@ npm run test:e2e                # сквозные тесты Playwright с Chro
 ```
 src/
   core/                     ядро без DOM и без зависимостей
-    errors.ts               иерархия MachineError с типизированными данными
-    machine.ts              модель команды, тип состояния, нормализация ключей
-    parser.ts               разбор текста программы (регэксп, источник + смещения)
-    program.ts              валидация и индексация переходов (Map)
-    run.ts                  прогон машины, кольцевой буфер истории шагов, «ненормальность»
-    tu4.ts                  экспорт в формат TU4
-    version.ts              модель и константы снимков контроля версий
+    result.ts               тип Result<T, E>, конструкторы ok/err и assertNever
+    errors.ts               размеченные объединения ошибок ядра (CompileError / RuntimeError / Tu4Error)
+    machine.ts              readonly-модель Command + createCommand / formatCommand / parseStateName
+    parser.ts               разбор текста программы (Result, регэксп, источник + смещения)
+    program.ts              валидация и индексация переходов (Result, Map)
+    run.ts                  прогон машины (zero-alloc step() Result), «ненормальность»
+    undo-history.ts         SoA кольцевой буфер истории шагов (до 100 000 шагов)
+    tu4.ts                  экспорт в формат TU4 (Result)
+    version.ts              константа версии ядра
   i18n/                     локализация без зависимостей: JSON-каталоги, ICU + Intl, data-i18n
     locales/{ru,en}.json    декларативные каталоги сообщений и справки
     format.ts               ICU-форматтер на нативных Intl.NumberFormat / Intl.PluralRules
@@ -87,10 +89,12 @@ src/
     types.ts, index.ts      реактивный стор I18n, BCP-47 через Intl.Locale, строгие ключи
   ui/
     controller.ts           ядро UI-состояния, цикл выполнения, синхронизация ленты и кода
+    error-reporter.ts       исчерпывающий (exhaustive) вывод ошибок компиляции и выполнения
+    speed-controller.ts     границы и управление ползунком скорости
     auto-runner.ts          планировщик автоисполнения (setTimeout + rAF-батчинг)
     stats-view.ts           инкрементальный рендерер блока статистики (#stats)
     render.ts               реэкспорт-точка входа модулей рендеринга (render/*)
-    render/                 listing.ts, virtual-window.ts, tape-renderer.ts, program-renderer.ts
+    render/                 listing.ts, program-lines.ts, virtual-window.ts, tape-renderer.ts, program-renderer.ts
     history.ts              хранилище снимков версий (ручные и автосохранения)
     autosave.ts             отслеживание изменений и автосохранение черновиков
     notifications.ts        лента уведомлений боковой панели с историей записей
@@ -100,14 +104,15 @@ src/
       settings-store.ts     персистентное хранилище настроек в localStorage
       settings-menu.ts      выпадающее меню настроек (язык, тема, звук, скорость, удаление)
       sidepanels.ts         логика правой/левой боковых панелей и мобильных оверлеев
-      history-panel.ts      отрисовка и делегирование событий панели контроля версий
+      history-panel.ts      управление и делегирование событий панели контроля версий
+      snapshot-item.ts      рендерер карточки снимка версии
       dialogs.ts            диалоги справки, экспорта TU4 и подтверждения действий
       toolbar.ts            статус сохранения, подсказки по наведению и транспортные кнопки
       shortcuts.ts          глобальные горячие клавиши
   styles/                   main.css + 11 тематических CSS-модулей (tokens, base, shell, buttons, …)
   app.ts                    корень композиции mountApp() с жизненным циклом dispose()
   main.ts                   точка входа браузера
-tests/                      Vitest: 17 наборов (159 юнит/DOM-тестов) + tests/helpers/dom-fixture.ts
+tests/                      Vitest: 17 наборов (167 юнит/DOM-тестов) + tests/helpers/
 e2e/                        Playwright: 31 сценарий (app.spec.ts) + скриншоты (visual.spec.ts)
 public/index.html           единственная HTML-точка входа (root для Vite)
 ```
@@ -121,8 +126,8 @@ public/index.html           единственная HTML-точка входа 
 | Сборка HTML склейкой строк                  | `createElement` + `textContent` (нет XSS-поверхности), инкрементальный рендер и оконная виртуализация ленты (> 500 ячеек) и программы (> 400 строк / > 800 команд) |
 | `setInterval` с двумя скоростями (70/10 мс) | шаг назад `←` (до 100 000 шагов), перезапуск «Сначала», «Запуск» / «Стоп» + двусторонний ползунок скорости `-15×…25×` с полоской нуля                              |
 | Свой placeholder-плагин                     | нативный `placeholder`                                                                                                                                             |
-| Ошибки — конструкторы без `Error`           | классы `MachineError` с корректным `instanceof`                                                                                                                    |
-| Хранение переходов в `{}` (риск `toString`) | `Map` с ключами `stateKey` (без коллизий с `Object.prototype`)                                                                                                     |
+| Ошибки — конструкторы без `Error`           | типизированный `Result<T, MachineError>` с discriminated unions и `assertNever`                                                                                    |
+| Хранение переходов в `{}` (риск `toString`) | двухуровневый `Map<StateId, Map<string, Command>>` без коллизий с `Object.prototype`                                                                               |
 | Справка — отдельные HTML                    | `<dialog>` + `F1`, без перезагрузок                                                                                                                                |
 | Нет сохранения                              | черновик, контроль версий (ручные и автоснимки), тема, язык, звук и настройки в `localStorage`                                                                     |
 | Фиксированная вёрстка, редиректы RU/EN      | адаптив, тёмная тема, переключение RU/EN на лету, боковые панели, a11y                                                                                             |

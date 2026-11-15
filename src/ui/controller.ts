@@ -1,3 +1,4 @@
+import type { CompileError } from '../core/errors';
 import type { Command } from '../core/machine';
 import { createProgram } from '../core/program';
 import { MachineRun } from '../core/run';
@@ -372,18 +373,15 @@ export class AppController {
     const parsed = this.parseInput();
     if (parsed === null) return null;
 
-    try {
-      const converted = toTu4(parsed.program);
-      this.notifications.show('info', (i) => i.t('log.convertedToTu4'));
-      this.options.onTu4Converted?.(converted);
-      return converted;
-    } catch (error) {
-      if (error instanceof RangeError) {
-        this.notifications.show('error', (i) => i.t('error.tooManyStates'));
-        return null;
-      }
-      throw error;
+    const converted = toTu4(parsed.program);
+    if (!converted.ok) {
+      this.notifications.show('error', (i) => i.t('error.tooManyStates'));
+      return null;
     }
+
+    this.notifications.show('info', (i) => i.t('log.convertedToTu4'));
+    this.options.onTu4Converted?.(converted.value);
+    return converted.value;
   }
 
   /** Stop any active run and replace the editor content with the given program and tape. */
@@ -508,12 +506,13 @@ export class AppController {
     if (run === null || !run.isRunning) return false;
 
     const executed = run.nextCommand;
-    try {
-      run.step();
-    } catch (error) {
+    const outcome = run.step();
+    if (!outcome.ok) {
       this.syncRunView('forward', false);
       this.markCommand('current', null);
-      displayRuntimeError(error, this.notifications, (cmd) => this.markCommand('error', cmd));
+      displayRuntimeError(outcome.error, this.notifications, (cmd) =>
+        this.markCommand('error', cmd),
+      );
       this.haltAutoRun();
       return false;
     }
@@ -569,29 +568,40 @@ export class AppController {
 
   private parseInput(): CompiledProgram | null {
     const text = this.el.programInput.value;
-    let listing: ProgramListing | null = null;
-    try {
-      listing = listProgram(text);
-      const program = createProgram(listing.commands, 0);
-      return { ...listing, program };
-    } catch (error) {
-      const scrollTop = this.el.programInput.scrollTop;
-      this.resetRunObjects();
-      this.setMode('error');
-      this.returnCursorOffset = displayCompileError(error, {
-        text,
-        listing,
-        programView: this.el.programView,
-        programRenderer: this.programRenderer,
-        notifications: this.notifications,
-      });
-      this.notifyRunState();
-      this.programRenderer.syncScroll(scrollTop);
-      this.programRenderer.scrollToFirstError();
-      // Move focus out of `#input-tape` so Enter/Escape immediately return to edit mode.
-      this.el.programView.focus({ preventScroll: true });
-      return null;
+    const listed = listProgram(text);
+    if (!listed.ok) {
+      return this.reportCompileFailure(text, null, listed.error);
     }
+
+    const created = createProgram(listed.value.commands, 0);
+    if (!created.ok) {
+      return this.reportCompileFailure(text, listed.value, created.error);
+    }
+
+    return { ...listed.value, program: created.value };
+  }
+
+  private reportCompileFailure(
+    text: string,
+    listing: ProgramListing | null,
+    error: CompileError,
+  ): null {
+    const scrollTop = this.el.programInput.scrollTop;
+    this.resetRunObjects();
+    this.setMode('error');
+    this.returnCursorOffset = displayCompileError(error, {
+      text,
+      listing,
+      programView: this.el.programView,
+      programRenderer: this.programRenderer,
+      notifications: this.notifications,
+    });
+    this.notifyRunState();
+    this.programRenderer.syncScroll(scrollTop);
+    this.programRenderer.scrollToFirstError();
+    // Move focus out of `#input-tape` so Enter/Escape immediately return to edit mode.
+    this.el.programView.focus({ preventScroll: true });
+    return null;
   }
 
   private renderTapeView(mount: boolean): void {

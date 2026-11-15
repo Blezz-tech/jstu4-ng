@@ -1,14 +1,6 @@
-import {
-  AmbiguousCommandError,
-  EmptyProgramError,
-  MachineError,
-  NoSuchCommandError,
-  NonexistentInitialStateError,
-  NonexistentTargetStateError,
-  OutOfTapeError,
-  ParseError,
-} from '../core/errors';
+import type { CompileError, RuntimeError } from '../core/errors';
 import type { Command } from '../core/machine';
+import { assertNever } from '../core/result';
 import type { MachineRun } from '../core/run';
 import type { NotificationLog } from './notifications';
 import type { ProgramListing, ProgramRenderer } from './render';
@@ -38,73 +30,76 @@ function mountListingWithErrors(
 }
 
 /**
- * Render a compile-time `MachineError` into the read-only listing and publish
- * its localized message. Returns the editor cursor offset to restore on edit.
+ * Render a compile-time error into the read-only listing and publish its
+ * localized message. Returns the editor cursor offset to restore on edit.
  */
-export function displayCompileError(error: unknown, ctx: CompileErrorContext): number | null {
-  if (!(error instanceof MachineError)) throw error;
-
+export function displayCompileError(error: CompileError, ctx: CompileErrorContext): number | null {
   const { text, listing, programView, programRenderer, notifications } = ctx;
   notifications.clear();
 
-  if (error instanceof ParseError) {
-    programRenderer.mountParseError(programView, text, error.data.offset);
-    notifications.show('error', (i) => i.t('error.parseError', { text: error.data.text }));
-    return error.data.offset;
-  }
+  switch (error.kind) {
+    case 'parseError':
+      programRenderer.mountParseError(programView, text, error.offset);
+      notifications.show('error', (i) => i.t('error.parseError', { text: error.text }));
+      return error.offset;
 
-  if (error instanceof EmptyProgramError) {
-    programRenderer.clear();
-    programView.textContent = text;
-    notifications.show('error', (i) => i.t('error.programIsEmpty'));
-    return null;
-  }
+    case 'emptyProgram':
+      programRenderer.clear();
+      programView.textContent = text;
+      notifications.show('error', (i) => i.t('error.programIsEmpty'));
+      return null;
 
-  if (error instanceof AmbiguousCommandError) {
-    mountListingWithErrors(programView, programRenderer, listing, [
-      error.data.command,
-      error.data.original,
-    ]);
-    const { q, a } = error.data.command;
-    notifications.show('error', (i) => i.t('error.ambiguousCommand', { q: String(q), a }));
-    return error.data.command.source.offset;
-  }
+    case 'ambiguousCommand': {
+      mountListingWithErrors(programView, programRenderer, listing, [
+        error.command,
+        error.original,
+      ]);
+      const { q, a } = error.command;
+      notifications.show('error', (i) => i.t('error.ambiguousCommand', { q: String(q), a }));
+      return error.command.source.offset;
+    }
 
-  if (error instanceof NonexistentTargetStateError) {
-    mountListingWithErrors(programView, programRenderer, listing, [error.data.command]);
-    const w = String(error.data.command.w);
-    notifications.show('error', (i) => i.t('error.targetStateDoesNotExist', { w }));
-    return error.data.command.source.offset;
-  }
+    case 'nonexistentTargetState': {
+      mountListingWithErrors(programView, programRenderer, listing, [error.command]);
+      const w = String(error.command.w);
+      notifications.show('error', (i) => i.t('error.targetStateDoesNotExist', { w }));
+      return error.command.source.offset;
+    }
 
-  if (error instanceof NonexistentInitialStateError) {
-    mountListingWithErrors(programView, programRenderer, listing, []);
-    const q = String(error.data.state);
-    notifications.show('error', (i) => i.t('error.initialStateDoesNotExist', { q }));
-    return null;
-  }
+    case 'nonexistentInitialState': {
+      mountListingWithErrors(programView, programRenderer, listing, []);
+      const q = String(error.state);
+      notifications.show('error', (i) => i.t('error.initialStateDoesNotExist', { q }));
+      return null;
+    }
 
-  throw error;
+    default:
+      return assertNever(error);
+  }
 }
 
-/** Publish a runtime `MachineError`, marking the offending command when applicable. */
+/** Publish a runtime error, marking the offending command when applicable. */
 export function displayRuntimeError(
-  error: unknown,
+  error: RuntimeError,
   notifications: NotificationLog,
-  markError: (command: Command | null) => void,
+  markError: (command: Command) => void,
 ): void {
-  if (error instanceof NoSuchCommandError) {
-    const q = String(error.data.state);
-    const a = error.data.symbol;
-    notifications.show('error', (i) => i.t('error.noSuchCommand', { q, a }));
-    return;
+  switch (error.kind) {
+    case 'noSuchCommand': {
+      const q = String(error.state);
+      const a = error.symbol;
+      notifications.show('error', (i) => i.t('error.noSuchCommand', { q, a }));
+      return;
+    }
+
+    case 'outOfTape':
+      markError(error.command);
+      notifications.show('error', (i) => i.t('error.headIsOutOfTape'));
+      return;
+
+    default:
+      assertNever(error);
   }
-  if (error instanceof OutOfTapeError) {
-    markError(error.data.command);
-    notifications.show('error', (i) => i.t('error.headIsOutOfTape'));
-    return;
-  }
-  throw error;
 }
 
 /** Publish the final normality status after a halting command completes. */

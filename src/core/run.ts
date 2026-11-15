@@ -1,6 +1,7 @@
+import type { RuntimeError } from './errors';
 import type { Command, StateId } from './machine';
 import type { Program } from './program';
-import { NoSuchCommandError, OutOfTapeError } from './errors';
+import { err, type Ok, type Result } from './result';
 import { DEFAULT_MAX_HISTORY, UndoHistory } from './undo-history';
 
 export { DEFAULT_MAX_HISTORY };
@@ -13,6 +14,10 @@ export { DEFAULT_MAX_HISTORY };
 const MAX_DIRTY_CELLS = 256;
 
 const EMPTY_DIRTY: readonly number[] = [];
+
+/** Pre-allocated immutable results keep successful {@link MachineRun.step} calls zero-alloc. */
+const STEP_OK: Ok<boolean> = Object.freeze({ ok: true, value: true });
+const STEP_HALTED: Ok<boolean> = Object.freeze({ ok: true, value: false });
 
 export interface MachineRunOptions {
   /**
@@ -185,22 +190,22 @@ export class MachineRun {
   /**
    * Execute one command forward.
    *
-   * @returns `false` when the machine has already halted
-   * @throws {NoSuchCommandError} when the transition is undefined
-   * @throws {OutOfTapeError} when the head is moved left of the tape start
+   * @returns `ok(true)` when a command executed, `ok(false)` when the machine
+   *   was already halted, or `err(RuntimeError)` on undefined transition / left
+   *   tape boundary violation.
    */
-  step(): boolean {
-    if (!this.running) return false;
+  step(): Result<boolean, RuntimeError> {
+    if (!this.running) return STEP_HALTED;
 
     const command = this.next;
     if (command === undefined) {
       this.running = false;
-      throw new NoSuchCommandError({ state: this.state, symbol: this.currentSymbol });
+      return err({ kind: 'noSuchCommand', state: this.state, symbol: this.currentSymbol });
     }
 
     if (command.kind === 'left' && this.position === 0) {
       this.running = false;
-      throw new OutOfTapeError({ command });
+      return err({ kind: 'outOfTape', command });
     }
 
     const prevPosition = this.position;
@@ -242,7 +247,7 @@ export class MachineRun {
       this.next = this.lookup();
     }
 
-    return true;
+    return STEP_OK;
   }
 
   /**

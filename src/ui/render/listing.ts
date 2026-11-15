@@ -1,6 +1,8 @@
+import type { CompileError, ParseError } from '../../core/errors';
 import { parseStateName, type Command } from '../../core/machine';
 import { parseProgram } from '../../core/parser';
 import { createProgram, type Program } from '../../core/program';
+import { ok, type Result } from '../../core/result';
 import { appendParseErrorSlice } from './program-lines';
 
 /** Program text split into command spans: enough to draw a listing. */
@@ -20,27 +22,33 @@ export interface CompiledProgram extends ProgramListing {
 /**
  * Parse + validate program text and remember command offsets so the running
  * program can be rendered with per-command anchors.
- *
- * @throws MachineError subclasses when the program does not compile
  */
-export function compileProgram(text: string, initialState: number | string = 0): CompiledProgram {
-  const listing = listProgram(text);
+export function compileProgram(
+  text: string,
+  initialState: number | string = 0,
+): Result<CompiledProgram, CompileError> {
+  const listed = listProgram(text);
+  if (!listed.ok) return listed;
   const normalisedInitial =
     typeof initialState === 'string' ? parseStateName(initialState) : initialState;
-  return { ...listing, program: createProgram(listing.commands, normalisedInitial) };
+  const created = createProgram(listed.value.commands, normalisedInitial);
+  if (!created.ok) return created;
+  return ok({ ...listed.value, program: created.value });
 }
 
 /**
  * Parse the text into command spans without validating the program. Used to
  * draw listings of programs that do not compile (error reports).
  */
-export function listProgram(text: string): ProgramListing {
-  const commands = parseProgram(text);
+export function listProgram(text: string): Result<ProgramListing, ParseError> {
+  const parsed = parseProgram(text);
+  if (!parsed.ok) return parsed;
+  const commands = parsed.value;
   const ranges = commands.map((command) => ({
     start: command.source.offset,
     end: command.source.offset + command.source.text.length,
   }));
-  return { text, commands, ranges };
+  return ok({ text, commands, ranges });
 }
 
 /**
