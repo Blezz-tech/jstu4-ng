@@ -31,7 +31,19 @@ type CleanSaveStatus =
   { readonly kind: 'idle' } | { readonly kind: 'saved' | 'autosaved'; readonly timestamp: number };
 
 function countProgramLines(program: string): number {
-  return Math.max(program.split(/\r?\n/).filter((line) => line.trim() !== '').length, 1);
+  let count = 0;
+  let hasContent = false;
+  for (let i = 0; i < program.length; i += 1) {
+    const code = program.charCodeAt(i);
+    if (code === 10) {
+      if (hasContent) count += 1;
+      hasContent = false;
+    } else if (code !== 13 && code !== 32 && code !== 9) {
+      hasContent = true;
+    }
+  }
+  if (hasContent) count += 1;
+  return Math.max(count, 1);
 }
 
 function actionButton(

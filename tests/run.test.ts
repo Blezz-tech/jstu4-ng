@@ -400,4 +400,22 @@ describe('MachineRun', () => {
     expect(run.headPosition).toBe(0);
     expect(run.currentState).toBe(0);
   });
+
+  it('evaluates checkNormality() accurately with non-BMP Unicode symbols on the tape', () => {
+    // '🚀' is 2 UTF-16 code units but 1 tape cell; head starts on the trailing blank at cell 2
+    const normalRun = start('0, ,>,1  1, ,🎯,2  2,🎯,>,3  3, ,#,3', '🚀a');
+    while (normalRun.isRunning) normalRun.step();
+    expect(normalRun.headPosition).toBe(4);
+    expect(normalRun.checkNormality()).toBe('normal');
+
+    // Head finishes on the written non-BMP symbol instead of the blank right after it
+    const misplacedRun = start('0, ,>,1  1, ,🎯,2  2,🎯,#,2', '🚀a');
+    while (misplacedRun.isRunning) misplacedRun.step();
+    expect(misplacedRun.checkNormality()).toBe('misplaced');
+
+    // Initial non-BMP prefix altered
+    const alteredRun = start('0, ,<,1  1,a,b,2  2,b,>,3  3, ,#,3', '🚀a');
+    while (alteredRun.isRunning) alteredRun.step();
+    expect(alteredRun.checkNormality()).toBe('sourceAltered');
+  });
 });

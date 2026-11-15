@@ -73,4 +73,20 @@ describe('copyTextToClipboard', () => {
     expect(execCommand).toHaveBeenCalledWith('copy');
     expect(document.body.querySelector('textarea')).toBeNull();
   });
+
+  it('returns false gracefully when fallback execCommand throws', async () => {
+    Object.defineProperty(window.navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+      configurable: true,
+    });
+    Object.defineProperty(document, 'execCommand', {
+      value: vi.fn(() => {
+        throw new Error('execCommand blocked');
+      }),
+      configurable: true,
+    });
+
+    expect(await copyTextToClipboard('hello')).toBe(false);
+    expect(document.body.querySelector('textarea')).toBeNull();
+  });
 });

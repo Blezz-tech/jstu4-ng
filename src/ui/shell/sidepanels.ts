@@ -49,6 +49,9 @@ export class SidePanels {
       'resize',
       () => {
         const narrow = isNarrowViewport();
+        if (narrow && this.openState.history && this.openState.sidepanel) {
+          this.setDrawerOpen('history', false, false);
+        }
         this.dom.sidepanelBackdrop.hidden = !(this.openState.sidepanel && narrow);
         this.dom.historyBackdrop.hidden = !(this.openState.history && narrow);
       },

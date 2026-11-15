@@ -9,21 +9,21 @@ import {
   OutOfTapeError,
   ParseError,
 } from '../core/errors';
+import { createProgram } from '../core/program';
 import { MachineRun } from '../core/run';
 import { toTu4 } from '../core/tu4';
 import type { I18n } from '../i18n';
+import { AutoRunner, type StepDirection } from './auto-runner';
 import { copyTextToClipboard } from './clipboard';
-import { el } from './dom';
 import { NotificationLog, type LogKind } from './notifications';
 import {
-  compileProgram,
   listProgram,
   ProgramRenderer,
   TapeRenderer,
   type CompiledProgram,
+  type ProgramListing,
 } from './render';
 import {
-  BASE_STEPS_PER_SECOND,
   clampMaxSpeed,
   clampMinSpeed,
   clampSpeed,
@@ -32,6 +32,7 @@ import {
   DEFAULT_SPEED,
   stepIntervalMs,
 } from './speed';
+import { StatsView } from './stats-view';
 
 export type { LogKind };
 export type UIMode = 'edit' | 'run' | 'error';
@@ -84,31 +85,6 @@ export interface ControllerOptions {
   readonly onStepSound?: () => void;
 }
 
-interface RunStats {
-  commandsCount: number;
-  initialDataLength: number;
-  maxDataLength: number;
-  operationsCount: number;
-}
-
-const STAT_LABEL_KEYS = [
-  'stats.commands',
-  'stats.initialLength',
-  'stats.cellsUsed',
-  'stats.operations',
-] as const;
-
-interface StatRowNodes {
-  readonly row: HTMLElement;
-  readonly label: HTMLElement;
-  readonly value: HTMLElement;
-  lastValue: number;
-}
-
-const RAF_THRESHOLD_MS = 20;
-const MAX_BATCH_STEPS_PER_FRAME = 256;
-const MAX_BATCH_MS_PER_FRAME = 6;
-
 /** Normalise tabs and pasted line breaks to spaces (1-to-1 per tape cell). */
 export function coerceTape(value: string): string {
   return value.replace(/[\t\r\n]/g, ' ');
@@ -126,6 +102,8 @@ export class AppController {
   private readonly options: ControllerOptions;
   private readonly notifications: NotificationLog;
   private readonly ownsNotifications: boolean;
+  private readonly statsView: StatsView;
+  private readonly autoRunner: AutoRunner;
 
   private mode: UIMode = 'edit';
   private run: MachineRun | null = null;
@@ -134,21 +112,13 @@ export class AppController {
   private readonly commandIndex = new Map<Command, number>();
   private readonly visitCounts = new Map<number, number>();
 
-  private autoTimer: ReturnType<typeof setTimeout> | null = null;
-  private autoRaf: number | null = null;
-  private autoRunning = false;
-  private autoGeneration = 0;
-  private lastStepAt = 0;
-  private stepDirection: 'forward' | 'reverse' = 'forward';
+  private stepDirection: StepDirection = 'forward';
   private minSpeed: number;
   private maxSpeed: number;
   private speed: number;
   private draggingSpeed = false;
   private resumeAfterZeroDrag = false;
-
   private returnCursorOffset: number | null = null;
-  private stats: RunStats | null = null;
-  private statsNodes: StatRowNodes[] | null = null;
 
   constructor(options: ControllerOptions) {
     this.options = options;
@@ -158,11 +128,22 @@ export class AppController {
     this.notifications =
       options.notifications ??
       new NotificationLog({ element: options.elements.log, i18n: options.i18n });
+    this.statsView = new StatsView(options.elements.stats, options.i18n);
     this.minSpeed = clampMinSpeed(options.initialMinSpeed ?? DEFAULT_MIN_SPEED);
     this.maxSpeed = clampMaxSpeed(options.initialMaxSpeed ?? DEFAULT_MAX_SPEED);
     this.speed = clampSpeed(options.initialSpeed ?? DEFAULT_SPEED, this.minSpeed, this.maxSpeed);
+    this.autoRunner = new AutoRunner({
+      getSpeed: () => this.speed,
+      getOpsCount: () => this.run?.stepsCount ?? 0,
+      step: (dir, sound, render) => this.stepInDirection(dir, sound, render),
+      onBatchFlush: (dir) => this.flushRunView(dir),
+      onSound: () => this.options.onStepSound?.(),
+      onHalt: () => this.haltAutoRun(),
+      onModeNotify: () => this.options.onModeChange(this.mode),
+      onRunStateNotify: () => this.notifyRunState(),
+    });
     this.unsubscribeI18n = this.i18n.subscribe(() => {
-      if (this.stats !== null) this.renderStats(true);
+      this.statsView.refreshLabels();
       if (this.mode === 'run') this.renderTapeView(false);
     });
   }
@@ -172,10 +153,10 @@ export class AppController {
   }
 
   get isAutoRunning(): boolean {
-    return this.autoRunning;
+    return this.autoRunner.isRunning;
   }
 
-  get lastStepDirection(): 'forward' | 'reverse' {
+  get lastStepDirection(): StepDirection {
     return this.stepDirection;
   }
 
@@ -211,13 +192,13 @@ export class AppController {
 
   get canAutoRun(): boolean {
     if (this.mode !== 'run' || this.run === null) return false;
-    return this.autoRunning || this.canStepInDirection(this.speed);
+    return this.autoRunner.isRunning || this.canStepInDirection(this.speed);
   }
 
   /** Notify controller that the user started dragging the speed slider thumb. */
   beginSpeedDrag(): void {
     this.draggingSpeed = true;
-    this.resumeAfterZeroDrag = this.autoRunning;
+    this.resumeAfterZeroDrag = this.autoRunner.isRunning;
   }
 
   /** Notify controller that the user finished dragging the speed slider thumb. */
@@ -237,23 +218,25 @@ export class AppController {
     this.speed = next;
 
     if (next === 0) {
-      if (this.autoRunning) {
+      if (this.autoRunner.isRunning) {
         if (this.draggingSpeed) this.resumeAfterZeroDrag = true;
-        this.clearAutoHandles();
+        this.autoRunner.cancel();
         this.options.onModeChange(this.mode);
       }
       this.notifyRunState();
       return next;
     }
 
-    if (this.autoRunning) {
-      this.clearAutoHandles();
+    if (this.autoRunner.isRunning) {
+      this.autoRunner.cancel();
       if (this.canStepInDirection(next)) {
         const remaining = Math.max(
           0,
-          Math.round(stepIntervalMs(this.speed) - (performance.now() - this.lastStepAt)),
+          Math.round(
+            stepIntervalMs(this.speed) - (performance.now() - this.autoRunner.lastStepTime),
+          ),
         );
-        this.scheduleAutoTick(remaining);
+        this.autoRunner.schedule(remaining);
       } else {
         if (next < 0 && this.run !== null && !this.run.canStepBack) {
           this.notifyStepBackBoundary(this.run);
@@ -262,8 +245,8 @@ export class AppController {
       }
     } else if (this.draggingSpeed && this.resumeAfterZeroDrag) {
       if (this.canStepInDirection(next)) {
-        this.lastStepAt = performance.now();
-        this.scheduleAutoTick(0);
+        this.autoRunner.markSteppedNow();
+        this.autoRunner.schedule(0);
       } else if (next < 0 && this.run !== null && !this.run.canStepBack) {
         this.notifyStepBackBoundary(this.run);
       }
@@ -323,13 +306,12 @@ export class AppController {
     this.indexCompiledCommands(parsed);
     this.renderTapeView(true);
 
-    this.stats = {
+    this.statsView.set({
       commandsCount: parsed.commands.length,
       initialDataLength: this.run.initialTape.length,
       maxDataLength: this.run.cellsUsed,
       operationsCount: 0,
-    };
-    this.renderStats();
+    });
 
     this.setMode('run');
     this.programRenderer.syncScroll(scrollTop);
@@ -373,7 +355,7 @@ export class AppController {
 
   /** Toggle automatic execution in the current speed direction (no-op when speed is 0). */
   toggleAutoRun(): void {
-    if (this.autoRunning) {
+    if (this.autoRunner.isRunning) {
       this.stopAutoRun();
       return;
     }
@@ -386,13 +368,13 @@ export class AppController {
     }
     if (this.speed > 0 && !this.run.isRunning) return;
 
-    this.lastStepAt = performance.now();
-    this.scheduleAutoTick();
+    this.autoRunner.markSteppedNow();
+    this.autoRunner.schedule();
   }
 
   /** Pause automatic execution without discarding the current run state. */
   stopAutoRun(): void {
-    if (!this.autoRunning) return;
+    if (!this.autoRunner.isRunning) return;
     this.haltAutoRun();
   }
 
@@ -490,7 +472,7 @@ export class AppController {
   handleEscape(): void {
     if (this.mode === 'edit') return;
     if (this.mode === 'run') {
-      if (this.autoRunning) this.stopAutoRun();
+      if (this.autoRunner.isRunning) this.stopAutoRun();
       else this.backToEdit('tape');
       return;
     }
@@ -502,7 +484,7 @@ export class AppController {
     this.unsubscribeI18n();
     this.tapeRenderer.clear();
     this.programRenderer.clear();
-    this.statsNodes = null;
+    this.statsView.dispose();
     if (this.ownsNotifications) this.notifications.dispose();
   }
 
@@ -525,7 +507,6 @@ export class AppController {
     this.visitCounts.clear();
     this.tapeRenderer.clear();
     this.programRenderer.clear();
-    this.el.tapeView.replaceChildren();
     this.returnCursorOffset = null;
   }
 
@@ -542,7 +523,7 @@ export class AppController {
   private notifyRunState(): void {
     this.options.onRunStateChange?.({
       isRunning: this.isMachineRunning,
-      isAutoRunning: this.autoRunning,
+      isAutoRunning: this.autoRunner.isRunning,
       canStepForward: this.canStepForward,
       canStepBack: this.canStepBack,
       canAutoRun: this.canAutoRun,
@@ -552,21 +533,17 @@ export class AppController {
   }
 
   private haltAutoRun(): void {
-    this.clearAutoHandles();
+    this.autoRunner.cancel();
     this.options.onModeChange(this.mode);
     this.notifyRunState();
   }
 
   /** Synchronize stats, tape, step direction, and optional command highlight with `this.run`. */
-  private syncRunView(direction: 'forward' | 'reverse', highlight = true): void {
+  private syncRunView(direction: StepDirection, highlight = true): void {
     const run = this.run;
     if (run === null) return;
-    // Batch all DOM writes first, then issue layout-reading scrollIntoView calls.
-    if (this.stats !== null) {
-      this.stats.operationsCount = run.stepsCount;
-      this.stats.maxDataLength = run.cellsUsed;
-      this.renderStats();
-    }
+    // Batch all DOM writes first, then issue layout-reading scroll calls.
+    this.statsView.updateProgress(run.stepsCount, run.cellsUsed);
     this.renderTapeView(false);
     this.setStepDirection(direction);
     if (highlight) this.markCommand('current', run.nextCommand, false);
@@ -574,7 +551,7 @@ export class AppController {
     if (highlight) this.programRenderer.scrollToCurrent();
   }
 
-  private flushRunView(direction: 'forward' | 'reverse'): void {
+  private flushRunView(direction: StepDirection): void {
     this.syncRunView(direction);
     this.notifications.clear();
     this.notifyRunState();
@@ -647,15 +624,19 @@ export class AppController {
   }
 
   private parseInput(): CompiledProgram | null {
+    const text = this.el.programInput.value;
+    let listing: ProgramListing | null = null;
     try {
-      return compileProgram(this.el.programInput.value, 0);
+      listing = listProgram(text);
+      const program = createProgram(listing.commands, 0);
+      return { ...listing, program };
     } catch (error) {
-      this.reportCompileError(error, this.el.programInput.value);
+      this.reportCompileError(error, text, listing);
       return null;
     }
   }
 
-  private reportCompileError(error: unknown, text: string): void {
+  private reportCompileError(error: unknown, text: string, listing: ProgramListing | null): void {
     if (!(error instanceof MachineError)) throw error;
 
     const scrollTop = this.el.programInput.scrollTop;
@@ -673,16 +654,16 @@ export class AppController {
       this.notifications.show('error', (i) => i.t('error.programIsEmpty'));
     } else if (error instanceof AmbiguousCommandError) {
       this.returnCursorOffset = error.data.command.source.offset;
-      this.renderProgramWithErrors(text, [error.data.command, error.data.original]);
+      this.mountListingWithErrors(listing, [error.data.command, error.data.original]);
       const { q, a } = error.data.command;
       this.notifications.show('error', (i) => i.t('error.ambiguousCommand', { q: String(q), a }));
     } else if (error instanceof NonexistentTargetStateError) {
       this.returnCursorOffset = error.data.command.source.offset;
-      this.renderProgramWithErrors(text, [error.data.command]);
+      this.mountListingWithErrors(listing, [error.data.command]);
       const w = String(error.data.command.w);
       this.notifications.show('error', (i) => i.t('error.targetStateDoesNotExist', { w }));
     } else if (error instanceof NonexistentInitialStateError) {
-      this.renderProgramWithErrors(text, []);
+      this.mountListingWithErrors(listing, []);
       const q = String(error.data.state);
       this.notifications.show('error', (i) => i.t('error.initialStateDoesNotExist', { q }));
     } else {
@@ -695,20 +676,19 @@ export class AppController {
     this.el.programView.focus({ preventScroll: true });
   }
 
-  /** Render syntax-highlighted commands with offending commands marked `.error`. */
-  private renderProgramWithErrors(text: string, commands: readonly Command[]): void {
-    try {
-      const listing = listProgram(text);
-      const offsets = new Set(commands.map((command) => command.source.offset));
-      const errorIndices: number[] = [];
+  /** Render already-parsed listing with offending commands marked `.error` (no second parse). */
+  private mountListingWithErrors(
+    listing: ProgramListing | null,
+    commands: readonly Command[],
+  ): void {
+    if (listing === null) return;
+    const errorIndices: number[] = [];
+    if (commands.length > 0) {
       listing.commands.forEach((command, index) => {
-        if (offsets.has(command.source.offset)) errorIndices.push(index);
+        if (commands.includes(command)) errorIndices.push(index);
       });
-      this.programRenderer.mount(this.el.programView, listing, errorIndices);
-    } catch (parseFailure) {
-      if (!(parseFailure instanceof ParseError)) throw parseFailure;
-      this.programRenderer.mountParseError(this.el.programView, text, parseFailure.data.offset);
     }
+    this.programRenderer.mount(this.el.programView, listing, errorIndices);
   }
 
   private renderTapeView(mount: boolean): void {
@@ -740,7 +720,7 @@ export class AppController {
     }
   }
 
-  private setStepDirection(direction: 'forward' | 'reverse'): void {
+  private setStepDirection(direction: StepDirection): void {
     if (this.stepDirection === direction && this.el.programView.dataset.stepDir === direction) {
       return;
     }
@@ -796,153 +776,10 @@ export class AppController {
     this.haltAutoRun();
   }
 
-  private stepInDirection(
-    direction: 'forward' | 'reverse',
-    playSound: boolean,
-    render: boolean,
-  ): boolean {
+  private stepInDirection(direction: StepDirection, playSound: boolean, render: boolean): boolean {
     return direction === 'forward'
       ? this.stepForwardOnce(playSound, render)
       : this.stepBackOnce(playSound, render);
-  }
-
-  private scheduleAutoTick(initialDelayMs?: number): void {
-    if (this.speed === 0) return;
-
-    this.autoRunning = true;
-    const generation = ++this.autoGeneration;
-    const interval = stepIntervalMs(this.speed);
-
-    if (interval < RAF_THRESHOLD_MS) {
-      // High-speed mode (|speed| > 10×): compute a rate-accurate, time-budgeted
-      // batch per animation frame, flushing DOM updates only once at frame end.
-      let lastFrameAt = performance.now();
-      let stepBudget = 0;
-
-      const frame = (now: number): void => {
-        if (generation !== this.autoGeneration) return;
-        this.autoRaf = null;
-        if (this.speed === 0) {
-          this.haltAutoRun();
-          return;
-        }
-
-        const elapsedMs = Math.max(0, Math.min(100, now - lastFrameAt));
-        lastFrameAt = now;
-        stepBudget += (elapsedMs * BASE_STEPS_PER_SECOND * Math.abs(this.speed)) / 1000;
-
-        const targetSteps = Math.min(
-          MAX_BATCH_STEPS_PER_FRAME,
-          Math.max(1, Math.floor(stepBudget)),
-        );
-        const deadline = performance.now() + MAX_BATCH_MS_PER_FRAME;
-        const opsBefore = this.run?.stepsCount ?? 0;
-        const direction = this.speed > 0 ? 'forward' : 'reverse';
-        let stepped = 0;
-        let keepGoing = true;
-
-        while (
-          keepGoing &&
-          stepped < targetSteps &&
-          (stepped === 0 || performance.now() < deadline)
-        ) {
-          keepGoing = this.stepInDirection(direction, false, false);
-          stepped += 1;
-        }
-        stepBudget = Math.max(0, stepBudget - stepped);
-        this.lastStepAt = performance.now();
-
-        if (stepped > 0 && keepGoing && generation === this.autoGeneration) {
-          this.flushRunView(direction);
-        }
-        if ((this.run?.stepsCount ?? 0) !== opsBefore) this.options.onStepSound?.();
-
-        if (!keepGoing || generation !== this.autoGeneration) {
-          this.options.onModeChange(this.mode);
-          return;
-        }
-        this.autoRaf = requestAnimationFrame(frame);
-      };
-
-      this.autoRaf = requestAnimationFrame(frame);
-    } else {
-      const tick = (): void => {
-        if (generation !== this.autoGeneration) return;
-        this.autoTimer = null;
-        this.lastStepAt = performance.now();
-        if (this.speed === 0) {
-          this.haltAutoRun();
-          return;
-        }
-
-        const direction = this.speed > 0 ? 'forward' : 'reverse';
-        if (!this.stepInDirection(direction, true, true) || generation !== this.autoGeneration) {
-          this.options.onModeChange(this.mode);
-          return;
-        }
-        this.autoTimer = setTimeout(tick, Math.round(stepIntervalMs(this.speed)));
-      };
-
-      this.autoTimer = setTimeout(tick, initialDelayMs ?? Math.round(interval));
-    }
-
-    this.options.onModeChange(this.mode);
-    this.notifyRunState();
-  }
-
-  private clearAutoHandles(): void {
-    this.autoRunning = false;
-    this.autoGeneration += 1;
-    if (this.autoTimer !== null) {
-      clearTimeout(this.autoTimer);
-      this.autoTimer = null;
-    }
-    if (this.autoRaf !== null) {
-      cancelAnimationFrame(this.autoRaf);
-      this.autoRaf = null;
-    }
-  }
-
-  private renderStats(refreshLabels = false): void {
-    if (this.stats === null) return;
-    const values: readonly [number, number, number, number] = [
-      this.stats.commandsCount,
-      this.stats.initialDataLength,
-      this.stats.maxDataLength,
-      this.stats.operationsCount,
-    ];
-
-    if (this.statsNodes === null || !this.el.stats.contains(this.statsNodes[0]?.row ?? null)) {
-      const fragment = document.createDocumentFragment();
-      const nodes: StatRowNodes[] = [];
-      STAT_LABEL_KEYS.forEach((key, index) => {
-        if (index > 0) fragment.append(document.createTextNode('\n'));
-        const val = values[index] ?? 0;
-        const label = el('span', { class: 'stat-row__label' }, `${this.i18n.t(key)}: `);
-        const value = el('strong', { class: 'stat-row__value' }, this.i18n.formatNumber(val));
-        const row = el('div', { class: 'stat-row' }, label, value);
-        fragment.append(row);
-        nodes.push({ row, label, value, lastValue: val });
-      });
-      this.el.stats.replaceChildren(fragment);
-      this.statsNodes = nodes;
-      return;
-    }
-
-    for (let i = 0; i < this.statsNodes.length; i += 1) {
-      const node = this.statsNodes[i];
-      const key = STAT_LABEL_KEYS[i];
-      const val = values[i];
-      if (node === undefined || key === undefined || val === undefined) continue;
-      if (refreshLabels) {
-        node.label.textContent = `${this.i18n.t(key)}: `;
-        node.lastValue = val;
-        node.value.textContent = this.i18n.formatNumber(val);
-      } else if (node.lastValue !== val) {
-        node.lastValue = val;
-        node.value.textContent = this.i18n.formatNumber(val);
-      }
-    }
   }
 
   private setMode(mode: UIMode): void {

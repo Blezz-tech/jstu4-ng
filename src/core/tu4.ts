@@ -1,4 +1,4 @@
-import { stateKey, type StateId } from './machine';
+import type { StateId } from './machine';
 import type { Program } from './program';
 import { parseProgram } from './parser';
 import { createProgram } from './program';
@@ -13,12 +13,12 @@ import { createProgram } from './program';
  * @throws {RangeError} when the program has more than 256 states
  */
 export function toTu4(program: Program): string {
-  const names = new Map<string, number>();
-  names.set(stateKey(program.initialState), 0);
+  // JS Map distinguishes numeric and string StateIds (`1 !== '1'`) natively.
+  const names = new Map<StateId, number>();
+  names.set(program.initialState, 0);
 
   for (const command of program.commands) {
-    const key = stateKey(command.q);
-    if (!names.has(key)) names.set(key, names.size);
+    if (!names.has(command.q)) names.set(command.q, names.size);
   }
 
   if (names.size > 256) {
@@ -28,7 +28,7 @@ export function toTu4(program: Program): string {
   const radix = names.size >= 100 ? 16 : 10;
 
   const nameOf = (state: StateId): string => {
-    const value = names.get(stateKey(state));
+    const value = names.get(state);
     if (value === undefined) throw new Error(`Unknown state "${state}"`);
     return value.toString(radix).padStart(2, '0');
   };

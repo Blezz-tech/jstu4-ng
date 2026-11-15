@@ -96,12 +96,11 @@ export type LocaleListener = (locale: Lang) => void;
  */
 export class I18n {
   private current: Lang;
-  private readonly catalogs: Record<Lang, MessageCatalog>;
+  private readonly catalogs: Readonly<Record<Lang, MessageCatalog>> = defaultCatalogs;
   private readonly listeners = new Set<LocaleListener>();
 
   constructor(initialLocale: Lang = DEFAULT_LANG) {
     this.current = initialLocale;
-    this.catalogs = { ...defaultCatalogs };
   }
 
   get locale(): Lang {
