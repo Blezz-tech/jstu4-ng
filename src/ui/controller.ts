@@ -12,7 +12,7 @@ import {
   displayRuntimeError,
   displayStepBackBoundary,
 } from './error-reporter';
-import { NotificationLog, type LogKind } from './notifications';
+import { createNotificationLog, type LogKind, type NotificationLog } from './notifications';
 import {
   listProgram,
   ProgramRenderer,
@@ -21,7 +21,7 @@ import {
   type ProgramListing,
 } from './render';
 import { SpeedController } from './speed-controller';
-import { StatsView } from './stats-view';
+import { createStatsView, type StatsView } from './stats-view';
 
 export type { LogKind };
 export type UIMode = 'edit' | 'run' | 'error';
@@ -111,8 +111,8 @@ export class AppController {
     this.ownsNotifications = options.notifications === undefined;
     this.notifications =
       options.notifications ??
-      new NotificationLog({ element: options.elements.log, i18n: options.i18n });
-    this.statsView = new StatsView(options.elements.stats, options.i18n);
+      createNotificationLog({ element: options.elements.log, i18n: options.i18n });
+    this.statsView = createStatsView(options.elements.stats, options.i18n);
     this.autoRunner = new AutoRunner({
       getSpeed: () => this.speedCtrl.current,
       getOpsCount: () => this.run?.stepsCount ?? 0,

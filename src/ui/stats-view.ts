@@ -8,6 +8,13 @@ export interface RunStats {
   operationsCount: number;
 }
 
+export interface StatsView {
+  set(stats: RunStats): void;
+  updateProgress(operationsCount: number, maxDataLength: number): void;
+  refreshLabels(): void;
+  dispose(): void;
+}
+
 const STAT_LABEL_KEYS = [
   'stats.commands',
   'stats.initialLength',
@@ -27,37 +34,11 @@ interface StatRowNodes {
  * Reuses its four `.stat-row` nodes across steps and locale switches, updating
  * only numeric values that actually changed.
  */
-export class StatsView {
-  private stats: RunStats | null = null;
-  private nodes: StatRowNodes[] | null = null;
+export function createStatsView(container: HTMLElement, i18n: I18n): StatsView {
+  let stats: RunStats | null = null;
+  let nodes: StatRowNodes[] | null = null;
 
-  constructor(
-    private readonly container: HTMLElement,
-    private readonly i18n: I18n,
-  ) {}
-
-  set(stats: RunStats): void {
-    this.stats = stats;
-    this.render(false);
-  }
-
-  updateProgress(operationsCount: number, maxDataLength: number): void {
-    if (this.stats === null) return;
-    this.stats.operationsCount = operationsCount;
-    this.stats.maxDataLength = maxDataLength;
-    this.render(false);
-  }
-
-  refreshLabels(): void {
-    if (this.stats !== null) this.render(true);
-  }
-
-  dispose(): void {
-    this.nodes = null;
-  }
-
-  private render(refreshLabels: boolean): void {
-    const stats = this.stats;
+  const render = (refreshLabels: boolean): void => {
     if (stats === null) return;
     const values: readonly [number, number, number, number] = [
       stats.commandsCount,
@@ -66,36 +47,55 @@ export class StatsView {
       stats.operationsCount,
     ];
 
-    if (this.nodes === null || !this.container.contains(this.nodes[0]?.row ?? null)) {
+    if (nodes === null || !container.contains(nodes[0]?.row ?? null)) {
       const fragment = document.createDocumentFragment();
-      const nodes: StatRowNodes[] = [];
+      const created: StatRowNodes[] = [];
       STAT_LABEL_KEYS.forEach((key, index) => {
         if (index > 0) fragment.appendChild(document.createTextNode('\n'));
         const val = values[index] ?? 0;
-        const label = el('span', { class: 'stat-row__label' }, `${this.i18n.t(key)}: `);
-        const value = el('strong', { class: 'stat-row__value' }, this.i18n.formatNumber(val));
+        const label = el('span', { class: 'stat-row__label' }, `${i18n.t(key)}: `);
+        const value = el('strong', { class: 'stat-row__value' }, i18n.formatNumber(val));
         const row = el('div', { class: 'stat-row' }, label, value);
         fragment.appendChild(row);
-        nodes.push({ row, label, value, lastValue: val });
+        created.push({ row, label, value, lastValue: val });
       });
-      this.container.replaceChildren(fragment);
-      this.nodes = nodes;
+      container.replaceChildren(fragment);
+      nodes = created;
       return;
     }
 
-    for (let i = 0; i < this.nodes.length; i += 1) {
-      const node = this.nodes[i];
+    for (let i = 0; i < nodes.length; i += 1) {
+      const node = nodes[i];
       const key = STAT_LABEL_KEYS[i];
       const val = values[i];
       if (node === undefined || key === undefined || val === undefined) continue;
       if (refreshLabels) {
-        node.label.textContent = `${this.i18n.t(key)}: `;
+        node.label.textContent = `${i18n.t(key)}: `;
         node.lastValue = val;
-        node.value.textContent = this.i18n.formatNumber(val);
+        node.value.textContent = i18n.formatNumber(val);
       } else if (node.lastValue !== val) {
         node.lastValue = val;
-        node.value.textContent = this.i18n.formatNumber(val);
+        node.value.textContent = i18n.formatNumber(val);
       }
     }
-  }
+  };
+
+  return {
+    set(next) {
+      stats = next;
+      render(false);
+    },
+    updateProgress(operationsCount, maxDataLength) {
+      if (stats === null) return;
+      stats.operationsCount = operationsCount;
+      stats.maxDataLength = maxDataLength;
+      render(false);
+    },
+    refreshLabels() {
+      if (stats !== null) render(true);
+    },
+    dispose() {
+      nodes = null;
+    },
+  };
 }

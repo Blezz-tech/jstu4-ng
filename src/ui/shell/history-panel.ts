@@ -10,7 +10,7 @@ import {
 } from '../history';
 import type { NotificationLog } from '../notifications';
 import { saveProgram, saveTape } from '../storage';
-import { DeleteSnapshotDialog } from './dialogs';
+import { createDeleteSnapshotDialog } from './dialogs';
 import { listen, type AppDom } from './dom';
 import type { SettingsStore } from './settings-store';
 import { isNarrowViewport } from './sidepanels';
@@ -31,325 +31,321 @@ export interface HistoryPanelOptions {
   readonly signal: AbortSignal;
 }
 
+export interface HistoryPanel {
+  readonly isDeleteDialogOpen: boolean;
+  readonly isConfirmDeleteEnabled: boolean;
+  toggleConfirmDelete(): void;
+  resetBaseline(program: string, tape: string): void;
+  syncLocalized(): void;
+  createManualSnapshot(): void;
+  dispose(): void;
+}
+
 /**
  * Owns the version-control history panel: snapshot storage, timed/tab-close
  * autosaving, `#save-status`, inline renaming, deletion confirmation dialog,
  * and cross-tab synchronization.
  */
-export class HistoryPanel {
-  private readonly dom: AppDom;
-  private readonly i18n: I18n;
-  private readonly controller: AppController;
-  private readonly notifications: NotificationLog;
-  private readonly settings: SettingsStore;
-  private readonly onCloseHistoryDrawer: () => void;
-  private readonly onConfirmDeleteSettingChanged: () => void;
+export function bindHistoryPanel({
+  dom,
+  i18n,
+  controller,
+  notifications,
+  settings,
+  onCloseSettings,
+  onCloseHistoryDrawer,
+  onConfirmDeleteSettingChanged,
+  signal,
+}: HistoryPanelOptions): HistoryPanel {
+  const initial = settings.get();
+  let namedOnly = initial.namedOnly ?? false;
+  let confirmSnapshotDelete = initial.confirmSnapshotDelete ?? true;
+  let activeSnapshotId: string | null = null;
+  let editingSnapshotId: string | null = null;
+  let lastCleanSaveStatus: CleanSaveStatus = { kind: 'idle' };
 
-  private readonly snapshots: SnapshotStore;
-  private readonly autosave: AutosaveTracker;
-  private readonly deleteDialog: DeleteSnapshotDialog;
-  private readonly persistProgram: DebouncedFn<[string]>;
-  private readonly persistTape: DebouncedFn<[string]>;
+  const syncNamedOnlyControl = (): void => {
+    dom.namedOnlyButton.setAttribute('aria-checked', String(namedOnly));
+  };
 
-  private namedOnly: boolean;
-  private confirmSnapshotDelete: boolean;
-  private activeSnapshotId: string | null = null;
-  private editingSnapshotId: string | null = null;
-  private lastCleanSaveStatus: CleanSaveStatus = { kind: 'idle' };
-
-  constructor(options: HistoryPanelOptions) {
-    this.dom = options.dom;
-    this.i18n = options.i18n;
-    this.controller = options.controller;
-    this.notifications = options.notifications;
-    this.settings = options.settings;
-    this.onCloseHistoryDrawer = options.onCloseHistoryDrawer;
-    this.onConfirmDeleteSettingChanged = options.onConfirmDeleteSettingChanged;
-
-    const initial = this.settings.get();
-    this.namedOnly = initial.namedOnly ?? false;
-    this.confirmSnapshotDelete = initial.confirmSnapshotDelete ?? true;
-
-    this.deleteDialog = new DeleteSnapshotDialog({
-      dom: this.dom,
-      onBeforeOpen: options.onCloseSettings,
-      onConfirm: (id, skipFutureConfirm) => {
-        if (skipFutureConfirm) {
-          this.confirmSnapshotDelete = false;
-          this.settings.update({ confirmSnapshotDelete: false });
-          this.onConfirmDeleteSettingChanged();
-        }
-        this.performDeleteSnapshot(id);
-      },
-      signal: options.signal,
-    });
-
-    this.snapshots = new SnapshotStore({
-      onPersistError: () =>
-        this.notifications.show('warning', (t) => t.t('log.snapshotQuotaExceeded')),
-    });
-    this.snapshots.subscribe((source) => {
-      if (source !== 'storage') return;
-      const missing = (id: string | null): boolean =>
-        id !== null && this.snapshots.getById(id) === null;
-      if (missing(this.activeSnapshotId)) this.activeSnapshotId = null;
-      if (missing(this.deleteDialog.currentPendingId)) this.deleteDialog.close();
-      if (missing(this.editingSnapshotId)) this.editingSnapshotId = null;
-      if (this.editingSnapshotId === null) this.render();
-    });
-
-    this.autosave = new AutosaveTracker({
-      store: this.snapshots,
-      readState: () => ({ program: this.dom.programInput.value, tape: this.dom.tapeInput.value }),
-      onAutosave: (created) => {
-        this.activeSnapshotId = created.id;
-        this.lastCleanSaveStatus = { kind: 'autosaved', timestamp: created.createdAt };
-        this.syncSaveStatus();
-        if (this.editingSnapshotId === null) this.render();
-      },
-      onDirtyChange: () => this.syncSaveStatus(),
-    });
-
-    this.persistProgram = debounce((text: string) => saveProgram(text), 400);
-    this.persistTape = debounce((text: string) => saveTape(text), 400);
-
-    const { signal } = options;
-
-    listen(this.dom.saveButton, 'click', () => this.createManualSnapshot(), signal);
-    listen(
-      this.dom.namedOnlyButton,
-      'click',
-      () => {
-        this.namedOnly = !this.namedOnly;
-        this.settings.update({ namedOnly: this.namedOnly });
-        this.syncNamedOnlyControl();
-        this.render();
-      },
-      signal,
-    );
-
-    const bindInput = (
-      field: HTMLInputElement | HTMLTextAreaElement,
-      persist: DebouncedFn<[string]>,
-    ): void => {
-      listen(
-        field,
-        'input',
-        () => {
-          persist(field.value);
-          this.autosave.markEdited(this.dom.programInput.value, this.dom.tapeInput.value);
-        },
-        signal,
-      );
-    };
-    bindInput(this.dom.programInput, this.persistProgram);
-    bindInput(this.dom.tapeInput, this.persistTape);
-
-    // Delegate snapshot card interactions onto `#history-list` so re-rendering
-    // never creates per-item event listeners.
-    listen(this.dom.historyList, 'click', (event) => this.handleListClick(event), signal);
-    listen(this.dom.historyList, 'submit', (event) => this.handleListSubmit(event), signal);
-    listen(this.dom.historyList, 'keydown', (event) => this.handleListKeydown(event), signal);
-
-    const handleTabClosing = (): void => {
-      saveProgram(this.dom.programInput.value);
-      saveTape(this.dom.tapeInput.value);
-      this.autosave.flush();
-    };
-    listen(window, 'beforeunload', handleTabClosing, signal);
-    listen(window, 'pagehide', handleTabClosing, signal);
-  }
-
-  get isDeleteDialogOpen(): boolean {
-    return this.deleteDialog.isOpen;
-  }
-
-  get isConfirmDeleteEnabled(): boolean {
-    return this.confirmSnapshotDelete;
-  }
-
-  toggleConfirmDelete(): void {
-    this.confirmSnapshotDelete = !this.confirmSnapshotDelete;
-    this.settings.update({ confirmSnapshotDelete: this.confirmSnapshotDelete });
-    this.onConfirmDeleteSettingChanged();
-  }
-
-  resetBaseline(program: string, tape: string): void {
-    this.autosave.reset(program, tape);
-    this.syncSaveStatus();
-  }
-
-  syncLocalized(): void {
-    this.syncNamedOnlyControl();
-    this.syncSaveStatus();
-    this.render();
-  }
-
-  createManualSnapshot(): void {
-    const program = this.dom.programInput.value;
-    const tape = this.dom.tapeInput.value;
-    if (program.trim() === '') {
-      this.notifications.show('warning', (t) => t.t('log.snapshotEmpty'));
-      return;
-    }
-    const created = this.snapshots.create('manual', program, tape);
-    if (!this.snapshots.lastPersistOk) {
-      this.render();
-      return;
-    }
-    this.activeSnapshotId = created.id;
-    this.lastCleanSaveStatus = { kind: 'saved', timestamp: created.createdAt };
-    this.autosave.reset(program, tape);
-    this.syncSaveStatus();
-    this.notifications.show('info', (t) => t.t('log.snapshotSaved'));
-    this.render();
-  }
-
-  dispose(): void {
-    this.persistProgram.cancel();
-    this.persistTape.cancel();
-    this.autosave.dispose();
-    this.snapshots.dispose();
-  }
-
-  private handleListClick(event: MouseEvent): void {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-
-    if (target.closest('.snapshot-action--cancel') !== null) {
-      this.editingSnapshotId = null;
-      this.render();
-      return;
-    }
-
-    const id = target.closest<HTMLLIElement>('.snapshot-item')?.dataset.snapshotId;
-    const snapshot = id ? this.snapshots.getById(id) : null;
-    if (snapshot === null) return;
-
-    if (target.closest('.snapshot-action--rename') !== null) {
-      this.editingSnapshotId = snapshot.id;
-      this.render();
-      const input = this.dom.historyList.querySelector<HTMLInputElement>('.snapshot-item__input');
-      input?.focus();
-      input?.select();
-    } else if (target.closest('.snapshot-action--delete') !== null) {
-      this.requestDeleteSnapshot(snapshot);
-    } else if (target.closest('.snapshot-item__load') !== null) {
-      this.restoreSnapshot(snapshot);
-    }
-  }
-
-  private handleListSubmit(event: SubmitEvent): void {
-    const form = event.target;
-    if (!(form instanceof HTMLFormElement) || !form.classList.contains('snapshot-item__edit')) {
-      return;
-    }
-    event.preventDefault();
-    const id = form.closest<HTMLLIElement>('.snapshot-item')?.dataset.snapshotId;
-    const trimmed =
-      form.querySelector<HTMLInputElement>('.snapshot-item__input')?.value.trim() ?? '';
-    if (id && trimmed !== '') this.snapshots.rename(id, trimmed);
-    this.editingSnapshotId = null;
-    this.render();
-  }
-
-  private handleListKeydown(event: KeyboardEvent): void {
-    if (
-      event.key === 'Escape' &&
-      event.target instanceof HTMLInputElement &&
-      event.target.classList.contains('snapshot-item__input')
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-      this.editingSnapshotId = null;
-      this.render();
-    }
-  }
-
-  private syncNamedOnlyControl(): void {
-    this.dom.namedOnlyButton.setAttribute('aria-checked', String(this.namedOnly));
-  }
-
-  private syncSaveStatus(): void {
-    const status = this.dom.saveStatus;
-    if (this.autosave.isDirty) {
+  const syncSaveStatus = (): void => {
+    const status = dom.saveStatus;
+    if (autosave.isDirty) {
       status.dataset.state = 'dirty';
-      status.textContent = this.i18n.t('history.statusUnsaved');
-      status.title = this.i18n.t('history.statusUnsavedHint');
+      status.textContent = i18n.t('history.statusUnsaved');
+      status.title = i18n.t('history.statusUnsavedHint');
       return;
     }
     status.title = '';
-    if (this.lastCleanSaveStatus.kind === 'idle') {
+    if (lastCleanSaveStatus.kind === 'idle') {
       status.dataset.state = 'idle';
       status.textContent = '';
       return;
     }
     const key =
-      this.lastCleanSaveStatus.kind === 'saved' ? 'history.statusSaved' : 'history.statusAutosaved';
-    status.dataset.state = this.lastCleanSaveStatus.kind;
-    status.textContent = this.i18n.t(key, {
-      time: formatSaveClock(this.lastCleanSaveStatus.timestamp),
+      lastCleanSaveStatus.kind === 'saved' ? 'history.statusSaved' : 'history.statusAutosaved';
+    status.dataset.state = lastCleanSaveStatus.kind;
+    status.textContent = i18n.t(key, {
+      time: formatSaveClock(lastCleanSaveStatus.timestamp),
     });
-  }
+  };
 
-  private performDeleteSnapshot(id: string): void {
-    if (!this.snapshots.remove(id)) return;
-    if (this.activeSnapshotId === id) this.activeSnapshotId = null;
-    if (this.editingSnapshotId === id) this.editingSnapshotId = null;
-    this.notifications.show('info', (t) => t.t('log.snapshotDeleted'));
-    this.render();
-  }
-
-  private requestDeleteSnapshot(snapshot: ProgramSnapshot): void {
-    if (!this.confirmSnapshotDelete) {
-      this.performDeleteSnapshot(snapshot.id);
-      return;
-    }
-    this.deleteDialog.open(snapshot.id, getSnapshotDisplayName(snapshot, this.i18n));
-  }
-
-  private restoreSnapshot(snapshot: ProgramSnapshot): void {
-    const currentProgram = this.dom.programInput.value;
-    const currentTape = this.dom.tapeInput.value;
-    if (
-      this.autosave.isDirty &&
-      currentProgram.trim() !== '' &&
-      (currentProgram !== snapshot.program || currentTape !== snapshot.tape)
-    ) {
-      this.autosave.flush();
-    }
-    this.activeSnapshotId = snapshot.id;
-    this.editingSnapshotId = null;
-    this.controller.loadDraft(snapshot.program, snapshot.tape);
-    this.notifications.show('info', (t) =>
-      t.t('log.snapshotRestored', { name: getSnapshotDisplayName(snapshot, t) }),
-    );
-    this.autosave.reset(snapshot.program, snapshot.tape);
-    this.lastCleanSaveStatus = { kind: 'idle' };
-    this.syncSaveStatus();
-    this.render();
-    if (isNarrowViewport()) this.onCloseHistoryDrawer();
-  }
-
-  private render(): void {
-    const visible = this.snapshots.getVisible(this.namedOnly);
-    this.dom.historyCount.textContent = String(visible.length);
-    this.dom.historyEmpty.textContent = this.i18n.t(
-      this.namedOnly ? 'history.emptyNamed' : 'history.emptyAll',
-    );
-    this.dom.historyList.replaceChildren(
+  const render = (): void => {
+    const visible = snapshots.getVisible(namedOnly);
+    dom.historyCount.textContent = String(visible.length);
+    dom.historyEmpty.textContent = i18n.t(namedOnly ? 'history.emptyNamed' : 'history.emptyAll');
+    dom.historyList.replaceChildren(
       ...visible.map((s) =>
-        renderSnapshotItem(s, this.i18n, {
-          isActive: this.activeSnapshotId === s.id,
-          isEditing: this.editingSnapshotId === s.id,
+        renderSnapshotItem(s, i18n, {
+          isActive: activeSnapshotId === s.id,
+          isEditing: editingSnapshotId === s.id,
         }),
       ),
     );
 
-    const pendingId = this.deleteDialog.currentPendingId;
-    if (this.deleteDialog.isOpen && pendingId !== null) {
-      const target = this.snapshots.getById(pendingId);
-      if (target !== null) this.deleteDialog.syncName(getSnapshotDisplayName(target, this.i18n));
+    const pendingId = deleteDialog.currentPendingId;
+    if (deleteDialog.isOpen && pendingId !== null) {
+      const target = snapshots.getById(pendingId);
+      if (target !== null) deleteDialog.syncName(getSnapshotDisplayName(target, i18n));
     }
-  }
+  };
+
+  const performDeleteSnapshot = (id: string): void => {
+    if (!snapshots.remove(id)) return;
+    if (activeSnapshotId === id) activeSnapshotId = null;
+    if (editingSnapshotId === id) editingSnapshotId = null;
+    notifications.show('info', (t) => t.t('log.snapshotDeleted'));
+    render();
+  };
+
+  const requestDeleteSnapshot = (snapshot: ProgramSnapshot): void => {
+    if (!confirmSnapshotDelete) {
+      performDeleteSnapshot(snapshot.id);
+      return;
+    }
+    deleteDialog.open(snapshot.id, getSnapshotDisplayName(snapshot, i18n));
+  };
+
+  const restoreSnapshot = (snapshot: ProgramSnapshot): void => {
+    const currentProgram = dom.programInput.value;
+    const currentTape = dom.tapeInput.value;
+    if (
+      autosave.isDirty &&
+      currentProgram.trim() !== '' &&
+      (currentProgram !== snapshot.program || currentTape !== snapshot.tape)
+    ) {
+      autosave.flush();
+    }
+    activeSnapshotId = snapshot.id;
+    editingSnapshotId = null;
+    controller.loadDraft(snapshot.program, snapshot.tape);
+    notifications.show('info', (t) =>
+      t.t('log.snapshotRestored', { name: getSnapshotDisplayName(snapshot, t) }),
+    );
+    autosave.reset(snapshot.program, snapshot.tape);
+    lastCleanSaveStatus = { kind: 'idle' };
+    syncSaveStatus();
+    render();
+    if (isNarrowViewport()) onCloseHistoryDrawer();
+  };
+
+  const createManualSnapshot = (): void => {
+    const program = dom.programInput.value;
+    const tape = dom.tapeInput.value;
+    if (program.trim() === '') {
+      notifications.show('warning', (t) => t.t('log.snapshotEmpty'));
+      return;
+    }
+    const created = snapshots.create('manual', program, tape);
+    if (!snapshots.lastPersistOk) {
+      render();
+      return;
+    }
+    activeSnapshotId = created.id;
+    lastCleanSaveStatus = { kind: 'saved', timestamp: created.createdAt };
+    autosave.reset(program, tape);
+    syncSaveStatus();
+    notifications.show('info', (t) => t.t('log.snapshotSaved'));
+    render();
+  };
+
+  const deleteDialog = createDeleteSnapshotDialog({
+    dom,
+    onBeforeOpen: onCloseSettings,
+    onConfirm: (id, skipFutureConfirm) => {
+      if (skipFutureConfirm) {
+        confirmSnapshotDelete = false;
+        settings.update({ confirmSnapshotDelete: false });
+        onConfirmDeleteSettingChanged();
+      }
+      performDeleteSnapshot(id);
+    },
+    signal,
+  });
+
+  const snapshots = new SnapshotStore({
+    onPersistError: () => notifications.show('warning', (t) => t.t('log.snapshotQuotaExceeded')),
+  });
+  snapshots.subscribe((source) => {
+    if (source !== 'storage') return;
+    const missing = (id: string | null): boolean => id !== null && snapshots.getById(id) === null;
+    if (missing(activeSnapshotId)) activeSnapshotId = null;
+    if (missing(deleteDialog.currentPendingId)) deleteDialog.close();
+    if (missing(editingSnapshotId)) editingSnapshotId = null;
+    if (editingSnapshotId === null) render();
+  });
+
+  const autosave = new AutosaveTracker({
+    store: snapshots,
+    readState: () => ({ program: dom.programInput.value, tape: dom.tapeInput.value }),
+    onAutosave: (created) => {
+      activeSnapshotId = created.id;
+      lastCleanSaveStatus = { kind: 'autosaved', timestamp: created.createdAt };
+      syncSaveStatus();
+      if (editingSnapshotId === null) render();
+    },
+    onDirtyChange: syncSaveStatus,
+  });
+
+  const persistProgram = debounce((text: string) => saveProgram(text), 400);
+  const persistTape = debounce((text: string) => saveTape(text), 400);
+
+  listen(dom.saveButton, 'click', createManualSnapshot, signal);
+  listen(
+    dom.namedOnlyButton,
+    'click',
+    () => {
+      namedOnly = !namedOnly;
+      settings.update({ namedOnly });
+      syncNamedOnlyControl();
+      render();
+    },
+    signal,
+  );
+
+  const bindInput = (
+    field: HTMLInputElement | HTMLTextAreaElement,
+    persist: DebouncedFn<[string]>,
+  ): void => {
+    listen(
+      field,
+      'input',
+      () => {
+        persist(field.value);
+        autosave.markEdited(dom.programInput.value, dom.tapeInput.value);
+      },
+      signal,
+    );
+  };
+  bindInput(dom.programInput, persistProgram);
+  bindInput(dom.tapeInput, persistTape);
+
+  // Delegate snapshot card interactions onto `#history-list` so re-rendering
+  // never creates per-item event listeners.
+  listen(
+    dom.historyList,
+    'click',
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      if (target.closest('.snapshot-action--cancel') !== null) {
+        editingSnapshotId = null;
+        render();
+        return;
+      }
+
+      const id = target.closest<HTMLLIElement>('.snapshot-item')?.dataset.snapshotId;
+      const snapshot = id ? snapshots.getById(id) : null;
+      if (snapshot === null) return;
+
+      if (target.closest('.snapshot-action--rename') !== null) {
+        editingSnapshotId = snapshot.id;
+        render();
+        const input = dom.historyList.querySelector<HTMLInputElement>('.snapshot-item__input');
+        input?.focus();
+        input?.select();
+      } else if (target.closest('.snapshot-action--delete') !== null) {
+        requestDeleteSnapshot(snapshot);
+      } else if (target.closest('.snapshot-item__load') !== null) {
+        restoreSnapshot(snapshot);
+      }
+    },
+    signal,
+  );
+
+  listen(
+    dom.historyList,
+    'submit',
+    (event) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement) || !form.classList.contains('snapshot-item__edit')) {
+        return;
+      }
+      event.preventDefault();
+      const id = form.closest<HTMLLIElement>('.snapshot-item')?.dataset.snapshotId;
+      const trimmed =
+        form.querySelector<HTMLInputElement>('.snapshot-item__input')?.value.trim() ?? '';
+      if (id && trimmed !== '') snapshots.rename(id, trimmed);
+      editingSnapshotId = null;
+      render();
+    },
+    signal,
+  );
+
+  listen(
+    dom.historyList,
+    'keydown',
+    (event) => {
+      if (
+        event.key === 'Escape' &&
+        event.target instanceof HTMLInputElement &&
+        event.target.classList.contains('snapshot-item__input')
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        editingSnapshotId = null;
+        render();
+      }
+    },
+    signal,
+  );
+
+  const handleTabClosing = (): void => {
+    saveProgram(dom.programInput.value);
+    saveTape(dom.tapeInput.value);
+    autosave.flush();
+  };
+  listen(window, 'beforeunload', handleTabClosing, signal);
+  listen(window, 'pagehide', handleTabClosing, signal);
+
+  return {
+    get isDeleteDialogOpen(): boolean {
+      return deleteDialog.isOpen;
+    },
+    get isConfirmDeleteEnabled(): boolean {
+      return confirmSnapshotDelete;
+    },
+    toggleConfirmDelete() {
+      confirmSnapshotDelete = !confirmSnapshotDelete;
+      settings.update({ confirmSnapshotDelete });
+      onConfirmDeleteSettingChanged();
+    },
+    resetBaseline(program, tape) {
+      autosave.reset(program, tape);
+      syncSaveStatus();
+    },
+    syncLocalized() {
+      syncNamedOnlyControl();
+      syncSaveStatus();
+      render();
+    },
+    createManualSnapshot,
+    dispose() {
+      persistProgram.cancel();
+      persistTape.cancel();
+      autosave.dispose();
+      snapshots.dispose();
+    },
+  };
 }

@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountApp } from '../src/app';
 import { debounce } from '../src/ui/dom';
 import { AUTOSAVE_INTERVAL_MS, SNAPSHOTS_STORAGE_KEY } from '../src/ui/history';
-import { SettingsStore, ThemeController } from '../src/ui/shell/settings-store';
+import {
+  bindTheme,
+  createSettingsStore,
+  resolveEffectiveTheme,
+} from '../src/ui/shell/settings-store';
 import { setupAppDom, teardownAppDom, type MockMql } from './helpers/dom-fixture';
 
 describe('mountApp lifecycle & shell modules', () => {
@@ -95,8 +99,15 @@ describe('mountApp lifecycle & shell modules', () => {
     expect(deleteDialog.open).toBe(false);
   });
 
+  it('resolveEffectiveTheme resolves explicit and auto themes purely', () => {
+    expect(resolveEffectiveTheme('light', true)).toBe('light');
+    expect(resolveEffectiveTheme('dark', false)).toBe('dark');
+    expect(resolveEffectiveTheme('auto', false)).toBe('light');
+    expect(resolveEffectiveTheme('auto', true)).toBe('dark');
+  });
+
   it('SettingsStore and ThemeController react to updates and OS color-scheme changes until disposed', () => {
-    const store = new SettingsStore({
+    const store = createSettingsStore({
       lang: null,
       theme: 'auto',
       sound: false,
@@ -110,7 +121,7 @@ describe('mountApp lifecycle & shell modules', () => {
     const buttons = Array.from(
       document.querySelectorAll<HTMLButtonElement>('#theme-group [data-theme-option]'),
     );
-    const theme = new ThemeController({
+    const theme = bindTheme({
       root: document.documentElement,
       themeButtons: buttons,
       store,

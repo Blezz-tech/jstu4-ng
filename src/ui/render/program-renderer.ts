@@ -10,12 +10,13 @@ import {
 import {
   computeScrollToIndex,
   computeWindowRange,
+  createSpacerPair,
+  createVirtualHostObserver,
   measureHostPadding,
   scrollNodeIntoView,
-  SpacerPair,
-  VirtualHostObserver,
   ZERO_PADDING,
   type HostPadding,
+  type SpacerPair,
 } from './virtual-window';
 
 /** Switch program view to line-windowed virtualization above this many lines. */
@@ -50,7 +51,7 @@ export class ProgramRenderer {
   private readonly lineThreshold: number;
   private readonly commandThreshold: number;
   private readonly overscan: number;
-  private readonly observer = new VirtualHostObserver();
+  private readonly observer = createVirtualHostObserver();
 
   private host: HTMLElement | null = null;
   private virtualized = false;
@@ -294,7 +295,7 @@ export class ProgramRenderer {
     wrapper.append(topSpacer, bottomSpacer);
 
     this.wrapper = wrapper;
-    this.spacers = new SpacerPair(topSpacer, bottomSpacer, 'height');
+    this.spacers = createSpacerPair(topSpacer, bottomSpacer, 'height');
 
     host.classList.add('program--virtual');
     host.replaceChildren(wrapper);
