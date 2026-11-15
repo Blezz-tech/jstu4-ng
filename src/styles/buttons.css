@@ -50,10 +50,6 @@
   cursor: not-allowed;
 }
 
-.btn:disabled:hover {
-  background: var(--surface);
-}
-
 .btn--primary:disabled,
 .btn--primary[aria-disabled='true'] {
   /* A disabled primary action must not stay saturated blue: it reads as
@@ -63,8 +59,21 @@
   color: var(--text-faint);
 }
 
+.btn:disabled:hover,
 .btn--primary:disabled:hover {
   background: var(--surface);
+}
+
+.btn--danger {
+  border-color: var(--err);
+  background: var(--err);
+  color: #ffffff;
+}
+
+.btn--danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: var(--err);
+  background: var(--err);
 }
 
 .btn[aria-pressed='true'] {
