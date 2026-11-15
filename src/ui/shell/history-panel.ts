@@ -2,10 +2,10 @@ import type { I18n } from '../../i18n';
 import type { AppController } from '../controller';
 import { debounce, type DebouncedFn } from '../dom';
 import {
-  AutosaveTracker,
+  createAutosaveTracker,
+  createSnapshotStore,
   formatSaveClock,
   getSnapshotDisplayName,
-  SnapshotStore,
   type ProgramSnapshot,
 } from '../history';
 import type { NotificationLog } from '../notifications';
@@ -183,7 +183,7 @@ export function bindHistoryPanel({
     signal,
   });
 
-  const snapshots = new SnapshotStore({
+  const snapshots = createSnapshotStore({
     onPersistError: () => notifications.show('warning', (t) => t.t('log.snapshotQuotaExceeded')),
   });
   snapshots.subscribe((source) => {
@@ -195,7 +195,7 @@ export function bindHistoryPanel({
     if (editingSnapshotId === null) render();
   });
 
-  const autosave = new AutosaveTracker({
+  const autosave = createAutosaveTracker({
     store: snapshots,
     readState: () => ({ program: dom.programInput.value, tape: dom.tapeInput.value }),
     onAutosave: (created) => {

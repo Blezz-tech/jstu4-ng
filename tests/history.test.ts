@@ -3,13 +3,90 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createI18n } from '../src/i18n';
 import {
   AUTOSAVE_INTERVAL_MS,
-  AutosaveTracker,
+  createAutosaveTracker,
+  createSnapshotStore,
+  filterSnapshots,
   formatSaveClock,
   formatSnapshotTimestamp,
   getSnapshotDisplayName,
+  insertSnapshotIntoList,
+  isDraftDirty,
+  matchesLatestSnapshot,
+  parseSnapshotsList,
+  pruneOldestAutosave,
+  removeSnapshotFromList,
+  renameSnapshotInList,
   SNAPSHOTS_STORAGE_KEY,
-  SnapshotStore,
+  trimUnnamedAutosaves,
+  type ProgramSnapshot,
 } from '../src/ui/history';
+
+describe('history (pure snapshot operations & isDraftDirty)', () => {
+  const makeSnap = (
+    id: string,
+    kind: 'autosave' | 'manual',
+    createdAt: number,
+    customName: string | null = null,
+    program = `p-${id}`,
+    tape = '',
+  ): ProgramSnapshot => ({ id, kind, createdAt, customName, program, tape });
+
+  it('inserts newest-first, enforces maxAutosaves without dropping named/manual snapshots, and supports pure rename/remove/prune', () => {
+    const a1 = makeSnap('a1', 'autosave', 1000);
+    const m1 = makeSnap('m1', 'manual', 2000);
+    const a2 = makeSnap('a2', 'autosave', 3000, 'Pinned auto');
+    const a3 = makeSnap('a3', 'autosave', 4000);
+    const a4 = makeSnap('a4', 'autosave', 5000);
+
+    let list: readonly ProgramSnapshot[] = [];
+    // Out-of-order insert sorts chronologically
+    list = insertSnapshotIntoList(list, a3, 2);
+    list = insertSnapshotIntoList(list, a1, 2);
+    list = insertSnapshotIntoList(list, m1, 2);
+    list = insertSnapshotIntoList(list, a2, 2);
+    list = insertSnapshotIntoList(list, a4, 2);
+
+    // Only 2 unnamed autosaves remain (a4, a3); a1 is trimmed; m1 and named a2 survive
+    expect(list.map((s) => s.id)).toEqual(['a4', 'a3', 'a2', 'm1']);
+    expect(filterSnapshots(list, true).map((s) => s.id)).toEqual(['a2']);
+    expect(matchesLatestSnapshot(list, 'p-a4', '')).toBe(true);
+    expect(matchesLatestSnapshot(list, 'other', '')).toBe(false);
+
+    // Pure rename keeps createdAt and returns null for blank/missing
+    expect(renameSnapshotInList(list, 'm1', '   ')).toBeNull();
+    expect(renameSnapshotInList(list, 'missing', 'Name')).toBeNull();
+    const renamed = renameSnapshotInList(list, 'm1', '  Release 1  ');
+    expect(renamed?.updated.customName).toBe('Release 1');
+    expect(renamed?.updated.createdAt).toBe(2000);
+
+    // Prune drops oldest unnamed autosave while skipping protectedId
+    expect(pruneOldestAutosave(list, 'a3')?.map((s) => s.id)).toEqual(['a3', 'a2', 'm1']);
+    expect(pruneOldestAutosave([a2, m1])).toBeNull();
+
+    // Pure remove & trim
+    expect(removeSnapshotFromList(list, 'missing')).toBeNull();
+    expect(removeSnapshotFromList(list, 'a3')?.map((s) => s.id)).toEqual(['a4', 'a2', 'm1']);
+    expect(trimUnnamedAutosaves(list, 1).map((s) => s.id)).toEqual(['a4', 'a2', 'm1']);
+
+    // Deduplication and validation of untrusted JSON arrays
+    expect(
+      parseSnapshotsList([null, { id: '' }, a1, { ...a1, program: 'duplicate-ignored' }, m1]).map(
+        (s) => s.id,
+      ),
+    ).toEqual(['m1', 'a1']);
+  });
+
+  it('evaluates isDraftDirty purely against blankness, baseline, and latest snapshot', () => {
+    const baseline = { program: '0, ,#,0', tape: '1' };
+    const latest = { program: '0,1,0,0', tape: '1' };
+
+    expect(isDraftDirty({ program: '   ', tape: '1' }, baseline, latest)).toBe(false);
+    expect(isDraftDirty({ program: '0, ,#,0', tape: '1' }, baseline, latest)).toBe(false);
+    expect(isDraftDirty({ program: '0,1,0,0', tape: '1' }, baseline, latest)).toBe(false);
+    expect(isDraftDirty({ program: '0, ,>,0', tape: '1' }, baseline, latest)).toBe(true);
+    expect(isDraftDirty({ program: '0, ,#,0', tape: '10' }, baseline, undefined)).toBe(true);
+  });
+});
 
 describe('history (SnapshotStore)', () => {
   afterEach(() => {
@@ -24,7 +101,7 @@ describe('history (SnapshotStore)', () => {
 
   it('formats default display names per locale for autosaves and manual saves', () => {
     const ts = new Date(2026, 10, 14, 15, 22, 8).getTime();
-    const store = new SnapshotStore();
+    const store = createSnapshotStore();
     const autoSnap = store.create('autosave', '0, ,#,0', '1', ts);
     const manualSnap = store.create('manual', '0, ,>,0', '10', ts + 1000);
 
@@ -44,7 +121,7 @@ describe('history (SnapshotStore)', () => {
     const t2 = new Date(2026, 10, 14, 10, 1, 0).getTime();
     const t3 = new Date(2026, 10, 14, 10, 2, 0).getTime();
 
-    const store = new SnapshotStore();
+    const store = createSnapshotStore();
     const sAuto = store.create('autosave', '0, ,#,0', '1', t1);
     const sManual = store.create('manual', '0, ,>,1\n1, ,#,1', '10', t2);
     const sAuto2 = store.create('autosave', '0,1,0,0', '11', t3);
@@ -72,7 +149,7 @@ describe('history (SnapshotStore)', () => {
   });
 
   it('maybeAutosave ignores empty programs and unchanged content', () => {
-    const store = new SnapshotStore();
+    const store = createSnapshotStore();
     expect(store.maybeAutosave('   \n  ', '101', 1000)).toBeNull();
 
     const first = store.maybeAutosave('0, ,#,0', '101', 2000);
@@ -92,7 +169,7 @@ describe('history (SnapshotStore)', () => {
   });
 
   it('persists snapshots to localStorage and recovers from corrupted entries', () => {
-    const store = new SnapshotStore();
+    const store = createSnapshotStore();
     const s = store.create('manual', '0, ,#,0', '1', 1_700_000_000_000);
     store.rename(s.id, 'Saved v1');
 
@@ -108,18 +185,18 @@ describe('history (SnapshotStore)', () => {
     );
     window.localStorage.setItem(SNAPSHOTS_STORAGE_KEY, JSON.stringify(parsed));
 
-    const reloaded = new SnapshotStore();
+    const reloaded = createSnapshotStore();
     expect(reloaded.list()).toHaveLength(1);
     expect(reloaded.list()[0]?.customName).toBe('Saved v1');
     expect(reloaded.list()[0]?.createdAt).toBe(1_700_000_000_000);
 
     expect(reloaded.remove(s.id)).toBe(true);
     expect(reloaded.remove('missing')).toBe(false);
-    expect(new SnapshotStore().list()).toHaveLength(0);
+    expect(createSnapshotStore().list()).toHaveLength(0);
   });
 
   it('prunes oldest unnamed autosaves when localStorage throws QuotaExceededError', () => {
-    const store = new SnapshotStore();
+    const store = createSnapshotStore();
     store.create('autosave', 'p1', '', 1000);
     store.create('autosave', 'p2', '', 2000);
 
@@ -151,11 +228,11 @@ describe('history (SnapshotStore)', () => {
 
     expect(formatSaveClock(new Date(2026, 10, 14, 9, 5, 0).getTime())).toBe('09:05');
 
-    const store = new SnapshotStore();
+    const store = createSnapshotStore();
     let current = { program: '0, ,#,0', tape: '1' };
     const onAutosave = vi.fn();
     const onDirtyChange = vi.fn();
-    const tracker = new AutosaveTracker({
+    const tracker = createAutosaveTracker({
       store,
       readState: () => current,
       onAutosave,
@@ -207,8 +284,8 @@ describe('history (SnapshotStore)', () => {
   });
 
   it('synchronizes across tabs via storage events and merges before mutations without overwriting', () => {
-    const tabA = new SnapshotStore();
-    const tabB = new SnapshotStore();
+    const tabA = createSnapshotStore();
+    const tabB = createSnapshotStore();
     const onTabAChange = vi.fn();
     tabA.subscribe(onTabAChange);
 
@@ -223,11 +300,11 @@ describe('history (SnapshotStore)', () => {
     const fromA = tabA.create('manual', '0,0,1,0', 'fromA', 3000);
 
     expect(tabA.list().map((s) => s.id)).toEqual([fromA.id, secondFromB.id, fromB.id]);
-    expect(new SnapshotStore().list().map((s) => s.id)).toEqual([
-      fromA.id,
-      secondFromB.id,
-      fromB.id,
-    ]);
+    expect(
+      createSnapshotStore()
+        .list()
+        .map((s) => s.id),
+    ).toEqual([fromA.id, secondFromB.id, fromB.id]);
 
     tabA.dispose();
     tabB.dispose();
@@ -235,7 +312,7 @@ describe('history (SnapshotStore)', () => {
 
   it('reports unrecoverable QuotaExceededError via onPersistError, rolls back phantom writes, and ignores sessionStorage events', () => {
     const onPersistError = vi.fn();
-    const store = new SnapshotStore({ onPersistError });
+    const store = createSnapshotStore({ onPersistError });
     const onChange = vi.fn();
     store.subscribe(onChange);
 
@@ -275,9 +352,9 @@ describe('history (SnapshotStore)', () => {
   });
 
   it('keeps AutosaveTracker dirty when persistence fails so a later flush can succeed', () => {
-    const store = new SnapshotStore();
+    const store = createSnapshotStore();
     let current = { program: '0, ,#,0', tape: '1' };
-    const tracker = new AutosaveTracker({
+    const tracker = createAutosaveTracker({
       store,
       readState: () => current,
     });
@@ -309,7 +386,7 @@ describe('history (SnapshotStore)', () => {
 
   it('never silently drops a newly created autosave when localStorage quota is exceeded', () => {
     const onPersistError = vi.fn();
-    const store = new SnapshotStore({ onPersistError });
+    const store = createSnapshotStore({ onPersistError });
     const existingManual = store.create('manual', '0, ,#,0', '1', 1000);
 
     // Reject only payloads larger than the existing manual snapshot (simulates quota full for the new autosave)

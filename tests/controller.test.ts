@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createI18n, type I18n, type Lang } from '../src/i18n';
-import { AUDIO_IDLE_SUSPEND_MS, StepSound } from '../src/ui/audio';
+import { AUDIO_IDLE_SUSPEND_MS, createStepSound } from '../src/ui/audio';
 import {
-  AppController,
+  createAppController,
+  type AppController,
   type AppElements,
   type RunControlState,
   type UIMode,
@@ -43,7 +44,7 @@ function makeController(
     onStepSound?: () => void;
   } = {},
 ): AppController {
-  return new AppController({
+  return createAppController({
     i18n: overrides.i18n ?? createI18n(overrides.lang ?? 'ru'),
     elements,
     ...(overrides.maxHistory !== undefined ? { maxHistory: overrides.maxHistory } : {}),
@@ -462,7 +463,7 @@ describe('AppController', () => {
     const el = setupDom();
     const savedPrograms: string[] = [];
     const savedTapes: string[] = [];
-    const controller = new AppController({
+    const controller = createAppController({
       i18n: createI18n('en'),
       elements: el,
       onModeChange: () => undefined,
@@ -544,7 +545,7 @@ describe('AppController', () => {
     }
     vi.stubGlobal('AudioContext', BrokenAudioContext);
     try {
-      const sound = new StepSound(true);
+      const sound = createStepSound(true);
       expect(() => sound.tick()).not.toThrow();
     } finally {
       vi.stubGlobal('AudioContext', original);
@@ -754,7 +755,7 @@ describe('AppController', () => {
   it('reuses #stats DOM rows incrementally across steps and locale switches', () => {
     const el = setupDom();
     const i18n = createI18n('ru');
-    const controller = new AppController({
+    const controller = createAppController({
       i18n,
       elements: el,
       onModeChange: () => undefined,
@@ -878,7 +879,7 @@ describe('AppController', () => {
     });
 
     try {
-      const sound = new StepSound(true);
+      const sound = createStepSound(true);
       sound.tick();
       expect(suspend).not.toHaveBeenCalled();
 
