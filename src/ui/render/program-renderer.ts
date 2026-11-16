@@ -30,12 +30,6 @@ const DEFAULT_LINE_HEIGHT_PX = 24;
 /** Fallback program viewport height (px) when `host.clientHeight` is 0. */
 const DEFAULT_PROGRAM_VIEWPORT_HEIGHT_PX = 480;
 
-export interface ProgramRendererOptions {
-  readonly lineThreshold?: number;
-  readonly commandThreshold?: number;
-  readonly overscan?: number;
-}
-
 /**
  * Dual-mode renderer for the read-only `#display-program` pane.
  *
@@ -48,9 +42,6 @@ export interface ProgramRendererOptions {
  *   start instantly and scroll/step smoothly at 60 FPS.
  */
 export class ProgramRenderer {
-  private readonly lineThreshold: number;
-  private readonly commandThreshold: number;
-  private readonly overscan: number;
   private readonly observer = createVirtualHostObserver();
 
   private host: HTMLElement | null = null;
@@ -78,15 +69,6 @@ export class ProgramRenderer {
   private horizontalPadding: HostPadding = ZERO_PADDING;
   private geometryMeasured = false;
   private lastScrollTop = 0;
-
-  constructor(options: ProgramRendererOptions = {}) {
-    this.lineThreshold = Math.max(1, options.lineThreshold ?? PROGRAM_VIRTUALIZE_LINE_THRESHOLD);
-    this.commandThreshold = Math.max(
-      1,
-      options.commandThreshold ?? PROGRAM_VIRTUALIZE_COMMAND_THRESHOLD,
-    );
-    this.overscan = Math.max(1, options.overscan ?? PROGRAM_VIRTUAL_OVERSCAN);
-  }
 
   get isVirtualized(): boolean {
     return this.virtualized;
@@ -116,8 +98,8 @@ export class ProgramRenderer {
     }
 
     if (
-      listing.commands.length > this.commandThreshold ||
-      exceedsLineThreshold(listing.text, this.lineThreshold)
+      listing.commands.length > PROGRAM_VIRTUALIZE_COMMAND_THRESHOLD ||
+      exceedsLineThreshold(listing.text, PROGRAM_VIRTUALIZE_LINE_THRESHOLD)
     ) {
       this.mountVirtual(host, listing.text, listing.ranges, null);
       return;
@@ -132,7 +114,7 @@ export class ProgramRenderer {
     this.text = text;
     this.parseErrorOffset = offset;
 
-    if (exceedsLineThreshold(text, this.lineThreshold)) {
+    if (exceedsLineThreshold(text, PROGRAM_VIRTUALIZE_LINE_THRESHOLD)) {
       this.mountVirtual(host, text, [], offset);
       return;
     }
@@ -395,7 +377,7 @@ export class ProgramRenderer {
       viewportSize: viewportH,
       itemSize: this.lineHeightPx,
       total,
-      overscan: this.overscan,
+      overscan: PROGRAM_VIRTUAL_OVERSCAN,
       paddingStart: this.padding.start,
       curStart: this.windowStart,
       curEnd: this.windowEnd,

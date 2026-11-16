@@ -1,7 +1,7 @@
-import type { CompileError, ParseError } from '../../core/errors';
-import { parseStateName, type Command } from '../../core/machine';
+import type { ParseError } from '../../core/errors';
+import type { Command } from '../../core/machine';
 import { parseProgram } from '../../core/parser';
-import { createProgram, type Program } from '../../core/program';
+import type { Program } from '../../core/program';
 import { ok, type Result } from '../../core/result';
 import { appendParseErrorSlice } from './program-lines';
 
@@ -17,23 +17,6 @@ export interface ProgramListing {
 /** A listing plus the validated program itself. */
 export interface CompiledProgram extends ProgramListing {
   readonly program: Program;
-}
-
-/**
- * Parse + validate program text and remember command offsets so the running
- * program can be rendered with per-command anchors.
- */
-export function compileProgram(
-  text: string,
-  initialState: number | string = 0,
-): Result<CompiledProgram, CompileError> {
-  const listed = listProgram(text);
-  if (!listed.ok) return listed;
-  const normalisedInitial =
-    typeof initialState === 'string' ? parseStateName(initialState) : initialState;
-  const created = createProgram(listed.value.commands, normalisedInitial);
-  if (!created.ok) return created;
-  return ok({ ...listed.value, program: created.value });
 }
 
 /**
@@ -81,15 +64,6 @@ export function buildProgramFragment(
     fragment.appendChild(document.createTextNode(compiled.text.slice(cursor)));
   }
   return fragment;
-}
-
-/**
- * Render program text with command spans. Whitespace and comments stay as
- * plain text; every command gets `.cmd` so the runner can highlight the
- * current/visited/erroneous one in O(1) without re-rendering the whole pane.
- */
-export function renderProgram(compiled: ProgramListing): DocumentFragment {
-  return buildProgramFragment(compiled);
 }
 
 /** Render plain program text with one Unicode code point highlighted as erroneous. */

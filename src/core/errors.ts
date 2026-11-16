@@ -66,6 +66,3 @@ export type RuntimeError = OutOfTapeError | NoSuchCommandError;
 
 /** All errors that can occur during TU4 export. */
 export type Tu4Error = TooManyStatesError;
-
-/** Discriminated union of all domain errors produced by the emulator core. */
-export type MachineError = CompileError | RuntimeError | Tu4Error;

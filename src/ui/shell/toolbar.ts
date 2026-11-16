@@ -20,7 +20,6 @@ export interface ToolbarView {
   syncRunState(state: RunControlState): void;
   syncRunToggleLabel(): void;
   syncHint(): void;
-  syncProgramOverflow(): void;
   scheduleProgramOverflow(): void;
 }
 
@@ -188,7 +187,6 @@ export function bindToolbar({
     },
     syncRunToggleLabel,
     syncHint,
-    syncProgramOverflow,
     scheduleProgramOverflow,
   };
 }

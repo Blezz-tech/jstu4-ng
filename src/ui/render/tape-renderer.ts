@@ -32,11 +32,6 @@ const DEFAULT_CELL_WIDTH_PX = 14;
 /** Fallback viewport width (px) when `host.clientWidth` is 0 (hidden host / jsdom). */
 const DEFAULT_VIEWPORT_WIDTH_PX = 800;
 
-export interface TapeRendererOptions {
-  readonly virtualizeThreshold?: number;
-  readonly overscan?: number;
-}
-
 /**
  * Dual-mode incremental DOM renderer for the tape pane during execution.
  *
@@ -47,8 +42,6 @@ export interface TapeRendererOptions {
  *   left/right width spacers so huge tapes (10k–100k+ cells) stay at 60 FPS.
  */
 export class TapeRenderer {
-  private readonly threshold: number;
-  private readonly overscan: number;
   private readonly observer = createVirtualHostObserver();
 
   private host: HTMLElement | null = null;
@@ -68,11 +61,6 @@ export class TapeRenderer {
   private lastCells: TapeInput = [];
   private lastLength = 0;
   private lastScrollLeft = 0;
-
-  constructor(options: TapeRendererOptions = {}) {
-    this.threshold = Math.max(1, options.virtualizeThreshold ?? TAPE_VIRTUALIZE_THRESHOLD);
-    this.overscan = Math.max(1, options.overscan ?? VIRTUAL_OVERSCAN);
-  }
 
   /** Whether the renderer is currently using windowed virtualization (`length > threshold`). */
   get isVirtualized(): boolean {
@@ -120,7 +108,7 @@ export class TapeRenderer {
     this.lastCells = cells;
     this.lastLength = targetLength;
 
-    if (targetLength > this.threshold) {
+    if (targetLength > TAPE_VIRTUALIZE_THRESHOLD) {
       this.updateVirtual(cells, targetLength, position, dirtyIndices);
       return;
     }
@@ -317,7 +305,7 @@ export class TapeRenderer {
     const visibleEnd = Math.ceil(
       (Math.max(0, this.readScrollLeft() - this.padding.start) + viewportW) / this.cellWidthPx,
     );
-    const desiredEnd = Math.min(targetLength, visibleEnd + this.overscan);
+    const desiredEnd = Math.min(targetLength, visibleEnd + VIRTUAL_OVERSCAN);
     if (this.windowEnd < desiredEnd) {
       this.syncVirtualWindow(true, this.readScrollLeft());
       return;
@@ -378,7 +366,7 @@ export class TapeRenderer {
       viewportSize: viewportW,
       itemSize: this.cellWidthPx,
       total,
-      overscan: this.overscan,
+      overscan: VIRTUAL_OVERSCAN,
       paddingStart: this.padding.start,
       curStart: this.windowStart,
       curEnd: this.windowEnd,

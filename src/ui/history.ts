@@ -239,8 +239,6 @@ function nextSnapshotId(now: number): string {
 }
 
 export interface SnapshotStoreOptions {
-  /** Initial in-memory snapshots (disables automatic `localStorage` sync when provided). */
-  readonly initial?: readonly ProgramSnapshot[];
   /** Invoked when writing to `localStorage` fails even after pruning old autosaves. */
   readonly onPersistError?: () => void;
 }
@@ -252,8 +250,6 @@ export interface SnapshotStore {
   readonly lastPersistOk: boolean;
   /** Subscribe to snapshot changes (including cross-tab `storage` updates). */
   subscribe(listener: (source: SnapshotChangeSource) => void): () => void;
-  /** Reload snapshots from `localStorage` and notify subscribers. */
-  reload(): void;
   /** Detach the `storage` event listener and clear subscribers. */
   dispose(): void;
   /** All snapshots ordered newest-first. */
@@ -288,13 +284,9 @@ export interface SnapshotStore {
  * storage state before each mutation so concurrent tabs never overwrite each other.
  */
 export function createSnapshotStore(options: SnapshotStoreOptions = {}): SnapshotStore {
-  const storageBacked = options.initial === undefined;
   const onPersistError = options.onPersistError;
   const listeners = new Set<(source: SnapshotChangeSource) => void>();
-  let snapshots: ProgramSnapshot[] =
-    options.initial !== undefined
-      ? [...options.initial].sort((a, b) => b.createdAt - a.createdAt)
-      : loadRawSnapshots();
+  let snapshots: ProgramSnapshot[] = loadRawSnapshots();
   let persistOk = true;
 
   const notify = (source: SnapshotChangeSource): void => {
@@ -302,16 +294,10 @@ export function createSnapshotStore(options: SnapshotStoreOptions = {}): Snapsho
   };
 
   const syncFromStorage = (): void => {
-    if (storageBacked) snapshots = loadRawSnapshots();
+    snapshots = loadRawSnapshots();
   };
 
   const commit = (next: ProgramSnapshot[], previous: ProgramSnapshot[], protectedId?: string) => {
-    if (!storageBacked) {
-      snapshots = next;
-      persistOk = true;
-      notify('local');
-      return;
-    }
     const result = persistSnapshots(next, protectedId);
     persistOk = result.ok;
     if (result.ok) {
@@ -343,17 +329,14 @@ export function createSnapshotStore(options: SnapshotStoreOptions = {}): Snapsho
     return snapshot;
   };
 
-  const reload = (): void => {
-    if (!storageBacked) return;
-    snapshots = loadRawSnapshots();
-    notify('storage');
-  };
-
   const storageHandler: ((event: StorageEvent) => void) | null =
-    storageBacked && typeof window !== 'undefined'
+    typeof window !== 'undefined'
       ? (event) => {
           if (event.storageArea !== null && event.storageArea !== window.localStorage) return;
-          if (event.key === SNAPSHOTS_STORAGE_KEY || event.key === null) reload();
+          if (event.key === SNAPSHOTS_STORAGE_KEY || event.key === null) {
+            snapshots = loadRawSnapshots();
+            notify('storage');
+          }
         }
       : null;
 
@@ -371,7 +354,6 @@ export function createSnapshotStore(options: SnapshotStoreOptions = {}): Snapsho
         listeners.delete(listener);
       };
     },
-    reload,
     dispose() {
       if (storageHandler !== null && typeof window !== 'undefined') {
         window.removeEventListener('storage', storageHandler);

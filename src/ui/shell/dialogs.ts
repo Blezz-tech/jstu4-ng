@@ -143,7 +143,6 @@ export interface Tu4DialogOptions {
 export interface Tu4Dialog {
   readonly isOpen: boolean;
   open(converted: string): void;
-  close(): void;
   dispose(): void;
 }
 
@@ -183,10 +182,6 @@ export function createTu4Dialog({ dom, i18n, onBeforeOpen, signal }: Tu4DialogOp
       dom.tu4Output.value = converted;
       dom.tu4Output.scrollTop = 0;
       openModalDialog(dom.tu4Dialog);
-    },
-    close() {
-      clearStatus();
-      closeModalDialog(dom.tu4Dialog);
     },
     dispose: clearStatus,
   };

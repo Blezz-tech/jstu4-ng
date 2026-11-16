@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { formatCommand } from '../src/core/machine';
 import { parseProgram } from '../src/core/parser';
 import { createProgram } from '../src/core/program';
-import { convertTextToTu4, toTu4, TU4_MAX_STATES } from '../src/core/tu4';
+import { toTu4, TU4_MAX_STATES } from '../src/core/tu4';
 import { expectErr, expectOk } from './helpers/result';
 
 const compile = (text: string, q0?: number | string) =>
@@ -26,13 +25,12 @@ describe('toTu4', () => {
 
   it('produces a program that is parsed back to an equivalent machine', () => {
     const source = 'rep,0,1,mov  mov,0,<,rep  rep, ,>,fin  fin, ,#,fin';
-    const converted = convertTextToTu4(source);
+    const converted = expectOk(toTu4(compile(source)));
 
-    expect(converted).not.toBeNull();
-    const machine = compile(converted as string);
+    const machine = compile(converted);
     // Digit-only state names are parsed back as decimal numbers, so `00`
     // becomes `0` and `01` becomes `1`: the machine is equivalent.
-    expect(machine.commands.map(formatCommand)).toEqual([
+    expect(machine.commands.map((c) => `${c.q},${c.a},${c.v},${c.w}`)).toEqual([
       '0,0,1,1',
       '1,0,<,0',
       '0, ,>,2',
@@ -65,12 +63,5 @@ describe('toTu4', () => {
       count: 257,
       limit: TU4_MAX_STATES,
     });
-  });
-
-  it('returns null for programs that do not compile or exceed 256 states', () => {
-    expect(convertTextToTu4('garbage')).toBeNull();
-    expect(convertTextToTu4('')).toBeNull();
-    const tooBig = Array.from({ length: 257 }, (_, i) => `s${i}, ,>,s${(i + 1) % 257}`).join('\n');
-    expect(convertTextToTu4(tooBig)).toBeNull();
   });
 });

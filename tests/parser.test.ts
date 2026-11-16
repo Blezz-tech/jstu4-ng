@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { createCommand, formatCommand, parseStateName } from '../src/core/machine';
+import { type Command, createCommand, parseStateName } from '../src/core/machine';
 import { parseProgram } from '../src/core/parser';
 import { expectErr, expectOk } from './helpers/result';
 
-describe('createCommand & formatCommand', () => {
+const formatCmd = (c: Command): string => `${c.q},${c.a},${c.v},${c.w}`;
+
+describe('createCommand', () => {
   const src = { text: 'raw', offset: 0 };
 
   it('classifies move, write, stay, and halt commands identically to v2.3', () => {
@@ -22,7 +24,6 @@ describe('createCommand & formatCommand', () => {
     const write = createCommand('rep', '0', '1', 'mov', src);
     expect(write.kind).toBe('write');
     expect(write.isHalt).toBe(false);
-    expect(formatCommand(write)).toBe('rep,0,1,mov');
 
     const stayExplicit = createCommand(0, '0', '=', 1, src);
     expect(stayExplicit.kind).toBe('stay');
@@ -55,7 +56,7 @@ describe('parseProgram', () => {
 
   it('parses several commands separated by any whitespace', () => {
     const commands = expectOk(parseProgram('0,1,>,1\n1,1,<,0\t\t0, ,#,0'));
-    expect(commands.map(formatCommand)).toEqual(['0,1,>,1', '1,1,<,0', '0, ,#,0']);
+    expect(commands.map(formatCmd)).toEqual(['0,1,>,1', '1,1,<,0', '0, ,#,0']);
   });
 
   it('reports offsets that point at the command start', () => {
@@ -65,7 +66,7 @@ describe('parseProgram', () => {
 
   it('skips shell and C-style comments', () => {
     const text = '# header\n0,1,>,1 // move\n1,1,<,0\n// trailing';
-    expect(expectOk(parseProgram(text)).map(formatCommand)).toEqual(['0,1,>,1', '1,1,<,0']);
+    expect(expectOk(parseProgram(text)).map(formatCmd)).toEqual(['0,1,>,1', '1,1,<,0']);
   });
 
   it('treats digit-only state names as numbers (01 === 1)', () => {
@@ -86,12 +87,6 @@ describe('parseProgram', () => {
     expect(command?.kind).toBe('halt');
   });
 
-  it('calls onCommand for every parsed command in order', () => {
-    const seen: string[] = [];
-    expectOk(parseProgram('0,1,>,1 1,1,<,0', { onCommand: (c) => seen.push(formatCommand(c)) }));
-    expect(seen).toEqual(['0,1,>,1', '1,1,<,0']);
-  });
-
   it('returns an empty list for empty or whitespace-only text', () => {
     expect(expectOk(parseProgram(''))).toEqual([]);
     expect(expectOk(parseProgram('   \n\t  '))).toEqual([]);
@@ -106,7 +101,7 @@ describe('parseProgram', () => {
     expect(parseProgram('')).toEqual({ ok: true, value: [] });
   });
 
-  it('parses large programs in O(N) with exact offsets and re-entrant onCommand callbacks', () => {
+  it('parses large programs in O(N) with exact offsets', () => {
     const lines: string[] = [];
     for (let i = 0; i < 5000; i += 1) {
       lines.push(`s${i}, ,>,s${i + 1} // step ${i}`);
@@ -122,18 +117,6 @@ describe('parseProgram', () => {
     expect(source.slice(last.source.offset, last.source.offset + last.source.text.length)).toBe(
       last.source.text,
     );
-
-    // Nested parseProgram inside onCommand must not corrupt the outer regex cursor
-    const nestedCounts: number[] = [];
-    const outer = expectOk(
-      parseProgram('0, ,>,1\n1, ,#,1', {
-        onCommand: () => {
-          nestedCounts.push(expectOk(parseProgram('a,0,1,b')).length);
-        },
-      }),
-    );
-    expect(outer.map(formatCommand)).toEqual(['0, ,>,1', '1, ,#,1']);
-    expect(nestedCounts).toEqual([1, 1]);
   });
 
   it('keeps huge numeric state names beyond MAX_SAFE_INTEGER as distinct strings and preserves surrogate pairs in ParseError snippets', () => {

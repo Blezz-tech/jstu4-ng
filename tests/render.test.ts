@@ -5,7 +5,6 @@ import { parseProgram } from '../src/core/parser';
 import { createProgram } from '../src/core/program';
 import { MachineRun } from '../src/core/run';
 import {
-  compileProgram,
   listProgram,
   PROGRAM_VIRTUALIZE_COMMAND_THRESHOLD,
   PROGRAM_VIRTUALIZE_LINE_THRESHOLD,
@@ -14,7 +13,7 @@ import {
   TAPE_VIRTUALIZE_THRESHOLD,
   TapeRenderer,
 } from '../src/ui/render';
-import { expectErr, expectOk } from './helpers/result';
+import { expectOk } from './helpers/result';
 
 function readCells(host: HTMLElement): string[] {
   return Array.from(host.querySelectorAll('.cell'), (node) => node.textContent ?? '');
@@ -620,22 +619,5 @@ describe('ProgramRenderer (dual-mode line-windowed virtualization)', () => {
     renderer.scrollToFirstError();
     expect(virtualHost.querySelector('mark.error')?.textContent).toBe('🚀');
     renderer.clear();
-  });
-
-  it('compileProgram returns typed Result for valid, syntax-invalid, and semantically invalid programs', () => {
-    const okCompiled = expectOk(compileProgram('01, ,#,1', '01'));
-    expect(okCompiled.program.initialState).toBe(1);
-    expect(okCompiled.commands).toHaveLength(1);
-    expect(okCompiled.ranges).toEqual([{ start: 0, end: 8 }]);
-
-    expect(expectErr(compileProgram('bad'))).toEqual({
-      kind: 'parseError',
-      offset: 0,
-      text: 'bad',
-    });
-    expect(expectErr(compileProgram('1, ,#,1', 0))).toEqual({
-      kind: 'nonexistentInitialState',
-      state: 0,
-    });
   });
 });

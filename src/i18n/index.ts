@@ -15,24 +15,9 @@ import {
   type PlainMessageKey,
 } from './types';
 
-export { bindDomI18n, applyDomI18n } from './dom';
-export { formatMessage, formatSymbol, type FormatParams } from './format';
-export {
-  DEFAULT_LANG,
-  LANGS,
-  LOCALES,
-  type HelpBlock,
-  type HelpContent,
-  type HelpInline,
-  type HelpSection,
-  type Lang,
-  type LocaleMeta,
-  type MessageCatalog,
-  type MessageKey,
-  type MessageParamsMap,
-  type ParameterizedMessageKey,
-  type PlainMessageKey,
-} from './types';
+export { bindDomI18n } from './dom';
+export { formatMessage, formatSymbol } from './format';
+export { LANGS, type HelpContent, type Lang } from './types';
 
 const defaultCatalogs: Readonly<Record<Lang, MessageCatalog>> = {
   ru: ruJson as MessageCatalog,
@@ -87,7 +72,7 @@ function lookupRaw(catalog: MessageCatalog, key: string): string | undefined {
   return typeof cursor === 'string' ? cursor : undefined;
 }
 
-export type LocaleListener = (locale: Lang) => void;
+type LocaleListener = (locale: Lang) => void;
 
 /**
  * Reactive, zero-dependency i18n service backed by pure JSON catalogs and

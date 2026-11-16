@@ -1,7 +1,6 @@
 import type { Tu4Error } from './errors';
 import type { StateId } from './machine';
-import { parseProgram } from './parser';
-import { createProgram, type Program } from './program';
+import type { Program } from './program';
 import { err, ok, type Result } from './result';
 
 /** Maximum number of states representable in the two-digit TU4 format (`00`..`ff`). */
@@ -40,18 +39,4 @@ export function toTu4(program: Program): Result<string, Tu4Error> {
       .map((command) => `${nameOf(command.q)},${command.a},${command.v},${nameOf(command.w)}`)
       .join('\n'),
   );
-}
-
-/**
- * Convenience helper: compile text and convert it to the TU4 format in one
- * call. Returns `null` when the program does not compile or exceeds the
- * 256-state TU4 limit.
- */
-export function convertTextToTu4(text: string, initialState?: StateId | null): string | null {
-  const parsed = parseProgram(text);
-  if (!parsed.ok) return null;
-  const program = createProgram(parsed.value, initialState);
-  if (!program.ok) return null;
-  const exported = toTu4(program.value);
-  return exported.ok ? exported.value : null;
 }

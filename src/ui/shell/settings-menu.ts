@@ -33,7 +33,6 @@ export interface SettingsMenuOptions {
 
 export interface SettingsMenu {
   readonly isOpen: boolean;
-  open(): void;
   close(restoreFocus?: boolean): void;
   syncSoundControl(): void;
   syncLangAria(): void;
@@ -304,7 +303,6 @@ export function bindSettingsMenu({
     get isOpen(): boolean {
       return isOpen();
     },
-    open,
     close,
     syncSoundControl,
     syncLangAria,

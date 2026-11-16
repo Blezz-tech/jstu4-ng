@@ -17,7 +17,7 @@ export const OP_FLAG_HALT = 0x08;
  * the O(1) dense 2D transition matrix (~1 MiB). Larger state×alphabet products
  * automatically switch to Compressed Sparse Row (CSR) layout in O(C) memory.
  */
-export const DENSE_TRANSITION_CELL_LIMIT = 262_144;
+const DENSE_TRANSITION_CELL_LIMIT = 262_144;
 
 const EMPTY_UINT32 = new Uint32Array(0);
 const EMPTY_INT32 = new Int32Array(0);
@@ -60,14 +60,13 @@ export interface CompiledBytecode {
   /** CSR command indices (`length = commandCount`) in sparse mode. */
   readonly csrCmdIdx: Int32Array;
 
-  /** Boundary lookup tables (used outside the hot loop for errors, UI, and `findTransition`). */
+  /** Boundary lookup tables (used outside the hot loop for errors and tape symbol interning). */
   readonly idToState: readonly StateId[];
-  readonly stateToId: ReadonlyMap<StateId, number>;
   readonly idToSym: readonly string[];
   readonly symToId: ReadonlyMap<string, number>;
 }
 
-export interface CompiledBytecodeProgram {
+interface CompiledBytecodeProgram {
   readonly initialState: StateId;
   readonly bytecode: CompiledBytecode;
 }
@@ -349,7 +348,6 @@ export function compileProgramBytecode(
       csrColSym,
       csrCmdIdx,
       idToState,
-      stateToId,
       idToSym,
       symToId,
     },
@@ -379,17 +377,4 @@ export function lookupTransitionIndex(
     else hi = mid - 1;
   }
   return -1;
-}
-
-/** Look up a command index from external `StateId` and symbol strings (`-1` if absent). */
-export function lookupTransitionByValue(
-  bc: CompiledBytecode,
-  state: StateId,
-  symbol: string,
-): number {
-  const stateIdx = bc.stateToId.get(state);
-  if (stateIdx === undefined) return -1;
-  const symId = bc.symToId.get(symbol);
-  if (symId === undefined) return -1;
-  return lookupTransitionIndex(bc, stateIdx, symId);
 }
