@@ -151,9 +151,9 @@ export function createAppController(options: ControllerOptions): AppController {
     const label = i18n.t('a11y.tapeViewLabel');
     const dirty = run.consumeDirtyCells();
     if (mount) {
-      tapeRenderer.mount(el.tapeView, run.tapeCells, run.headPosition, label);
+      tapeRenderer.mount(el.tapeView, run.tapeView, run.headPosition, label);
     } else {
-      tapeRenderer.update(run.tapeCells, run.headPosition, label, dirty);
+      tapeRenderer.update(run.tapeView, run.headPosition, label, dirty);
     }
   };
 
@@ -173,7 +173,7 @@ export function createAppController(options: ControllerOptions): AppController {
     statsView.updateProgress(run.stepsCount, run.cellsUsed);
     renderTapeView(false);
     setStepDirection(direction);
-    if (highlight) commands.mark('current', run.nextCommand, false);
+    if (highlight) commands.markCurrent(run.nextCommandIndex, false);
     tapeRenderer.scrollToHead();
     if (highlight) programRenderer.scrollToCurrent();
   };
@@ -187,19 +187,19 @@ export function createAppController(options: ControllerOptions): AppController {
   const stepForwardOnce = (playSound: boolean, render: boolean): boolean => {
     if (run === null || !run.isRunning) return false;
 
-    const executed = run.nextCommand;
+    const executedIdx = run.nextCommandIndex;
     const outcome = run.step();
     if (!outcome.ok) {
       syncRunView('forward', false);
-      commands.mark('current', null);
-      displayRuntimeError(outcome.error, notifications, (cmd) => commands.mark('error', cmd));
+      commands.markCurrent(-1);
+      displayRuntimeError(outcome.error, notifications, (cmd) => commands.markError(cmd));
       haltAutoRun();
       return false;
     }
 
-    if (executed !== undefined) {
-      commands.recordVisited(executed, 1);
-      commands.setReturnCursorOffset(executed.source.offset);
+    if (executedIdx >= 0) {
+      commands.recordVisited(executedIdx, 1);
+      commands.recordCursor(executedIdx);
     }
 
     if (run.isRunning) {
@@ -225,11 +225,11 @@ export function createAppController(options: ControllerOptions): AppController {
       return false;
     }
 
-    const undone = run.stepBack();
-    if (undone === null) return false;
+    const undoneIdx = run.stepBackIndex();
+    if (undoneIdx < 0) return false;
 
-    commands.recordVisited(undone, -1);
-    commands.mark('error', null);
+    commands.recordVisited(undoneIdx, -1);
+    commands.markError(null);
 
     if (!run.canStepBack) {
       syncRunView('reverse');
@@ -353,7 +353,7 @@ export function createAppController(options: ControllerOptions): AppController {
     setMode('run');
     programRenderer.syncScroll(scrollTop);
     setStepDirection('forward');
-    commands.mark('current', run.nextCommand, false);
+    commands.markCurrent(run.nextCommandIndex, false);
     notifications.clear();
     notifyRunState();
     // Flush layout-dependent scroll calls after all DOM writes.
@@ -466,8 +466,8 @@ export function createAppController(options: ControllerOptions): AppController {
       stopAutoRun();
       run.reset();
       commands.clearVisited();
-      commands.mark('current', null);
-      commands.mark('error', null);
+      commands.markCurrent(-1);
+      commands.markError(null);
       syncRunView('forward');
       notifications.show('info', (t) => t.t('log.restarted'));
       notifyRunState();

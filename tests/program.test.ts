@@ -21,8 +21,10 @@ describe('createProgram', () => {
     const program = compile('01,0,>,1  1,1,<,1');
     // Both commands belong to state "1", so one state entry with two symbols.
     expect(program.commands[0]?.q).toBe(1);
-    expect(program.transitions.size).toBe(1);
-    expect(program.transitions.get(1)?.size).toBe(2);
+    expect(program.bytecode.stateCount).toBe(1);
+    expect(program.bytecode.commandCount).toBe(2);
+    expect(findTransition(program, 1, '0')?.v).toBe('>');
+    expect(findTransition(program, 1, '1')?.v).toBe('<');
   });
 
   it('rejects an empty program', () => {
