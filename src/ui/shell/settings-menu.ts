@@ -138,9 +138,7 @@ export function bindSettingsMenu({
       : { input: dom.maxSpeedInput, dec: dom.maxSpeedDec, inc: dom.maxSpeedInc };
 
   const syncSoundControl = (): void => {
-    const onState = sound.isEnabled;
-    dom.soundButton.setAttribute('aria-checked', String(onState));
-    dom.soundButton.dataset.on = String(onState);
+    dom.soundButton.setAttribute('aria-checked', String(sound.isEnabled));
   };
 
   const syncLangAria = (): void => {

@@ -4,22 +4,24 @@
   margin: auto;
   width: min(720px, calc(100vw - 32px));
   max-height: min(84vh, 900px);
+  max-height: min(84dvh, 900px);
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
-  box-shadow: 0 24px 64px rgb(0 0 0 / 35%);
+  box-shadow: var(--shadow-dialog);
 }
 
 .help:focus-visible {
   /* The dialog itself receives focus when opened; the page behind it is
      already dimmed, so a focus ring on the dialog box is just noise. */
-  box-shadow: 0 24px 64px rgb(0 0 0 / 35%);
+  outline: none;
+  box-shadow: var(--shadow-dialog);
 }
 
 .help::backdrop {
-  background: rgb(10 14 20 / 45%);
+  background: var(--backdrop);
   backdrop-filter: blur(2px);
 }
 
@@ -45,36 +47,37 @@
 .help__body {
   padding: 0 20px 16px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
-.help__body h3 {
+.help__body :where(h3) {
   margin: 18px 0 6px;
   font-size: 0.95rem;
   color: var(--accent);
 }
 
-.help__body p {
+.help__body :where(p, ul) {
   margin: 6px 0;
   color: var(--text-muted);
 }
 
-.help__body a {
+.help__body :where(ul) {
+  padding-left: 1.2em;
+}
+
+.help__body :where(a) {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.help__body a:hover {
-  text-decoration-thickness: 2px;
+@media (hover: hover) {
+  .help__body :where(a):hover {
+    text-decoration-thickness: 2px;
+  }
 }
 
-.help__body ul {
-  margin: 6px 0;
-  padding-left: 1.2em;
-  color: var(--text-muted);
-}
-
-.help__body li {
+.help__body :where(li) {
   margin: 2px 0;
 }
 
@@ -112,17 +115,16 @@
 .tu4-dialog__desc {
   margin: 0;
   font-size: 0.86rem;
-  color: var(--text-muted);
 }
 
 .tu4-dialog__code {
-  width: 100%;
   min-height: 240px;
   max-height: 52vh;
+  max-height: 52dvh;
   resize: vertical;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 12px 14px;
-  font-family: var(--font-mono);
   font-size: 0.9rem;
   line-height: 1.55;
   white-space: pre;
@@ -192,7 +194,6 @@
   width: 16px;
   height: 16px;
   accent-color: var(--accent);
-  cursor: pointer;
 }
 
 .confirm-dialog__footer {

@@ -1,13 +1,5 @@
 /* ——— toolbar ————————————————————————————————————————————————————— */
 
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-start;
-  gap: calc(var(--space) * 0.7);
-}
-
 .toolbar__buttons {
   display: flex;
   flex-wrap: wrap;
@@ -27,8 +19,8 @@
 
 .btn--transport,
 .btn--icon-only {
+  flex: none;
   width: 38px;
-  min-width: 38px;
   height: 36px;
   padding: 0;
 }
@@ -36,10 +28,6 @@
 .btn__arrow {
   font-size: 1.05rem;
   line-height: 1;
-}
-
-.btn__media-icon {
-  display: block;
 }
 
 .btn--run-toggle .btn__media-icon--stop,
@@ -64,6 +52,7 @@
 
 .speed-control {
   --speed-thumb-size: 16px;
+  --speed-thumb-bg: var(--accent);
   --zero-ratio: 0.375;
   display: inline-flex;
   align-items: center;
@@ -75,10 +64,11 @@
   background: var(--surface);
   font-size: 0.85rem;
   color: var(--text-muted);
-  transition: border-color 120ms ease;
+  transition: border-color var(--dur-fast) ease;
 }
 
 .speed-control[data-direction='reverse'] {
+  --speed-thumb-bg: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 48%, var(--border));
 }
 
@@ -113,9 +103,9 @@
   pointer-events: none;
   z-index: 1;
   transition:
-    opacity 120ms ease,
-    transform 120ms ease,
-    box-shadow 120ms ease;
+    opacity var(--dur-fast) ease,
+    transform var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease;
 }
 
 .speed-control[data-direction='stopped'] .speed-control__zero {
@@ -130,7 +120,6 @@
   appearance: none;
   width: 100%;
   height: 24px;
-  margin: 0;
   background: transparent;
   cursor: pointer;
 }
@@ -147,12 +136,10 @@
   height: var(--speed-thumb-size);
   margin-top: calc((4px - var(--speed-thumb-size)) / 2);
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--speed-thumb-bg);
   border: 2px solid var(--surface);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
-  transition:
-    background-color 120ms ease,
-    transform 120ms ease;
+  box-shadow: var(--shadow-control);
+  transition: background-color var(--dur-fast) ease;
 }
 
 .speed-control__slider::-moz-range-track {
@@ -165,24 +152,15 @@
   width: var(--speed-thumb-size);
   height: var(--speed-thumb-size);
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--speed-thumb-bg);
   border: 2px solid var(--surface);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
-  transition:
-    background-color 120ms ease,
-    transform 120ms ease;
+  box-shadow: var(--shadow-control);
+  transition: background-color var(--dur-fast) ease;
 }
 
-.speed-control[data-direction='reverse'] .speed-control__slider::-webkit-slider-thumb {
-  background: var(--warn);
-}
-
-.speed-control[data-direction='reverse'] .speed-control__slider::-moz-range-thumb {
-  background: var(--warn);
-}
-
+/* Draw focus ring on the slider thumb instead of the full track box. */
 .speed-control__slider:focus-visible {
-  outline: none;
+  box-shadow: none;
 }
 
 .speed-control__slider:focus-visible::-webkit-slider-thumb {
@@ -232,6 +210,7 @@
   content: '';
   width: 7px;
   height: 7px;
+  border: 1px solid transparent;
   border-radius: 50%;
   flex: none;
 }
@@ -250,10 +229,6 @@
 
 .save-status[data-state='saved']::before {
   background: var(--ok);
-}
-
-.save-status[data-state='autosaved'] {
-  color: var(--text-muted);
 }
 
 .save-status[data-state='autosaved']::before {

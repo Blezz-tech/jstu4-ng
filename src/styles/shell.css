@@ -1,13 +1,17 @@
 /* ——— app shell ————————————————————————————————————————————————————— */
 
 .app-shell {
+  --shell-pad: var(--space);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 296px;
   height: 100%;
   max-width: 1400px;
   margin: 0 auto;
-  padding: var(--space);
-  gap: var(--space);
+  padding: max(var(--shell-pad), env(safe-area-inset-top))
+    max(var(--shell-pad), env(safe-area-inset-right))
+    max(var(--shell-pad), env(safe-area-inset-bottom))
+    max(var(--shell-pad), env(safe-area-inset-left));
+  gap: var(--shell-pad);
 }
 
 .app-shell[data-history='closed'][data-sidepanel='closed'] {
@@ -17,7 +21,6 @@
 
 .app-shell[data-history='open'][data-sidepanel='closed'] {
   grid-template-columns: 312px minmax(0, 1fr);
-  max-width: 1400px;
 }
 
 .app-shell[data-history='open'][data-sidepanel='open'] {
@@ -47,23 +50,25 @@
   right: 5px;
   width: 7px;
   height: 7px;
+  border: 1px solid transparent;
   border-radius: 50%;
   display: none;
   pointer-events: none;
 }
 
-.icon-btn__badge[data-kind='info'] {
+.icon-btn__badge[data-kind]:not([data-kind='']) {
   display: block;
+}
+
+.icon-btn__badge[data-kind='info'] {
   background: var(--ok);
 }
 
 .icon-btn__badge[data-kind='warning'] {
-  display: block;
   background: var(--warn);
 }
 
 .icon-btn__badge[data-kind='error'] {
-  display: block;
   background: var(--err);
 }
 
