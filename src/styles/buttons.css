@@ -15,9 +15,9 @@
   font-weight: 550;
   white-space: nowrap;
   transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease,
-    transform 0.06s ease;
+    background-color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    transform 60ms ease;
 }
 
 .btn--sm {
@@ -26,11 +26,12 @@
   font-size: 0.85rem;
 }
 
-.btn:hover {
-  background: var(--surface-2);
+.btn--help {
+  font-size: 1.05rem;
+  border-color: var(--border);
 }
 
-.btn:active:not(:disabled) {
+.btn:active:where(:not(:disabled, [aria-disabled='true'])) {
   transform: translateY(1px);
 }
 
@@ -40,8 +41,10 @@
   color: var(--accent-text);
 }
 
-.btn--primary:hover {
-  background: color-mix(in srgb, var(--accent) 88%, black);
+.btn--danger {
+  border-color: var(--err);
+  background: var(--err);
+  color: var(--err-text);
 }
 
 .btn:disabled,
@@ -59,29 +62,6 @@
   color: var(--text-faint);
 }
 
-.btn:disabled:hover,
-.btn--primary:disabled:hover {
-  background: var(--surface);
-}
-
-.btn--danger {
-  border-color: var(--err);
-  background: var(--err);
-  color: #ffffff;
-}
-
-.btn--danger:hover:not(:disabled) {
-  filter: brightness(1.08);
-  border-color: var(--err);
-  background: var(--err);
-}
-
-.btn[aria-pressed='true'] {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--text);
-}
-
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -95,13 +75,8 @@
   font-size: 0.85rem;
   font-weight: 600;
   transition:
-    background-color 0.12s ease,
-    color 0.12s ease;
-}
-
-.icon-btn:hover {
-  background: var(--surface-2);
-  color: var(--text);
+    background-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
 }
 
 .icon-btn[aria-expanded='true'] {
@@ -111,15 +86,28 @@
 }
 
 .icon-btn__gear {
-  transition: transform 0.2s ease;
+  transition: transform 200ms ease;
 }
 
 .icon-btn[aria-expanded='true'] .icon-btn__gear {
   transform: rotate(30deg);
 }
 
-#btn-help {
-  font-size: 1.05rem;
-  border-color: var(--border);
-  color: var(--text);
+@media (hover: hover) {
+  .btn:hover:where(:not(:disabled, [aria-disabled='true'])) {
+    background: var(--surface-2);
+  }
+
+  .btn--primary:hover:where(:not(:disabled, [aria-disabled='true'])) {
+    background: color-mix(in srgb, var(--accent) 88%, black);
+  }
+
+  .btn--danger:hover:where(:not(:disabled, [aria-disabled='true'])) {
+    background: color-mix(in srgb, var(--err) 88%, black);
+  }
+
+  .icon-btn:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
 }

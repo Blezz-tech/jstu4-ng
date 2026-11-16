@@ -45,11 +45,10 @@
 .snapshot-list {
   list-style: none;
   padding: 0;
-  margin: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  position: relative;
+  isolation: isolate;
 }
 
 .snapshot-list:empty {
@@ -77,22 +76,17 @@
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   transition:
-    border-color 0.12s ease,
-    background-color 0.12s ease;
-}
-
-.snapshot-item:hover {
-  border-color: var(--border-strong);
-  background: var(--surface);
+    border-color var(--dur-fast) ease,
+    background-color var(--dur-fast) ease;
 }
 
 .snapshot-item:not(:last-child)::before {
   content: '';
   position: absolute;
-  left: 13.75px;
+  left: 14px;
   top: 22px;
   bottom: -14px;
-  width: 1.5px;
+  width: 2px;
   background: var(--border-strong);
   pointer-events: none;
   z-index: 0;
@@ -107,9 +101,9 @@
   position: relative;
   z-index: 1;
   flex: none;
-  width: 9px;
-  height: 9px;
-  margin-top: 5px;
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
   border-radius: 50%;
   border: 2px solid var(--accent);
   background: var(--accent);
@@ -140,11 +134,7 @@
   gap: 2px;
   width: 100%;
   padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
   text-align: left;
-  cursor: pointer;
 }
 
 .snapshot-item__title {
@@ -183,25 +173,11 @@
   padding: 0;
   border: 1px solid transparent;
   border-radius: 5px;
-  background: transparent;
   color: var(--text-muted);
-  cursor: pointer;
   transition:
-    background-color 0.12s ease,
-    color 0.12s ease,
-    border-color 0.12s ease;
-}
-
-.snapshot-action:hover {
-  background: var(--surface);
-  border-color: var(--border);
-  color: var(--text);
-}
-
-.snapshot-action--delete:hover {
-  background: var(--err-soft);
-  border-color: color-mix(in srgb, var(--err) 45%, var(--border));
-  color: var(--err);
+    background-color var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
 }
 
 .snapshot-item__edit {
@@ -220,11 +196,24 @@
   border-radius: 5px;
   background: var(--surface);
   color: var(--text);
-  font-family: var(--font-ui);
   font-size: 0.82rem;
 }
 
-.snapshot-item__input:focus {
-  outline: none;
-  box-shadow: var(--ring);
+@media (hover: hover) {
+  .snapshot-item:hover {
+    border-color: var(--border-strong);
+    background: var(--surface);
+  }
+
+  .snapshot-action:hover {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text);
+  }
+
+  .snapshot-action--delete:hover {
+    background: var(--err-soft);
+    border-color: color-mix(in srgb, var(--err) 45%, var(--border));
+    color: var(--err);
+  }
 }

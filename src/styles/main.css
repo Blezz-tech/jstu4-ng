@@ -1,17 +1,19 @@
 /* ==========================================================================
  * jstu4 v3 — Stylesheet Entry Point
  * Bundled into a single file://-compatible CSS asset by Vite (cssCodeSplit: false).
- * Keep import order intact to preserve cascade specificity.
+ * Explicit cascade layers eliminate fragile import-order specificity battles.
  * ========================================================================== */
 
-@import './tokens.css';
-@import './base.css';
-@import './shell.css';
-@import './buttons.css';
-@import './settings-menu.css';
-@import './workspace.css';
-@import './sidepanel.css';
-@import './toolbar.css';
-@import './history-panel.css';
-@import './dialogs.css';
-@import './responsive.css';
+@layer tokens, reset, components, layout, responsive;
+
+@import './tokens.css' layer(tokens);
+@import './base.css' layer(reset);
+@import './buttons.css' layer(components);
+@import './settings-menu.css' layer(components);
+@import './workspace.css' layer(components);
+@import './sidepanel.css' layer(components);
+@import './toolbar.css' layer(components);
+@import './history-panel.css' layer(components);
+@import './dialogs.css' layer(components);
+@import './shell.css' layer(layout);
+@import './responsive.css' layer(responsive);
