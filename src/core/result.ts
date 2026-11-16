@@ -5,7 +5,7 @@ export interface Ok<T> {
 }
 
 /** Failed outcome carrying a typed domain error. */
-export interface Err<E> {
+interface Err<E> {
   readonly ok: false;
   readonly error: E;
 }

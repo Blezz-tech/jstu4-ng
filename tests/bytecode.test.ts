@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   compileProgramBytecode,
-  lookupTransitionByValue,
   lookupTransitionIndex,
   OP_FLAG_HALT,
   OP_HALT,
@@ -11,10 +10,20 @@ import {
   OP_STAY,
   OP_WRITE,
 } from '../src/core/bytecode';
+import type { Command, StateId } from '../src/core/machine';
 import { parseProgram } from '../src/core/parser';
-import { createProgram, findTransition } from '../src/core/program';
+import { createProgram, type Program } from '../src/core/program';
 import { MachineRun } from '../src/core/run';
 import { expectErr, expectOk } from './helpers/result';
+
+function findCmd(program: Program, state: StateId, symbol: string): Command | undefined {
+  const bc = program.bytecode;
+  const stateIdx = bc.idToState.indexOf(state);
+  const symId = bc.symToId.get(symbol);
+  if (stateIdx < 0 || symId === undefined) return undefined;
+  const idx = lookupTransitionIndex(bc, stateIdx, symId);
+  return idx >= 0 ? program.commands[idx] : undefined;
+}
 
 const SWAP = [
   '00, ,<,rep',
@@ -100,13 +109,12 @@ describe('linear-memory bytecode & execution engine', () => {
     expect(program.bytecode.transitionMode).toBe('sparse');
     for (let i = 0; i < symbols.length; i += 1) {
       const ch = symbols[i]!;
-      const found = findTransition(program, 0, ch);
+      const found = findCmd(program, 0, ch);
       expect(found?.a).toBe(ch);
       expect(program.bytecode.cmdMeta[i]! & OP_MASK).toBe(OP_STAY);
     }
     expect(program.bytecode.cmdMeta[symbols.length]! & OP_MASK).toBe(OP_HALT);
-    expect(findTransition(program, 0, '!')).toBeUndefined();
-    expect(lookupTransitionByValue(program.bytecode, 0, '!')).toBe(-1);
+    expect(findCmd(program, 0, '!')).toBeUndefined();
     expect(lookupTransitionIndex(program.bytecode, 0, 9999)).toBe(-1);
   });
 

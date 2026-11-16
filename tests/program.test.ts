@@ -1,12 +1,23 @@
 import { describe, expect, it } from 'vitest';
+import { lookupTransitionIndex } from '../src/core/bytecode';
+import type { Command, StateId } from '../src/core/machine';
 import { parseProgram } from '../src/core/parser';
-import { createProgram, findTransition } from '../src/core/program';
+import { createProgram, type Program } from '../src/core/program';
 import { expectErr, expectOk } from './helpers/result';
 
 const tryCompile = (text: string, q0?: number | string) =>
   createProgram(expectOk(parseProgram(text)), q0);
 
 const compile = (text: string, q0?: number | string) => expectOk(tryCompile(text, q0));
+
+function findTransition(program: Program, state: StateId, symbol: string): Command | undefined {
+  const bc = program.bytecode;
+  const stateIdx = bc.idToState.indexOf(state);
+  const symId = bc.symToId.get(symbol);
+  if (stateIdx < 0 || symId === undefined) return undefined;
+  const idx = lookupTransitionIndex(bc, stateIdx, symId);
+  return idx >= 0 ? program.commands[idx] : undefined;
+}
 
 describe('createProgram', () => {
   it('uses the state of the first command as the initial state by default', () => {

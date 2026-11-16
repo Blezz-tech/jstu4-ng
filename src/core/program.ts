@@ -1,6 +1,5 @@
 import {
   compileProgramBytecode,
-  lookupTransitionByValue,
   type BytecodeCompileOptions,
   type CompiledBytecode,
 } from './bytecode';
@@ -38,14 +37,4 @@ export function createProgram(
     commands: Object.freeze([...commands]),
     bytecode: compiled.value.bytecode,
   });
-}
-
-/** Look up the transition for a state/symbol pair. */
-export function findTransition(
-  program: Program,
-  state: StateId,
-  symbol: string,
-): Command | undefined {
-  const idx = lookupTransitionByValue(program.bytecode, state, symbol);
-  return idx >= 0 ? program.commands[idx] : undefined;
 }

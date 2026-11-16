@@ -19,10 +19,7 @@ export interface StepSound {
  * suspended while idle to release native audio buffers, and every failure is
  * swallowed: sound is a nice-to-have, never a reason for the machine to stop.
  */
-export function createStepSound(
-  initialEnabled: boolean,
-  idleSuspendMs = AUDIO_IDLE_SUSPEND_MS,
-): StepSound {
+export function createStepSound(initialEnabled: boolean): StepSound {
   let context: AudioContext | null = null;
   let enabled = initialEnabled;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -41,7 +38,7 @@ export function createStepSound(
       if (context?.state === 'running') {
         void context.suspend().catch(() => undefined);
       }
-    }, idleSuspendMs);
+    }, AUDIO_IDLE_SUSPEND_MS);
   };
 
   const closeContext = (): void => {

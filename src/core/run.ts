@@ -50,11 +50,6 @@ export interface TapeSource {
   symbolAt(index: number): string;
 }
 
-/** A tape symbol read at a position; an empty cell reads as a space. */
-export function symbolAt(tape: readonly string[], index: number): string {
-  return tape[index] ?? ' ';
-}
-
 function isBlankCell(symbol: string): boolean {
   return symbol === ' ' || symbol === '\t' || symbol === '\n' || symbol === '\r';
 }
@@ -63,35 +58,8 @@ function isBlankCell(symbol: string): boolean {
  * Strip trailing whitespace (not part of the machine input, matching v2.3) and
  * split the remaining text into Unicode code-point cells.
  */
-export function normaliseInitialTape(tapeText: string): {
-  readonly text: string;
-  readonly cells: readonly string[];
-} {
-  const text = tapeText.replace(/\s+$/, '');
-  return { text, cells: Array.from(text) };
-}
-
-/**
- * Evaluate whether a finished tape satisfies the "normal" jstu4 convention:
- * source cells and the blank separator cell right after them are untouched,
- * and the head stops immediately after the last non-blank symbol.
- */
-export function checkTapeNormality(
-  tape: readonly string[],
-  initialCells: readonly string[],
-  headPosition: number,
-): NormalityStatus {
-  for (let i = 0; i < initialCells.length; i += 1) {
-    if ((tape[i] ?? ' ') !== initialCells[i]) return 'sourceAltered';
-  }
-  if (!isBlankCell(tape[initialCells.length] ?? ' ')) return 'sourceAltered';
-
-  let trimmedEnd = tape.length;
-  while (trimmedEnd > 0 && isBlankCell(tape[trimmedEnd - 1] ?? ' ')) {
-    trimmedEnd -= 1;
-  }
-  if (trimmedEnd !== headPosition) return 'misplaced';
-  return 'normal';
+export function normaliseInitialTape(tapeText: string): readonly string[] {
+  return Array.from(tapeText.replace(/\s+$/, ''));
 }
 
 /**
@@ -113,7 +81,6 @@ export class MachineRun {
 
   private readonly idToSym: readonly string[];
   private readonly initialTapeIds: Uint32Array;
-  private readonly initialTapeText: string;
   private readonly history: UndoHistory;
   private readonly view: TapeSource;
 
@@ -143,8 +110,7 @@ export class MachineRun {
 
     // Trailing whitespace is not a part of the data: the machine starts
     // immediately after the last visible symbol (original behaviour).
-    const { text: normalised, cells } = normaliseInitialTape(tapeText);
-    this.initialTapeText = normalised;
+    const cells = normaliseInitialTape(tapeText);
 
     // Intern initial tape cells: reuse program's table zero-copy unless the tape
     // contains symbols absent from the program (which always map to NoSuchCommand).
@@ -274,10 +240,6 @@ export class MachineRun {
   /** The command that will be executed by the next {@link step}. */
   get nextCommand(): Command | undefined {
     return this.nextIdx >= 0 ? this.program.commands[this.nextIdx] : undefined;
-  }
-
-  get initialTape(): string {
-    return this.initialTapeText;
   }
 
   /** Number of initial non-trailing-space cells (exact for non-BMP Unicode symbols). */

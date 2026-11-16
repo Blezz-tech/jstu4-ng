@@ -35,7 +35,6 @@ export function isDraftDirty(
 export interface AutosaveTrackerOptions {
   readonly store: SnapshotStore;
   readonly readState: () => DraftState;
-  readonly intervalMs?: number;
   readonly onAutosave?: (snapshot: ProgramSnapshot) => void;
   readonly onDirtyChange?: (dirty: boolean) => void;
 }
@@ -68,7 +67,6 @@ export interface AutosaveTracker {
 export function createAutosaveTracker({
   store,
   readState,
-  intervalMs = AUTOSAVE_INTERVAL_MS,
   onAutosave,
   onDirtyChange,
 }: AutosaveTrackerOptions): AutosaveTracker {
@@ -117,7 +115,7 @@ export function createAutosaveTracker({
           timerId = window.setTimeout(() => {
             timerId = null;
             flush();
-          }, intervalMs);
+          }, AUTOSAVE_INTERVAL_MS);
         }
       } else {
         clearTimer();

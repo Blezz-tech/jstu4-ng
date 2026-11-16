@@ -23,7 +23,7 @@ export interface CommandSource {
 /** Numeric states are stored as numbers, named states as strings. */
 export type StateId = number | string;
 
-export type MoveKind = 'left' | 'right' | 'stay' | 'halt';
+type MoveKind = 'left' | 'right' | 'stay' | 'halt';
 export type CommandKind = MoveKind | 'write';
 
 /** Immutable representation of a single Turing machine transition `q,a,v,w`. */
@@ -72,11 +72,6 @@ export function createCommand(
     kind: classifyCommand(q, a, v, w),
     isHalt: v === '#' || (a === v && q === w),
   };
-}
-
-/** Format a command back into its canonical `q,a,v,w` source string. */
-export function formatCommand(command: Command): string {
-  return `${command.q},${command.a},${command.v},${command.w}`;
 }
 
 /** Parse a state name: safe-integer digit-only names become numbers. */

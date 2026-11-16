@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseProgram } from '../src/core/parser';
 import { createProgram } from '../src/core/program';
-import {
-  checkTapeNormality,
-  DEFAULT_MAX_HISTORY,
-  MachineRun,
-  normaliseInitialTape,
-} from '../src/core/run';
+import { DEFAULT_MAX_HISTORY, MachineRun, normaliseInitialTape } from '../src/core/run';
 import { expectErr, expectOk } from './helpers/result';
 
 const compile = (program: string) => expectOk(createProgram(expectOk(parseProgram(program))));
@@ -429,10 +424,8 @@ describe('MachineRun', () => {
     expect(alteredRun.checkNormality()).toBe('sourceAltered');
   });
 
-  it('normaliseInitialTape and checkTapeNormality operate purely on cell arrays', () => {
-    expect(normaliseInitialTape('🚀a   \t')).toEqual({ text: '🚀a', cells: ['🚀', 'a'] });
-    expect(checkTapeNormality(['1', '0', ' ', '1', ' '], ['1', '0'], 4)).toBe('normal');
-    expect(checkTapeNormality(['1', '0', '1', ' '], ['1', '0'], 3)).toBe('sourceAltered');
-    expect(checkTapeNormality(['1', '0', ' ', '1', ' '], ['1', '0'], 3)).toBe('misplaced');
+  it('normaliseInitialTape strips trailing whitespace and preserves non-BMP Unicode code points', () => {
+    expect(normaliseInitialTape('🚀a   \t')).toEqual(['🚀', 'a']);
+    expect(normaliseInitialTape('   \n')).toEqual([]);
   });
 });

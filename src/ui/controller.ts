@@ -80,7 +80,6 @@ export interface AppController {
   readonly currentMinSpeed: number;
   readonly currentMaxSpeed: number;
   readonly isMachineRunning: boolean;
-  readonly canStepForward: boolean;
   readonly canStepBack: boolean;
   readonly canRestart: boolean;
   readonly canAutoRun: boolean;
@@ -95,7 +94,6 @@ export interface AppController {
   step(): boolean;
   stepBack(): boolean;
   toggleAutoRun(): void;
-  stopAutoRun(): void;
   backToEdit(focus?: 'program' | 'tape'): void;
   unmark(): void;
   copyProgram(): Promise<void>;
@@ -437,9 +435,6 @@ export function createAppController(options: ControllerOptions): AppController {
     get isMachineRunning(): boolean {
       return readRunState().isRunning;
     },
-    get canStepForward(): boolean {
-      return readRunState().canStepForward;
-    },
     get canStepBack(): boolean {
       return readRunState().canStepBack;
     },
@@ -475,7 +470,6 @@ export function createAppController(options: ControllerOptions): AppController {
     step,
     stepBack,
     toggleAutoRun,
-    stopAutoRun,
     backToEdit,
     unmark() {
       stopAutoRun();

@@ -2,14 +2,6 @@ import type { ParseError } from './errors';
 import { createCommand, parseStateName, type Command, type StateId } from './machine';
 import { err, ok, type Result } from './result';
 
-export interface ParseOptions {
-  /**
-   * Called for every successfully parsed command, in source order. The UI uses
-   * it to build the highlighted program listing without a second pass.
-   */
-  readonly onCommand?: (command: Command, index: number) => void;
-}
-
 /**
  * Whitespace / comment skipping regex (sticky `/y`, anchored at `lastIndex`)
  * that alternates between line comments (`#`, `//`) and plain whitespace.
@@ -29,10 +21,7 @@ const COMMAND_PATTERN = '([^\\s]+),(.),(.),([^\\s]+)';
  * An empty program returns `ok([])`: emptiness is detected later by
  * {@link createProgram}, so the UI can show a dedicated "program is empty" message.
  */
-export function parseProgram(
-  text: string,
-  options: ParseOptions = {},
-): Result<Command[], ParseError> {
+export function parseProgram(text: string): Result<Command[], ParseError> {
   const commands: Command[] = [];
   // Local sticky Unicode RegExp instances keep `parseProgram` re-entrant and
   // match single code points (including non-BMP symbols) consistently with tape cells.
@@ -62,13 +51,12 @@ export function parseProgram(
     }
 
     const [source, q, a, v, w] = match as unknown as [string, string, string, string, string];
-    const command = createCommand(parseStateName(q) satisfies StateId, a, v, parseStateName(w), {
-      text: source,
-      offset,
-    });
-
-    commands.push(command);
-    options.onCommand?.(command, commands.length - 1);
+    commands.push(
+      createCommand(parseStateName(q) satisfies StateId, a, v, parseStateName(w), {
+        text: source,
+        offset,
+      }),
+    );
 
     offset = commandRe.lastIndex;
   }
