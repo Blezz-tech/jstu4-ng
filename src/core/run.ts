@@ -28,6 +28,8 @@ export interface MachineRunOptions {
   readonly maxHistory?: number;
 }
 
+export type NormalityStatus = 'normal' | 'sourceAltered' | 'misplaced';
+
 /** A tape symbol read at a position; an empty cell reads as a space. */
 export function symbolAt(tape: readonly string[], index: number): string {
   return tape[index] ?? ' ';
@@ -35,6 +37,41 @@ export function symbolAt(tape: readonly string[], index: number): string {
 
 function isBlankCell(symbol: string): boolean {
   return symbol === ' ' || symbol === '\t' || symbol === '\n' || symbol === '\r';
+}
+
+/**
+ * Strip trailing whitespace (not part of the machine input, matching v2.3) and
+ * split the remaining text into Unicode code-point cells.
+ */
+export function normaliseInitialTape(tapeText: string): {
+  readonly text: string;
+  readonly cells: readonly string[];
+} {
+  const text = tapeText.replace(/\s+$/, '');
+  return { text, cells: Array.from(text) };
+}
+
+/**
+ * Evaluate whether a finished tape satisfies the "normal" jstu4 convention:
+ * source cells and the blank separator cell right after them are untouched,
+ * and the head stops immediately after the last non-blank symbol.
+ */
+export function checkTapeNormality(
+  tape: readonly string[],
+  initialCells: readonly string[],
+  headPosition: number,
+): NormalityStatus {
+  for (let i = 0; i < initialCells.length; i += 1) {
+    if ((tape[i] ?? ' ') !== initialCells[i]) return 'sourceAltered';
+  }
+  if (!isBlankCell(tape[initialCells.length] ?? ' ')) return 'sourceAltered';
+
+  let trimmedEnd = tape.length;
+  while (trimmedEnd > 0 && isBlankCell(tape[trimmedEnd - 1] ?? ' ')) {
+    trimmedEnd -= 1;
+  }
+  if (trimmedEnd !== headPosition) return 'misplaced';
+  return 'normal';
 }
 
 /**
@@ -67,9 +104,9 @@ export class MachineRun {
 
     // Trailing whitespace is not a part of the data: the machine starts
     // immediately after the last visible symbol (original behaviour).
-    const normalised = tapeText.replace(/\s+$/, '');
-    this.initialTapeCells = Array.from(normalised);
-    this.tape = [...this.initialTapeCells, ' '];
+    const { text: normalised, cells } = normaliseInitialTape(tapeText);
+    this.initialTapeCells = cells;
+    this.tape = [...cells, ' '];
     this.initialTapeText = normalised;
     this.state = program.initialState;
     this.stateTransitions = program.transitions.get(this.state);
@@ -309,18 +346,7 @@ export class MachineRun {
    * cell after it, where the head starts) and stops right after the result;
    * matches original jstu4 v2.3 exactly.
    */
-  checkNormality(): 'normal' | 'sourceAltered' | 'misplaced' {
-    const init = this.initialTapeCells;
-    for (let i = 0; i < init.length; i += 1) {
-      if ((this.tape[i] ?? ' ') !== init[i]) return 'sourceAltered';
-    }
-    if (!isBlankCell(this.tape[init.length] ?? ' ')) return 'sourceAltered';
-
-    let trimmedEnd = this.tape.length;
-    while (trimmedEnd > 0 && isBlankCell(this.tape[trimmedEnd - 1] ?? ' ')) {
-      trimmedEnd -= 1;
-    }
-    if (trimmedEnd !== this.position) return 'misplaced';
-    return 'normal';
+  checkNormality(): NormalityStatus {
+    return checkTapeNormality(this.tape, this.initialTapeCells, this.position);
   }
 }
