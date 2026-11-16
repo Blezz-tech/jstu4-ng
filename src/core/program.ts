@@ -1,19 +1,26 @@
+import {
+  compileProgramBytecode,
+  lookupTransitionByValue,
+  type BytecodeCompileOptions,
+  type CompiledBytecode,
+} from './bytecode';
 import type { ProgramValidationError } from './errors';
 import type { Command, StateId } from './machine';
-import { err, ok, type Result } from './result';
+import { ok, type Result } from './result';
 
-/** Immutable, validated machine program. */
+/** Immutable, validated machine program backed by flat linear-memory bytecode. */
 export interface Program {
   /** The state the machine starts in. */
   readonly initialState: StateId;
   /** Transitions in program order. */
   readonly commands: readonly Command[];
-  /** Two-level transition index: `state → (symbol → command)` (zero allocations per lookup). */
-  readonly transitions: ReadonlyMap<StateId, ReadonlyMap<string, Command>>;
+  /** Compiled flat TypedArray bytecode & transition table inside one `ArrayBuffer`. */
+  readonly bytecode: CompiledBytecode;
 }
 
 /**
- * Build a validated program from parsed commands.
+ * Build a validated program from parsed commands, compiling transitions and
+ * command records directly into contiguous linear-memory `TypedArray`s.
  *
  * @param commands parsed commands in source order
  * @param initialState requested initial state; when omitted, the state of the
@@ -22,39 +29,15 @@ export interface Program {
 export function createProgram(
   commands: readonly Command[],
   initialState?: StateId | null,
+  options?: BytecodeCompileOptions,
 ): Result<Program, ProgramValidationError> {
-  const first = commands[0];
-  if (first === undefined) return err({ kind: 'emptyProgram' });
-
-  const q0 = initialState ?? first.q;
-
-  // JS Map keys distinguish numbers from strings (`1 !== '1'`), so numeric
-  // and named StateIds never collide without allocating composite string keys.
-  const transitions = new Map<StateId, Map<string, Command>>();
-  for (const command of commands) {
-    let bySymbol = transitions.get(command.q);
-    if (bySymbol === undefined) {
-      bySymbol = new Map<string, Command>();
-      transitions.set(command.q, bySymbol);
-    }
-    const original = bySymbol.get(command.a);
-    if (original !== undefined) {
-      return err({ kind: 'ambiguousCommand', command, original });
-    }
-    bySymbol.set(command.a, command);
-  }
-
-  if (!transitions.has(q0)) {
-    return err({ kind: 'nonexistentInitialState', state: q0 });
-  }
-
-  for (const command of commands) {
-    if (!transitions.has(command.w)) {
-      return err({ kind: 'nonexistentTargetState', command });
-    }
-  }
-
-  return ok({ initialState: q0, commands: Object.freeze([...commands]), transitions });
+  const compiled = compileProgramBytecode(commands, initialState, options);
+  if (!compiled.ok) return compiled;
+  return ok({
+    initialState: compiled.value.initialState,
+    commands: Object.freeze([...commands]),
+    bytecode: compiled.value.bytecode,
+  });
 }
 
 /** Look up the transition for a state/symbol pair. */
@@ -63,5 +46,6 @@ export function findTransition(
   state: StateId,
   symbol: string,
 ): Command | undefined {
-  return program.transitions.get(state)?.get(symbol);
+  const idx = lookupTransitionByValue(program.bytecode, state, symbol);
+  return idx >= 0 ? program.commands[idx] : undefined;
 }

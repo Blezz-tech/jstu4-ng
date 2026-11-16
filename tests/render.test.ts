@@ -118,11 +118,11 @@ describe('TapeRenderer (zero-copy incremental updates)', () => {
     const renderer = new TapeRenderer();
 
     const sync = (): void => {
-      renderer.update(run.tapeCells, run.headPosition, 'Tape', run.consumeDirtyCells());
+      renderer.update(run.tapeView, run.headPosition, 'Tape', run.consumeDirtyCells());
     };
 
     run.consumeDirtyCells();
-    renderer.mount(host, run.tapeCells, run.headPosition, 'Tape');
+    renderer.mount(host, run.tapeView, run.headPosition, 'Tape');
     expect(readCells(host)).toEqual(['0', '\u00a0']);
 
     // Run 4 steps in a batch (move left, write 1, move right, move right past tail)

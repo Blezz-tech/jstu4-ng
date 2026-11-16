@@ -1,3 +1,4 @@
+import type { TapeSource } from '../../core/run';
 import { el } from '../dom';
 import {
   computeScrollToIndex,
@@ -10,6 +11,13 @@ import {
   type HostPadding,
   type SpacerPair,
 } from './virtual-window';
+
+/** Either a plain string array or a zero-copy numeric {@link TapeSource}. */
+export type TapeInput = readonly string[] | TapeSource;
+
+function readTapeSymbol(cells: TapeInput, index: number): string {
+  return 'symbolAt' in cells ? cells.symbolAt(index) : (cells[index] ?? ' ');
+}
 
 function formatTapeCell(symbol: string): string {
   return symbol === ' ' ? '\u00a0' : symbol;
@@ -57,7 +65,7 @@ export class TapeRenderer {
   private cellWidthPx = DEFAULT_CELL_WIDTH_PX;
   private padding: HostPadding = ZERO_PADDING;
   private geometryMeasured = false;
-  private lastCells: readonly string[] = [];
+  private lastCells: TapeInput = [];
   private lastLength = 0;
   private lastScrollLeft = 0;
 
@@ -81,7 +89,7 @@ export class TapeRenderer {
     return idx !== null ? (this.cells[idx] ?? null) : null;
   }
 
-  mount(host: HTMLElement, cells: readonly string[], position: number | null, label: string): void {
+  mount(host: HTMLElement, cells: TapeInput, position: number | null, label: string): void {
     this.clear();
     const container = el('div', { class: 'tape-view', role: 'img', 'aria-label': label });
     this.host = host;
@@ -95,7 +103,7 @@ export class TapeRenderer {
   }
 
   update(
-    cells: readonly string[],
+    cells: TapeInput,
     position: number | null,
     label: string,
     dirtyIndices: readonly number[] | null = null,
@@ -185,7 +193,7 @@ export class TapeRenderer {
   }
 
   private updateDirect(
-    cells: readonly string[],
+    cells: TapeInput,
     targetLength: number,
     position: number | null,
     dirtyIndices: readonly number[] | null,
@@ -204,21 +212,23 @@ export class TapeRenderer {
 
     const existingCount = this.cells.length;
     if (dirtyIndices === null) {
-      for (let i = 0; i < existingCount; i += 1) this.syncCell(i, cells[i] ?? ' ');
+      for (let i = 0; i < existingCount; i += 1) this.syncCell(i, readTapeSymbol(cells, i));
     } else {
       for (let k = 0; k < dirtyIndices.length; k += 1) {
         const i = dirtyIndices[k];
-        if (i !== undefined && i >= 0 && i < existingCount) this.syncCell(i, cells[i] ?? ' ');
+        if (i !== undefined && i >= 0 && i < existingCount) {
+          this.syncCell(i, readTapeSymbol(cells, i));
+        }
       }
     }
 
     const addedCount = targetLength - existingCount;
     if (addedCount === 1) {
-      container.appendChild(this.createCell(cells[existingCount] ?? ' '));
+      container.appendChild(this.createCell(readTapeSymbol(cells, existingCount)));
     } else if (addedCount > 1) {
       const fragment = document.createDocumentFragment();
       for (let i = existingCount; i < targetLength; i += 1) {
-        fragment.appendChild(this.createCell(cells[i] ?? ' '));
+        fragment.appendChild(this.createCell(readTapeSymbol(cells, i)));
       }
       container.appendChild(fragment);
     }
@@ -280,7 +290,7 @@ export class TapeRenderer {
   }
 
   private updateVirtual(
-    cells: readonly string[],
+    cells: TapeInput,
     targetLength: number,
     position: number | null,
     dirtyIndices: readonly number[] | null,
@@ -315,14 +325,16 @@ export class TapeRenderer {
 
     if (dirtyIndices === null) {
       for (let j = 0; j < this.cells.length; j += 1) {
-        this.syncCell(j, cells[this.windowStart + j] ?? ' ');
+        this.syncCell(j, readTapeSymbol(cells, this.windowStart + j));
       }
     } else {
       const start = this.windowStart;
       const end = this.windowEnd;
       for (let k = 0; k < dirtyIndices.length; k += 1) {
         const i = dirtyIndices[k];
-        if (i !== undefined && i >= start && i < end) this.syncCell(i - start, cells[i] ?? ' ');
+        if (i !== undefined && i >= start && i < end) {
+          this.syncCell(i - start, readTapeSymbol(cells, i));
+        }
       }
     }
 
@@ -381,11 +393,13 @@ export class TapeRenderer {
     if (this.cells.length < nextLen) {
       const needed = nextLen - this.cells.length;
       if (needed === 1) {
-        spacers.endEl.before(this.createCell(this.lastCells[nextStart + this.cells.length] ?? ' '));
+        spacers.endEl.before(
+          this.createCell(readTapeSymbol(this.lastCells, nextStart + this.cells.length)),
+        );
       } else {
         const fragment = document.createDocumentFragment();
         for (let j = this.cells.length; j < nextLen; j += 1) {
-          fragment.appendChild(this.createCell(this.lastCells[nextStart + j] ?? ' '));
+          fragment.appendChild(this.createCell(readTapeSymbol(this.lastCells, nextStart + j)));
         }
         spacers.endEl.before(fragment);
       }
@@ -403,7 +417,7 @@ export class TapeRenderer {
     spacers.sync(nextStart * this.cellWidthPx, Math.max(0, total - nextEnd) * this.cellWidthPx);
 
     for (let j = 0; j < nextLen; j += 1) {
-      this.syncCell(j, this.lastCells[nextStart + j] ?? ' ');
+      this.syncCell(j, readTapeSymbol(this.lastCells, nextStart + j));
     }
 
     this.syncVirtualCurrentHighlight();

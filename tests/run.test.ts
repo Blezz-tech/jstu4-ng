@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseProgram } from '../src/core/parser';
 import { createProgram } from '../src/core/program';
-import { DEFAULT_MAX_HISTORY, MachineRun } from '../src/core/run';
+import {
+  checkTapeNormality,
+  DEFAULT_MAX_HISTORY,
+  MachineRun,
+  normaliseInitialTape,
+} from '../src/core/run';
 import { expectErr, expectOk } from './helpers/result';
 
 const compile = (program: string) => expectOk(createProgram(expectOk(parseProgram(program))));
@@ -422,5 +427,12 @@ describe('MachineRun', () => {
     const alteredRun = start('0, ,<,1  1,a,b,2  2,b,>,3  3, ,#,3', '🚀a');
     while (alteredRun.isRunning) expectOk(alteredRun.step());
     expect(alteredRun.checkNormality()).toBe('sourceAltered');
+  });
+
+  it('normaliseInitialTape and checkTapeNormality operate purely on cell arrays', () => {
+    expect(normaliseInitialTape('🚀a   \t')).toEqual({ text: '🚀a', cells: ['🚀', 'a'] });
+    expect(checkTapeNormality(['1', '0', ' ', '1', ' '], ['1', '0'], 4)).toBe('normal');
+    expect(checkTapeNormality(['1', '0', '1', ' '], ['1', '0'], 3)).toBe('sourceAltered');
+    expect(checkTapeNormality(['1', '0', ' ', '1', ' '], ['1', '0'], 3)).toBe('misplaced');
   });
 });
