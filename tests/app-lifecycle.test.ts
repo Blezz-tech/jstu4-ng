@@ -203,6 +203,75 @@ describe('mountApp lifecycle & shell modules', () => {
     app.dispose();
   });
 
+  it('clears #help hash synchronously on Escape even when native close event is async', () => {
+    vi.useFakeTimers();
+    const originalPath = location.pathname + location.search + location.hash;
+    history.replaceState(null, '', '/#help');
+    try {
+      const app = mountApp(document);
+      const helpDialog = document.querySelector<HTMLDialogElement>('#help-dialog')!;
+      const helpBody = document.querySelector<HTMLElement>('#help-body')!;
+      const helpBtn = document.querySelector<HTMLButtonElement>('#btn-help')!;
+
+      expect(helpDialog.open).toBe(true);
+      expect(location.hash).toBe('#help');
+
+      // Mirror real browser behavior (HTML §4.11.4): close() clears `open`
+      // synchronously and queues the `close` event in a later task.
+      helpDialog.close = () => {
+        helpDialog.removeAttribute('open');
+        setTimeout(() => helpDialog.dispatchEvent(new Event('close')), 50);
+      };
+
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+
+      // Immediately after Escape (before the async `close` event runs),
+      // both the #help hash and DOM content are already cleaned up.
+      expect(helpDialog.open).toBe(false);
+      expect(location.hash).toBe('');
+      expect(helpBody.children).toHaveLength(0);
+
+      // Reopening before the stale async `close` fires must keep the fresh body intact.
+      helpBtn.click();
+      expect(helpDialog.open).toBe(true);
+      expect(helpBody.children.length).toBeGreaterThan(0);
+
+      vi.advanceTimersByTime(50);
+      expect(helpDialog.open).toBe(true);
+      expect(helpBody.children.length).toBeGreaterThan(0);
+
+      app.dispose();
+    } finally {
+      history.replaceState(null, '', originalPath);
+      vi.useRealTimers();
+    }
+  });
+
+  it('Escape closes #help-dialog without leaking through to run-mode Escape shortcut', () => {
+    const app = mountApp(document);
+    const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
+    const startBtn = document.querySelector<HTMLButtonElement>('#btn-start')!;
+    const helpBtn = document.querySelector<HTMLButtonElement>('#btn-help')!;
+    const helpDialog = document.querySelector<HTMLDialogElement>('#help-dialog')!;
+
+    programInput.value = '0, ,#,0';
+    startBtn.click();
+    expect(document.body.dataset.mode).toBe('run');
+
+    helpBtn.click();
+    expect(helpDialog.open).toBe(true);
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    expect(helpDialog.open).toBe(false);
+    expect(document.body.dataset.mode).toBe('run');
+
+    app.dispose();
+  });
+
   it('closes the history drawer on wide-to-narrow resize when both drawers are open', () => {
     const originalInnerWidth = window.innerWidth;
     try {

@@ -3,38 +3,95 @@ import { copyTextToClipboard } from '../clipboard';
 import { el } from '../dom';
 import { listen, safeReplaceState, type AppDom } from './dom';
 
-function openModalDialog(dialog: HTMLDialogElement): void {
-  if (dialog.open) return;
-  dialog.showModal();
-  // Focus the dialog itself instead of the close button: screen readers
-  // announce the heading, and no accidental focus ring appears on "×".
-  dialog.focus({ preventScroll: true });
+interface ModalDialogController {
+  readonly isOpen: boolean;
+  open(): void;
+  close(): void;
 }
 
-function closeModalDialog(dialog: HTMLDialogElement): void {
-  if (dialog.open) dialog.close();
-}
-
-function bindModalDialog(
+/**
+ * Wraps a native modal `<dialog>` so closing via Escape, buttons, backdrop,
+ * or programmatic `close()` runs `onClose` synchronously as `dialog.open`
+ * flips to `false`. HTML's native `close` event is queued asynchronously,
+ * which otherwise races with immediate navigation/reload right after Escape.
+ */
+function createModalDialog(
   dialog: HTMLDialogElement,
   closeButtons: readonly HTMLButtonElement[],
   signal: AbortSignal,
   onClose?: () => void,
-): void {
+): ModalDialogController {
+  let closeNotified = true;
+
+  const notifyClose = (): void => {
+    if (closeNotified) return;
+    closeNotified = true;
+    onClose?.();
+  };
+
+  const open = (): void => {
+    if (dialog.open) return;
+    closeNotified = false;
+    dialog.showModal();
+    // Focus the dialog itself instead of the close button: screen readers
+    // announce the heading, and no accidental focus ring appears on "×".
+    dialog.focus({ preventScroll: true });
+  };
+
+  const close = (): void => {
+    if (!dialog.open) return;
+    dialog.close();
+    notifyClose();
+  };
+
   for (const button of closeButtons) {
-    listen(button, 'click', () => closeModalDialog(dialog), signal);
+    listen(button, 'click', close, signal);
   }
   listen(
     dialog,
     'click',
     (event) => {
-      if (event.target === dialog) closeModalDialog(dialog);
+      if (event.target === dialog) close();
     },
     signal,
   );
+  dialog.ownerDocument.addEventListener(
+    'keydown',
+    (event) => {
+      if (event.key === 'Escape' && dialog.open) {
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }
+    },
+    { capture: true, signal },
+  );
   if (onClose !== undefined) {
-    listen(dialog, 'close', onClose, signal);
+    listen(
+      dialog,
+      'cancel',
+      (event) => {
+        if (!event.defaultPrevented) notifyClose();
+      },
+      signal,
+    );
+    listen(
+      dialog,
+      'close',
+      () => {
+        if (!dialog.open) notifyClose();
+      },
+      signal,
+    );
   }
+
+  return {
+    get isOpen(): boolean {
+      return dialog.open;
+    },
+    open,
+    close,
+  };
 }
 
 function buildHelpContentFragment(content: HelpContent): DocumentFragment {
@@ -100,16 +157,7 @@ export function createHelpDialog({ dom, onBeforeOpen, signal }: HelpDialogOption
     renderedContent = next;
   };
 
-  const open = (): void => {
-    onBeforeOpen();
-    if (content !== null && renderedContent !== content) {
-      mountContent(content);
-    }
-    openModalDialog(dom.helpDialog);
-  };
-
-  listen(dom.helpButton, 'click', open, signal);
-  bindModalDialog(dom.helpDialog, [dom.helpBack, dom.helpClose], signal, () => {
+  const modal = createModalDialog(dom.helpDialog, [dom.helpBack, dom.helpClose], signal, () => {
     // Release help body DOM nodes while the dialog is closed.
     dom.helpBody.replaceChildren();
     renderedContent = null;
@@ -118,18 +166,28 @@ export function createHelpDialog({ dom, onBeforeOpen, signal }: HelpDialogOption
     }
   });
 
+  const open = (): void => {
+    onBeforeOpen();
+    if (content !== null && renderedContent !== content) {
+      mountContent(content);
+    }
+    modal.open();
+  };
+
+  listen(dom.helpButton, 'click', open, signal);
+
   return {
     get isOpen(): boolean {
-      return dom.helpDialog.open;
+      return modal.isOpen;
     },
     render(next) {
       content = next;
       dom.helpTitle.textContent = next.title;
       dom.helpBack.textContent = next.back;
-      if (dom.helpDialog.open) mountContent(next);
+      if (modal.isOpen) mountContent(next);
     },
     open,
-    close: () => closeModalDialog(dom.helpDialog),
+    close: () => modal.close(),
   };
 }
 
@@ -169,19 +227,19 @@ export function createTu4Dialog({ dom, i18n, onBeforeOpen, signal }: Tu4DialogOp
     }, 2500);
   };
 
+  const modal = createModalDialog(dom.tu4Dialog, [dom.tu4Close, dom.tu4Done], signal, clearStatus);
   listen(dom.tu4Copy, 'click', () => void copy(), signal);
-  bindModalDialog(dom.tu4Dialog, [dom.tu4Close, dom.tu4Done], signal, clearStatus);
 
   return {
     get isOpen(): boolean {
-      return dom.tu4Dialog.open;
+      return modal.isOpen;
     },
     open(converted) {
       onBeforeOpen();
       clearStatus();
       dom.tu4Output.value = converted;
       dom.tu4Output.scrollTop = 0;
-      openModalDialog(dom.tu4Dialog);
+      modal.open();
     },
     dispose: clearStatus,
   };
@@ -210,14 +268,20 @@ export function createDeleteSnapshotDialog({
 }: DeleteSnapshotDialogOptions): DeleteSnapshotDialog {
   let pendingId: string | null = null;
 
+  const modal = createModalDialog(
+    dom.deleteDialog,
+    [dom.deleteDialogClose, dom.deleteDialogCancel],
+    signal,
+    () => {
+      pendingId = null;
+    },
+  );
+
   const close = (): void => {
     pendingId = null;
-    closeModalDialog(dom.deleteDialog);
+    modal.close();
   };
 
-  bindModalDialog(dom.deleteDialog, [dom.deleteDialogClose, dom.deleteDialogCancel], signal, () => {
-    pendingId = null;
-  });
   listen(
     dom.deleteDialogConfirm,
     'click',
@@ -232,7 +296,7 @@ export function createDeleteSnapshotDialog({
 
   return {
     get isOpen(): boolean {
-      return dom.deleteDialog.open;
+      return modal.isOpen;
     },
     get currentPendingId(): string | null {
       return pendingId;
@@ -242,7 +306,7 @@ export function createDeleteSnapshotDialog({
       dom.deleteSnapshotName.textContent = displayName;
       dom.skipDeleteConfirm.checked = false;
       onBeforeOpen();
-      openModalDialog(dom.deleteDialog);
+      modal.open();
     },
     syncName(displayName) {
       dom.deleteSnapshotName.textContent = displayName;
