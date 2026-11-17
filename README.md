@@ -1,8 +1,9 @@
-# jstu4 — эмулятор машины Тьюринга в четвёрках
+# jstu4-ng — эмулятор машины Тьюринга в четвёрках
 
 Интерактивный эмулятор машины Тьюринга для студентов, изучающих теорию
-алгоритмов. Это современная переработка [jstu4 v2.3](https://github.com/lxyd/jstu4)
-(2011–2016): та же семантика языка программ МТ в четвёрках, но новый стек.
+алгоритмов ([github.com/Blezz-tech/jstu4-ng](https://github.com/Blezz-tech/jstu4-ng)).
+Это современная переработка оригинального [jstu4 v2.3](https://github.com/lxyd/jstu4)
+(© Алексей Дубинин, 2011–2016): та же семантика языка программ МТ в четвёрках, но новый стек.
 
 - **Ноль рантайм-зависимостей.** Ни jQuery, ни шаблонизаторов, ни UI-фреймворков:
   только платформа (DOM, CSS custom properties, Web Audio, `<dialog>`).
@@ -22,8 +23,9 @@ npm run build      # = build:prod: type-check + оптимизированная
 npm run build:prod # production-сборка (минификация JS/CSS/HTML, tree-shaking, без console/debugger и .js.map)
 npm run build:dev  # development-сборка в dist/ (без минификации, с .js.map для отладки)
 npm run preview    # локальный просмотр собранной версии
-npm run check      # lint + format + unit/DOM-тесты + build:prod
-npm run test:e2e   # Playwright: 31 сценарий в реальном Chromium
+npm run check        # lint + format + unit/DOM-тесты + build:prod
+npm run lint:commits # проверка Conventional Commits 1.0.0 (HEAD, --range, --title, --file)
+npm run test:e2e     # Playwright: 31 сценарий в реальном Chromium
 ```
 
 Собранный `dist/index.html` (как в `build:prod`, так и в `build:dev`) работает
@@ -36,9 +38,18 @@ npm run test:e2e   # Playwright: 31 сценарий в реальном Chromiu
 ### CI/CD и GitHub Pages
 
 - **`.github/workflows/ci.yml`** — запускается на `push` и `pull_request` в `dev` и `main`:
-  проверяет `lint`, `format:check`, юнит/DOM-тесты, production-сборку (ровно 3 статических файла в `dist/`), `build:dev` и сквозные тесты Playwright в Chromium.
+  проверяет соответствие заголовка и коммитов PR спецификации **Conventional Commits 1.0.0**, выполняет `lint`, `format:check`, юнит/DOM-тесты, production-сборку (ровно 3 статических файла в `dist/`), `build:dev` и сквозные тесты Playwright в Chromium.
 - **`.github/workflows/deploy-pages.yml`** — собирает и публикует `dist/` (`index.html`, `assets/*.css`, `assets/*.js`) на GitHub Pages при каждом `push` в `main` (а также вручную через `workflow_dispatch`).
   Для первичной активации в настройках репозитория (**Settings → Pages → Build and deployment → Source**) выберите **GitHub Actions**.
+
+### Версионирование и конвенция коммитов
+
+- **Semantic Versioning 2.0.0 ([semver.org](https://semver.org/)):** единый источник версии — поле `"version"` в `package.json`. На этапе сборки Vite подставляет её в `TM_VERSION` (`src/core/version.ts`), поэтому заголовок приложения (`vX.Y.Z`) всегда синхронизирован с `package.json`. История изменений ведётся в [`CHANGELOG.md`](./CHANGELOG.md).
+- **Conventional Commits 1.0.0 ([conventionalcommits.org](https://www.conventionalcommits.org/en/v1.0.0/)):** все коммиты и заголовки PR должны соответствовать формату `<type>[optional (<scope>)][!]: <description>` (`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`):
+  - `fix:` / `perf:` → повышение **PATCH** (`3.0.0` → `3.0.1`)
+  - `feat:` → повышение **MINOR** (`3.0.0` → `3.1.0`)
+  - `feat!:` или footer `BREAKING CHANGE:` → повышение **MAJOR** (`3.0.0` → `4.0.0`)
+- Повысить версию локально: `npm version patch | minor | major`, обновив [`CHANGELOG.md`](./CHANGELOG.md). Проверка коммитов в CI выполняется скриптом `scripts/check-conventional-commits.js` (доступен локально через `npm run lint:commits`).
 
 ### NixOS (`shell.nix` + `direnv`)
 
@@ -119,9 +130,11 @@ src/
   styles/                   main.css + 11 тематических CSS-модулей (tokens, base, shell, buttons, …)
   app.ts                    корень композиции mountApp() с жизненным циклом dispose()
   main.ts                   точка входа браузера
-tests/                      Vitest: 17 наборов (167 юнит/DOM-тестов) + tests/helpers/
+scripts/                    проверка Conventional Commits 1.0.0 (check-conventional-commits.js)
+tests/                      Vitest: 21 набор (201 юнит/DOM-тест) + tests/helpers/
 e2e/                        Playwright: 31 сценарий (app.spec.ts) + скриншоты (visual.spec.ts)
 public/index.html           единственная HTML-точка входа (root для Vite)
+CHANGELOG.md, LICENSE       журнал релизов (Keep a Changelog / SemVer) и лицензия MIT
 ```
 
 ## Что изменилось по сравнению с v2.3
@@ -157,4 +170,5 @@ public/index.html           единственная HTML-точка входа 
 
 ## Лицензия
 
-MIT, как и исходный jstu4. © Алексей Дубинин и участники проекта.
+MIT (см. [`LICENSE`](./LICENSE)). © Blezz-tech ([github.com/Blezz-tech/jstu4-ng](https://github.com/Blezz-tech/jstu4-ng)).
+Основано на оригинальном [jstu4](https://github.com/lxyd/jstu4) © Алексей Дубинин.

@@ -1,8 +1,13 @@
 /// <reference types="vitest/config" />
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 
 const rootDir = import.meta.dirname;
+const pkg = JSON.parse(readFileSync(resolve(rootDir, 'package.json'), 'utf8')) as {
+  version: string;
+};
+const appVersion = pkg.version;
 
 /**
  * Rewrite Vite's built `index.html` so it works identically both over HTTP(S)
@@ -103,6 +108,9 @@ export default defineConfig(({ mode }) => {
     // Relative base so the build works from any sub-path (e.g. GitHub Pages
     // project pages, direct `file://` opens, static hosting without rewrites).
     base: './',
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+    },
     plugins: [classicFileProtocolPlugin(isProd)],
     resolve: {
       alias: {

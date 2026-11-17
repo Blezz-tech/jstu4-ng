@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { SEMVER_RE } from '../scripts/check-conventional-commits.js';
+import { TM_VERSION } from '../src/core/version';
 import { transformBuiltHtml } from '../vite.config';
 
 describe('transformBuiltHtml (file:// compatibility & production HTML minification)', () => {
@@ -69,5 +73,25 @@ describe('transformBuiltHtml (file:// compatibility & production HTML minificati
     expect(prodHtml).toContain('<button id="btn-close" type="button">×</button>');
     expect(prodHtml).toContain('<path d="M0 0h24"/>');
     expect(prodHtml).toContain('<pre id="code">  line 1\n  line 2</pre>');
+  });
+});
+
+describe('SemVer & package metadata', () => {
+  const pkg = JSON.parse(readFileSync(resolve(import.meta.dirname, '../package.json'), 'utf8')) as {
+    name: string;
+    version: string;
+    author: string;
+    repository: { url: string };
+  };
+
+  it('keeps package.json version valid SemVer 2.0.0 and synchronized with TM_VERSION', () => {
+    expect(pkg.version).toMatch(SEMVER_RE);
+    expect(TM_VERSION).toBe(pkg.version);
+  });
+
+  it('publishes jstu4-ng repository and Blezz-tech author metadata', () => {
+    expect(pkg.name).toBe('jstu4-ng');
+    expect(pkg.author).toBe('Blezz-tech');
+    expect(pkg.repository.url).toBe('https://github.com/Blezz-tech/jstu4-ng.git');
   });
 });

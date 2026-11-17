@@ -157,9 +157,14 @@
           {
             "kind": "rich",
             "parts": [
-              "© Alexey Dubinin. Original application on GitHub: ",
+              "jstu4-ng — © Blezz-tech (",
+              {
+                "label": "github.com/Blezz-tech/jstu4-ng",
+                "href": "https://github.com/Blezz-tech/jstu4-ng"
+              },
+              "). Based on the original jstu4 application © Alexey Dubinin (",
               { "label": "github.com/lxyd/jstu4", "href": "https://github.com/lxyd/jstu4" },
-              ". Distributed under the terms of the MIT License."
+              "). Distributed under the terms of the MIT License."
             ]
           }
         ]
