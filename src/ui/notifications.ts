@@ -8,6 +8,15 @@ export interface NotificationLogOptions {
   readonly onChange?: (kind: LogKind | null) => void;
 }
 
+export interface NotificationLog {
+  readonly currentKind: LogKind | null;
+  /** Display a localized notification; re-renders automatically when locale changes. */
+  show(kind: LogKind, format: (i18n: I18n) => string): void;
+  /** Clear the active notification (no-op when already cleared). */
+  clear(): void;
+  dispose(): void;
+}
+
 interface ActiveNotification {
   readonly kind: LogKind;
   readonly format: (i18n: I18n) => string;
@@ -18,58 +27,45 @@ interface ActiveNotification {
  * Decouples execution (`AppController`) from other subsystems (such as version
  * control) so any part of the UI can publish localized messages cleanly.
  */
-export class NotificationLog {
-  private readonly element: HTMLElement;
-  private readonly i18n: I18n;
-  private readonly onChange: ((kind: LogKind | null) => void) | undefined;
-  private readonly unsubscribe: () => void;
-  private current: ActiveNotification | null = null;
+export function createNotificationLog({
+  element,
+  i18n,
+  onChange,
+}: NotificationLogOptions): NotificationLog {
+  let current: ActiveNotification | null = null;
 
-  constructor(options: NotificationLogOptions) {
-    this.element = options.element;
-    this.i18n = options.i18n;
-    this.onChange = options.onChange;
-    this.unsubscribe = this.i18n.subscribe(() => this.render());
-  }
-
-  get currentKind(): LogKind | null {
-    return this.current?.kind ?? null;
-  }
-
-  /** Display a localized notification; re-renders automatically when locale changes. */
-  show(kind: LogKind, format: (i18n: I18n) => string): void {
-    this.current = { kind, format };
-    this.render();
-  }
-
-  /** Clear the active notification (no-op when already cleared). */
-  clear(): void {
-    if (
-      this.current === null &&
-      this.element.textContent === '' &&
-      (this.element.dataset.kind ?? '') === ''
-    ) {
-      return;
-    }
-    this.current = null;
-    this.render();
-  }
-
-  dispose(): void {
-    this.unsubscribe();
-  }
-
-  private render(): void {
-    if (this.current === null) {
-      this.element.textContent = '';
-      this.element.dataset.kind = '';
-      this.onChange?.(null);
+  const render = (): void => {
+    if (current === null) {
+      element.textContent = '';
+      element.dataset.kind = '';
+      onChange?.(null);
       return;
     }
 
-    const text = this.current.format(this.i18n);
-    this.element.textContent = text;
-    this.element.dataset.kind = this.current.kind;
-    this.onChange?.(this.current.kind);
-  }
+    element.textContent = current.format(i18n);
+    element.dataset.kind = current.kind;
+    onChange?.(current.kind);
+  };
+
+  const unsubscribe = i18n.subscribe(render);
+
+  return {
+    get currentKind(): LogKind | null {
+      return current?.kind ?? null;
+    },
+    show(kind, format) {
+      current = { kind, format };
+      render();
+    },
+    clear() {
+      if (current === null && element.textContent === '' && (element.dataset.kind ?? '') === '') {
+        return;
+      }
+      current = null;
+      render();
+    },
+    dispose() {
+      unsubscribe();
+    },
+  };
 }

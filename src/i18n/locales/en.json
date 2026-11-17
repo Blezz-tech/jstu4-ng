@@ -34,7 +34,6 @@
     "tooManyStates": "The program has more than 256 states, which the TU4 format cannot express"
   },
   "stats": {
-    "summary": "Transitions: {commandsCount, number}. Source length: {initialDataLength, number}. Cells used: {maxDataLength, number}. Steps performed: {operationsCount, number}",
     "commands": "Transitions",
     "initialLength": "Source length",
     "cellsUsed": "Cells used",
@@ -59,8 +58,6 @@
     "save": "Save",
     "delete": "Delete",
     "cancel": "Cancel",
-    "theme": "Theme",
-    "sound": "Step sound",
     "language": "Switch language",
     "close": "Close"
   },
@@ -144,8 +141,7 @@
     "programViewLabel": "Executing program",
     "tapeViewLabel": "Tape during execution",
     "logLabel": "Emulator messages",
-    "statusLabel": "Execution status and statistics",
-    "currentCell": "Current cell"
+    "statusLabel": "Execution status and statistics"
   },
   "help": {
     "title": "Turing machine emulator in 4-tuples",

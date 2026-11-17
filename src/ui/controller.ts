@@ -1,43 +1,41 @@
-import type { Command } from '../core/machine';
-import {
-  AmbiguousCommandError,
-  EmptyProgramError,
-  MachineError,
-  NoSuchCommandError,
-  NonexistentInitialStateError,
-  NonexistentTargetStateError,
-  OutOfTapeError,
-  ParseError,
-} from '../core/errors';
+import type { CompileError } from '../core/errors';
+import { createProgram } from '../core/program';
 import { MachineRun } from '../core/run';
 import { toTu4 } from '../core/tu4';
 import type { I18n } from '../i18n';
+import { createAutoRunner, type StepDirection } from './auto-runner';
 import { copyTextToClipboard } from './clipboard';
-import { el } from './dom';
-import { NotificationLog, type LogKind } from './notifications';
+import { createCommandTracker } from './command-tracker';
 import {
-  compileProgram,
+  displayCompileError,
+  displayRunFinish,
+  displayRuntimeError,
+  displayStepBackBoundary,
+} from './error-reporter';
+import { createNotificationLog, type LogKind, type NotificationLog } from './notifications';
+import {
   listProgram,
-  renderProgram,
-  renderProgramWithError,
+  ProgramRenderer,
   TapeRenderer,
   type CompiledProgram,
+  type ProgramListing,
 } from './render';
 import {
-  BASE_STEPS_PER_SECOND,
-  clampMaxSpeed,
-  clampMinSpeed,
-  clampSpeed,
-  DEFAULT_MAX_SPEED,
-  DEFAULT_MIN_SPEED,
-  DEFAULT_SPEED,
-  stepIntervalMs,
-} from './speed';
+  canStepInDirection,
+  coerceTape,
+  deriveRunControlState,
+  resolveBackToEditTarget,
+  resolveEnterAction,
+  resolveEscapeAction,
+  type RunControlState,
+  type UIMode,
+} from './run-state';
+import { createSpeedController } from './speed-controller';
+import { createStatsView } from './stats-view';
 
-export type { LogKind };
-export type UIMode = 'edit' | 'run' | 'error';
+export { coerceTape, type LogKind, type RunControlState, type UIMode };
 
-/** Everything the controller needs from the page, injected by main.ts. */
+/** Everything the controller needs from the page, injected by app.ts. */
 export interface AppElements {
   readonly programInput: HTMLTextAreaElement;
   readonly tapeInput: HTMLInputElement;
@@ -46,17 +44,6 @@ export interface AppElements {
   readonly log: HTMLElement;
   readonly stats: HTMLElement;
   readonly controls: HTMLElement;
-}
-
-/** Snapshot of run-mode control availability emitted whenever execution state changes. */
-export interface RunControlState {
-  readonly isRunning: boolean;
-  readonly isAutoRunning: boolean;
-  readonly canStepForward: boolean;
-  readonly canStepBack: boolean;
-  readonly canAutoRun: boolean;
-  readonly canRestart: boolean;
-  readonly speed: number;
 }
 
 export interface ControllerOptions {
@@ -74,12 +61,8 @@ export interface ControllerOptions {
   readonly maxHistory?: number;
   /** Called after every mode or auto-run state change so the shell can sync UI. */
   readonly onModeChange: (mode: UIMode) => void;
-  /** Called whenever the machine halts or starts running again. */
-  readonly onRunningChange?: (isRunning: boolean) => void;
   /** Called whenever run-mode button availability changes (step back/forward, run, restart). */
   readonly onRunStateChange?: (state: RunControlState) => void;
-  /** Called whenever the internal notification log changes (ignored when `notifications` is injected). */
-  readonly onLogChange?: (kind: LogKind | null) => void;
   /** Persist the program draft. */
   readonly onProgramChange: (text: string) => void;
   readonly onTapeChange: (text: string) => void;
@@ -89,968 +72,485 @@ export interface ControllerOptions {
   readonly onStepSound?: () => void;
 }
 
-const RAF_THRESHOLD_MS = 20;
-const MAX_BATCH_STEPS_PER_FRAME = 64;
-const MAX_BATCH_MS_PER_FRAME = 6;
-
-/**
- * The tape is a sequence of single-character cells, so tabs or pasted line
- * breaks are normalised to spaces (1-to-1 per character).
- */
-export function coerceTape(value: string): string {
-  return value.replace(/[\t\r\n]/g, ' ');
+export interface AppController {
+  readonly currentMode: UIMode;
+  readonly isAutoRunning: boolean;
+  readonly lastStepDirection: StepDirection;
+  readonly currentSpeed: number;
+  readonly currentMinSpeed: number;
+  readonly currentMaxSpeed: number;
+  readonly isMachineRunning: boolean;
+  readonly canStepBack: boolean;
+  readonly canRestart: boolean;
+  readonly canAutoRun: boolean;
+  beginSpeedDrag(): void;
+  endSpeedDrag(): void;
+  setSpeed(value: number): number;
+  setMinSpeed(value: number): { readonly minSpeed: number; readonly speed: number };
+  setMaxSpeed(value: number): { readonly maxSpeed: number; readonly speed: number };
+  hydrate(program: string | null, tape: string | null): void;
+  start(): void;
+  restart(): void;
+  step(): boolean;
+  stepBack(): boolean;
+  toggleAutoRun(): void;
+  backToEdit(focus?: 'program' | 'tape'): void;
+  unmark(): void;
+  copyProgram(): Promise<void>;
+  toTu4(): string | null;
+  loadDraft(program: string, tape: string): void;
+  handleEnter(withModifier?: boolean): void;
+  handleSpace(): void;
+  handleShiftSpace(): void;
+  handleEscape(): void;
+  dispose(): void;
 }
 
-function scrollElementIntoView(
-  node: Element | null,
-  options: ScrollIntoViewOptions = { block: 'nearest' },
-): void {
-  if (node !== null && typeof node.scrollIntoView === 'function') {
-    node.scrollIntoView(options);
-  }
-}
-
 /**
- * Execution controller for the Turing machine emulator: owns compile/run/error
- * modes, stepping, high-speed frame batching, incremental tape rendering, and
- * O(1) program listing highlights.
+ * Execution controller for the Turing machine emulator: orchestrates compile/run/error
+ * modes, stepping, speed transitions, incremental tape rendering, and O(1) program
+ * listing highlights.
  */
-export class AppController {
-  private readonly i18n: I18n;
-  private readonly unsubscribeI18n: () => void;
-  private readonly el: AppElements;
-  private readonly options: ControllerOptions;
-  private readonly notifications: NotificationLog;
-  private readonly ownsNotifications: boolean;
+export function createAppController(options: ControllerOptions): AppController {
+  const { i18n, elements: el } = options;
+  const ownsNotifications = options.notifications === undefined;
+  const notifications = options.notifications ?? createNotificationLog({ element: el.log, i18n });
+  const statsView = createStatsView(el.stats, i18n);
+  const tapeRenderer = new TapeRenderer();
+  const programRenderer = new ProgramRenderer();
+  const commands = createCommandTracker(programRenderer);
 
-  private mode: UIMode = 'edit';
-  private run: MachineRun | null = null;
-  private compiled: CompiledProgram | null = null;
-  private readonly tapeRenderer = new TapeRenderer();
-  private readonly commandIndex = new Map<Command, number>();
-  private commandNodes: HTMLElement[] = [];
-  private currentCommandNode: HTMLElement | null = null;
-  private errorCommandNode: HTMLElement | null = null;
-  private readonly visitCounts = new Map<number, number>();
+  let mode: UIMode = 'edit';
+  let run: MachineRun | null = null;
+  let stepDirection: StepDirection = 'forward';
 
-  private autoTimer: ReturnType<typeof setTimeout> | null = null;
-  private autoRaf: number | null = null;
-  private autoRunning = false;
-  private autoGeneration = 0;
-  private lastStepAt = 0;
-  private stepDirection: 'forward' | 'reverse' = 'forward';
-  private minSpeed: number;
-  private maxSpeed: number;
-  private speed: number;
-  private draggingSpeed = false;
-  private resumeAfterZeroDrag = false;
+  const readRunState = (): RunControlState =>
+    deriveRunControlState(mode, run, autoRunner.isRunning, speedCtrl.current);
 
-  private returnCursorOffset: number | null = null;
-  private hasStats = false;
-  private stats = { commandsCount: 0, initialDataLength: 0, maxDataLength: 0, operationsCount: 0 };
+  const notifyRunState = (): void => {
+    options.onRunStateChange?.(readRunState());
+  };
 
-  constructor(options: ControllerOptions) {
-    this.options = options;
-    this.i18n = options.i18n;
-    this.el = options.elements;
-    if (options.notifications !== undefined) {
-      this.notifications = options.notifications;
-      this.ownsNotifications = false;
-    } else {
-      this.notifications = new NotificationLog({
-        element: options.elements.log,
-        i18n: options.i18n,
-        ...(options.onLogChange !== undefined ? { onChange: options.onLogChange } : {}),
-      });
-      this.ownsNotifications = true;
-    }
-    this.minSpeed = clampMinSpeed(options.initialMinSpeed ?? DEFAULT_MIN_SPEED);
-    this.maxSpeed = clampMaxSpeed(options.initialMaxSpeed ?? DEFAULT_MAX_SPEED);
-    this.speed = clampSpeed(options.initialSpeed ?? DEFAULT_SPEED, this.minSpeed, this.maxSpeed);
-    this.unsubscribeI18n = this.i18n.subscribe(() => this.refreshLocalized());
-  }
+  const setMode = (nextMode: UIMode): void => {
+    mode = nextMode;
+    el.controls.dataset.mode = nextMode;
+    document.body.dataset.mode = nextMode;
+    options.onModeChange(nextMode);
+  };
 
-  get currentMode(): UIMode {
-    return this.mode;
-  }
+  const setStepDirection = (direction: StepDirection): void => {
+    if (stepDirection === direction && el.programView.dataset.stepDir === direction) return;
+    stepDirection = direction;
+    el.programView.dataset.stepDir = direction;
+  };
 
-  get isAutoRunning(): boolean {
-    return this.autoRunning;
-  }
-
-  get lastStepDirection(): 'forward' | 'reverse' {
-    return this.stepDirection;
-  }
-
-  get currentSpeed(): number {
-    return this.speed;
-  }
-
-  get currentMinSpeed(): number {
-    return this.minSpeed;
-  }
-
-  get currentMaxSpeed(): number {
-    return this.maxSpeed;
-  }
-
-  get isMachineRunning(): boolean {
-    return this.mode === 'run' && this.run !== null && this.run.isRunning;
-  }
-
-  get canStepForward(): boolean {
-    return this.mode === 'run' && this.run !== null && this.run.isRunning;
-  }
-
-  get canStepBack(): boolean {
-    return this.mode === 'run' && this.run !== null && this.run.canStepBack;
-  }
-
-  get canRestart(): boolean {
-    return (
-      this.mode === 'run' && this.run !== null && (this.run.stepsCount > 0 || !this.run.isRunning)
-    );
-  }
-
-  get canAutoRun(): boolean {
-    if (this.mode !== 'run' || this.run === null) return false;
-    if (this.isAutoRunning) return true;
-    return this.canStepInDirection(this.speed);
-  }
-
-  /** Notify controller that the user started dragging the speed slider thumb. */
-  beginSpeedDrag(): void {
-    this.draggingSpeed = true;
-    this.resumeAfterZeroDrag = this.isAutoRunning;
-  }
-
-  /** Notify controller that the user finished dragging the speed slider thumb. */
-  endSpeedDrag(): void {
-    this.draggingSpeed = false;
-    this.resumeAfterZeroDrag = false;
-  }
-
-  /**
-   * Change auto-run speed multiplier (`currentMinSpeed` .. `currentMaxSpeed`).
-   * Moving to `0` stops automatic execution immediately; negative values run
-   * the machine in reverse.
-   */
-  setSpeed(value: number): number {
-    const next = clampSpeed(value, this.minSpeed, this.maxSpeed);
-    if (next === this.speed) return next;
-    this.speed = next;
-
-    if (next === 0) {
-      if (this.isAutoRunning) {
-        if (this.draggingSpeed) this.resumeAfterZeroDrag = true;
-        this.clearAutoHandles();
-        this.options.onModeChange(this.mode);
-      }
-      this.notifyRunState();
-      return next;
-    }
-
-    if (this.isAutoRunning) {
-      if (!this.canStepInDirection(next)) {
-        this.clearAutoHandles();
-        if (next < 0 && this.run !== null && !this.run.canStepBack) {
-          this.notifyStepBackBoundary(this.run);
-        }
-        this.options.onModeChange(this.mode);
-      } else {
-        this.clearAutoHandles();
-        const remaining = Math.max(
-          0,
-          Math.round(stepIntervalMs(this.speed) - (performance.now() - this.lastStepAt)),
-        );
-        this.scheduleAutoTick(remaining);
-      }
-    } else if (this.draggingSpeed && this.resumeAfterZeroDrag) {
-      if (this.canStepInDirection(next)) {
-        this.lastStepAt = performance.now();
-        this.scheduleAutoTick(0);
-      } else if (next < 0 && this.run !== null && !this.run.canStepBack) {
-        this.notifyStepBackBoundary(this.run);
-      }
-    }
-
-    this.notifyRunState();
-    return next;
-  }
-
-  /** Change the lower (negative) bound for the speed slider and clamp current speed if needed. */
-  setMinSpeed(value: number): { readonly minSpeed: number; readonly speed: number } {
-    this.minSpeed = clampMinSpeed(value);
-    const clampedSpeed = clampSpeed(this.speed, this.minSpeed, this.maxSpeed);
-    if (clampedSpeed !== this.speed) {
-      this.setSpeed(clampedSpeed);
-    }
-    return { minSpeed: this.minSpeed, speed: this.speed };
-  }
-
-  /** Change the upper (positive) bound for the speed slider and clamp current speed if needed. */
-  setMaxSpeed(value: number): { readonly maxSpeed: number; readonly speed: number } {
-    this.maxSpeed = clampMaxSpeed(value);
-    const clampedSpeed = clampSpeed(this.speed, this.minSpeed, this.maxSpeed);
-    if (clampedSpeed !== this.speed) {
-      this.setSpeed(clampedSpeed);
-    }
-    return { maxSpeed: this.maxSpeed, speed: this.speed };
-  }
-
-  /** Re-render controller-owned localized text when the active locale changes. */
-  private refreshLocalized(): void {
-    if (this.hasStats) this.renderStats();
-    if (this.mode === 'run') this.updateTapeView(false);
-  }
-
-  /** Restore a draft on initial startup. */
-  hydrate(program: string | null, tape: string | null): void {
-    if (program !== null) this.el.programInput.value = program;
-    if (tape !== null) this.el.tapeInput.value = tape;
-    this.setMode('edit');
-    this.notifications.show('info', (i) =>
-      i.t(program !== null ? 'log.restoredDraft' : 'log.ready'),
-    );
-  }
-
-  // ——— user actions ————————————————————————————————————————————————
-
-  /** "Start": compile the program and begin a new run. */
-  start(): void {
-    const parsed = this.parseInput();
-    if (parsed === null) return;
-
-    const scrollTop = this.el.programInput.scrollTop;
-    const tape = coerceTape(this.el.tapeInput.value);
-    if (tape !== this.el.tapeInput.value) this.el.tapeInput.value = tape;
-
-    this.stopAutoRun();
-    this.compiled = parsed;
-    this.run = new MachineRun(
-      parsed.program,
-      tape,
-      this.options.maxHistory !== undefined ? { maxHistory: this.options.maxHistory } : {},
-    );
-    this.visitCounts.clear();
-    this.returnCursorOffset = null;
-    this.options.onProgramChange(this.el.programInput.value);
-    this.options.onTapeChange(tape);
-
-    this.el.programView.replaceChildren(renderProgram(parsed));
-    this.indexCompiledCommands(parsed);
-    this.mountTapeView();
-
-    this.stats = {
-      commandsCount: parsed.commands.length,
-      initialDataLength: this.run.initialTape.length,
-      maxDataLength: this.run.cellsUsed,
-      operationsCount: 0,
-    };
-    this.hasStats = true;
-    this.renderStats();
-
-    this.setMode('run');
-    this.el.programView.scrollTop = scrollTop;
-    this.setStepDirection('forward');
-    this.highlightCurrentCommand(this.run.nextCommand);
-    this.notifications.clear();
-    this.notifyRunState();
-    // Move focus out of any previously active input (e.g. `#input-tape` after
-    // pressing Enter) so Space/Enter/Esc hotkeys work immediately in run mode.
-    this.el.programView.focus({ preventScroll: true });
-  }
-
-  /**
-   * "Restart": reset the active run back to step 0 with the initial tape,
-   * initial state, and cleared marks without leaving run mode.
-   */
-  restart(): void {
-    if (this.mode !== 'run' || this.run === null || this.compiled === null) return;
-
-    this.stopAutoRun();
-    this.run.reset();
-    for (const index of this.visitCounts.keys()) {
-      this.commandNodes[index]?.classList.remove('visited');
-    }
-    this.visitCounts.clear();
-    this.clearCurrentCommandHighlight();
-    this.clearErrorCommandHighlight();
-
-    this.stats.operationsCount = 0;
-    this.stats.maxDataLength = this.run.cellsUsed;
-    this.renderStats();
-    this.updateTapeView(true);
-    this.setStepDirection('forward');
-    this.highlightCurrentCommand(this.run.nextCommand);
-    this.notifications.show('info', (i) => i.t('log.restarted'));
-    this.notifyRunState();
-  }
-
-  /**
-   * "Step": pause auto-run (if active) and execute one command forward.
-   * Returns whether the machine keeps running.
-   */
-  step(): boolean {
-    this.stopAutoRun();
-    return this.stepForwardOnce(true, true);
-  }
-
-  /**
-   * "Step back": pause auto-run (if active) and undo the last executed command.
-   * Returns whether further backward steps remain (i.e. not yet at step 0).
-   */
-  stepBack(): boolean {
-    this.stopAutoRun();
-    return this.stepBackOnce(true, true);
-  }
-
-  /**
-   * "Run / Stop": toggle automatic execution in the current speed direction
-   * (forward if speed > 0, backward if speed < 0; no-op when speed is 0).
-   */
-  toggleAutoRun(): void {
-    if (this.isAutoRunning) {
-      this.stopAutoRun();
-      return;
-    }
-    if (this.mode !== 'run' || this.run === null || this.speed === 0) return;
-
-    if (this.speed < 0 && !this.run.canStepBack) {
-      this.notifyStepBackBoundary(this.run);
-      this.notifyRunState();
-      return;
-    }
-    if (this.speed > 0 && !this.run.isRunning) return;
-
-    this.lastStepAt = performance.now();
-    this.scheduleAutoTick();
-  }
-
-  /** Pause automatic execution without discarding the current run state. */
-  stopAutoRun(): void {
-    const wasRunning = this.isAutoRunning;
-    this.clearAutoHandles();
-    if (wasRunning) {
-      this.options.onModeChange(this.mode);
-      this.notifyRunState();
-    }
-  }
-
-  /** "Back to edit": stop everything and return to the editable fields. */
-  backToEdit(focus?: 'program' | 'tape'): void {
-    const previousMode = this.mode;
-    const scrollTop = this.el.programView.scrollTop;
-    const cursorOffset = this.returnCursorOffset;
-
-    this.resetRunObjects();
-    this.setMode('edit');
-    this.notifications.clear();
-    this.notifyRunState();
-
-    const target =
-      focus ?? (previousMode === 'error' || cursorOffset !== null ? 'program' : 'tape');
-
-    if (target === 'program') {
-      this.el.programInput.focus({ preventScroll: true });
-      if (cursorOffset !== null) {
-        this.el.programInput.setSelectionRange(cursorOffset, cursorOffset);
-      }
-      this.el.programInput.scrollTop = scrollTop;
-    } else {
-      this.el.programInput.scrollTop = scrollTop;
-      this.el.tapeInput.focus();
-    }
-  }
-
-  /** "Unmark": pause auto-run (if active) and clear visited command marks. */
-  unmark(): void {
-    this.stopAutoRun();
-    for (const index of this.visitCounts.keys()) {
-      this.commandNodes[index]?.classList.remove('visited');
-    }
-    this.visitCounts.clear();
-  }
-
-  /** "Copy": copy the program to the clipboard. */
-  async copyProgram(): Promise<void> {
-    const copied = await copyTextToClipboard(this.el.programInput.value, this.el.programInput);
-    if (copied) this.notifications.show('info', (i) => i.t('log.copied'));
-  }
-
-  /**
-   * "To TU4": convert the current program to TU4 format without modifying
-   * the editor content, and deliver the converted text via `onTu4Converted`.
-   */
-  toTu4(): string | null {
-    const parsed = this.parseInput();
-    if (parsed === null) return null;
-
-    try {
-      const converted = toTu4(parsed.program);
-      this.notifications.show('info', (i) => i.t('log.convertedToTu4'));
-      this.options.onTu4Converted?.(converted);
-      return converted;
-    } catch (error) {
-      if (error instanceof RangeError) {
-        this.notifications.show('error', (i) => i.t('error.tooManyStates'));
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  /** Stop any active run and replace the editor content with the given program and tape. */
-  loadDraft(program: string, tape: string): void {
-    if (this.mode !== 'edit') {
-      this.resetRunObjects();
-      this.setMode('edit');
-      this.notifyRunState();
-    }
-    this.el.programInput.value = program;
-    this.el.tapeInput.value = tape;
-    this.options.onProgramChange(program);
-    this.options.onTapeChange(tape);
-  }
-
-  /** Keyboard: Enter behaviour depends on the current mode. */
-  handleEnter(withModifier = false): void {
-    switch (this.mode) {
-      case 'edit':
-        if (withModifier) this.start();
-        break;
-      case 'run':
-        if (this.canAutoRun) this.toggleAutoRun();
-        else if (!this.isMachineRunning && this.speed >= 0) this.backToEdit('tape');
-        break;
-      case 'error':
-        this.backToEdit('program');
-        break;
-    }
-  }
-
-  handleSpace(): void {
-    if (this.mode !== 'run') return;
-    this.step();
-  }
-
-  handleShiftSpace(): void {
-    if (this.mode !== 'run') return;
-    this.stepBack();
-  }
-
-  handleEscape(): void {
-    if (this.mode === 'edit') return;
-    if (this.mode === 'run') {
-      if (this.isAutoRunning) {
-        this.stopAutoRun();
-        return;
-      }
-      this.backToEdit('tape');
-      return;
-    }
-    this.backToEdit('program');
-  }
-
-  dispose(): void {
-    this.stopAutoRun();
-    this.unsubscribeI18n();
-    if (this.ownsNotifications) this.notifications.dispose();
-  }
-
-  // ——— internals ——————————————————————————————————————————————————
-
-  private resetRunObjects(): void {
-    this.stopAutoRun();
-    this.run = null;
-    this.compiled = null;
-    this.commandIndex.clear();
-    this.commandNodes = [];
-    this.currentCommandNode = null;
-    this.errorCommandNode = null;
-    this.visitCounts.clear();
-    this.tapeRenderer.clear();
-    this.returnCursorOffset = null;
-  }
-
-  private indexCompiledCommands(compiled: CompiledProgram): void {
-    this.commandIndex.clear();
-    compiled.commands.forEach((command, index) => {
-      this.commandIndex.set(command, index);
-    });
-    this.commandNodes = Array.from(this.el.programView.querySelectorAll<HTMLElement>('.cmd'));
-    this.currentCommandNode = null;
-    this.errorCommandNode = null;
-  }
-
-  private canStepInDirection(speed: number): boolean {
-    if (this.run === null || speed === 0) return false;
-    return speed > 0 ? this.run.isRunning : this.run.canStepBack;
-  }
-
-  private notifyRunState(): void {
-    this.options.onRunningChange?.(this.isMachineRunning);
-    this.options.onRunStateChange?.({
-      isRunning: this.isMachineRunning,
-      isAutoRunning: this.isAutoRunning,
-      canStepForward: this.canStepForward,
-      canStepBack: this.canStepBack,
-      canAutoRun: this.canAutoRun,
-      canRestart: this.canRestart,
-      speed: this.speed,
-    });
-  }
-
-  /**
-   * Synchronize all run-mode DOM surfaces (stats, tape, current command highlight)
-   * with the current `MachineRun` state. Called once per single step, or once per
-   * animation frame at the end of a high-speed batch.
-   */
-  private flushRunView(direction: 'forward' | 'reverse', clearNotification = true): void {
-    const run = this.run;
+  const renderTapeView = (mount: boolean): void => {
     if (run === null) return;
-    this.stats.operationsCount = run.stepsCount;
-    this.stats.maxDataLength = run.cellsUsed;
-    this.renderStats();
-    this.updateTapeView(true);
-    this.setStepDirection(direction);
-    this.highlightCurrentCommand(run.nextCommand);
-    if (clearNotification) this.notifications.clear();
-    this.notifyRunState();
-  }
+    const label = i18n.t('a11y.tapeViewLabel');
+    const dirty = run.consumeDirtyCells();
+    if (mount) {
+      tapeRenderer.mount(el.tapeView, run.tapeView, run.headPosition, label);
+    } else {
+      tapeRenderer.update(run.tapeView, run.headPosition, label, dirty);
+    }
+  };
 
-  private stepForwardOnce(playSound: boolean, render: boolean): boolean {
-    const run = this.run;
+  const haltAutoRun = (): void => {
+    autoRunner.cancel();
+    options.onModeChange(mode);
+    notifyRunState();
+  };
+
+  const stopAutoRun = (): void => {
+    if (autoRunner.isRunning) haltAutoRun();
+  };
+
+  const syncRunView = (direction: StepDirection, highlight = true): void => {
+    if (run === null) return;
+    // Batch all DOM writes first, then issue layout-reading scroll calls.
+    statsView.updateProgress(run.stepsCount, run.cellsUsed);
+    renderTapeView(false);
+    setStepDirection(direction);
+    if (highlight) commands.markCurrent(run.nextCommandIndex, false);
+    tapeRenderer.scrollToHead();
+    if (highlight) programRenderer.scrollToCurrent();
+  };
+
+  const flushRunView = (direction: StepDirection): void => {
+    syncRunView(direction);
+    notifications.clear();
+    notifyRunState();
+  };
+
+  const stepForwardOnce = (playSound: boolean, render: boolean): boolean => {
     if (run === null || !run.isRunning) return false;
 
-    const executed = run.nextCommand;
-    try {
-      run.step();
-    } catch (error) {
-      this.stats.operationsCount = run.stepsCount;
-      this.stats.maxDataLength = run.cellsUsed;
-      this.renderStats();
-      this.updateTapeView(true);
-      this.setStepDirection('forward');
-      this.reportRuntimeError(error);
+    const executedIdx = run.nextCommandIndex;
+    const outcome = run.step();
+    if (!outcome.ok) {
+      syncRunView('forward', false);
+      commands.markCurrent(-1);
+      displayRuntimeError(outcome.error, notifications, (cmd) => commands.markError(cmd));
+      haltAutoRun();
       return false;
     }
 
-    if (executed !== undefined) {
-      this.recordVisited(executed, 1);
-      this.returnCursorOffset = executed.source.offset;
+    if (executedIdx >= 0) {
+      commands.recordVisited(executedIdx, 1);
+      commands.recordCursor(executedIdx);
     }
 
-    this.stats.operationsCount = run.stepsCount;
-    this.stats.maxDataLength = run.cellsUsed;
-
     if (run.isRunning) {
-      if (render) {
-        this.flushRunView('forward');
-      } else {
-        this.stepDirection = 'forward';
-      }
-      if (playSound) this.options.onStepSound?.();
+      if (render) flushRunView('forward');
+      else stepDirection = 'forward';
+      if (playSound) options.onStepSound?.();
       return true;
     }
 
-    this.renderStats();
-    this.updateTapeView(true);
-    this.setStepDirection('forward');
-    this.highlightCurrentCommand(run.nextCommand);
-    if (playSound) this.options.onStepSound?.();
-    this.reportFinish(run);
+    syncRunView('forward');
+    if (playSound) options.onStepSound?.();
+    displayRunFinish(run, notifications);
+    haltAutoRun();
     return false;
-  }
+  };
 
-  private notifyStepBackBoundary(run: MachineRun): void {
-    const key = run.isAtStart ? 'log.reachedInitialState' : 'log.reachedHistoryLimit';
-    this.notifications.show('info', (i) => i.t(key));
-  }
-
-  private stepBackOnce(playSound: boolean, render: boolean): boolean {
-    const run = this.run;
+  const stepBackOnce = (playSound: boolean, render: boolean): boolean => {
     if (run === null) return false;
 
     if (!run.canStepBack) {
-      this.clearAutoHandles();
-      this.notifyStepBackBoundary(run);
-      this.options.onModeChange(this.mode);
-      this.notifyRunState();
+      displayStepBackBoundary(run, notifications);
+      haltAutoRun();
       return false;
     }
 
-    const undone = run.stepBack();
-    if (undone === null) return false;
+    const undoneIdx = run.stepBackIndex();
+    if (undoneIdx < 0) return false;
 
-    this.recordVisited(undone, -1);
-    this.clearErrorCommandHighlight();
-
-    this.stats.operationsCount = run.stepsCount;
-    this.stats.maxDataLength = run.cellsUsed;
+    commands.recordVisited(undoneIdx, -1);
+    commands.markError(null);
 
     if (!run.canStepBack) {
-      this.renderStats();
-      this.updateTapeView(true);
-      this.setStepDirection('reverse');
-      this.highlightCurrentCommand(run.nextCommand);
-      if (playSound) this.options.onStepSound?.();
-      this.clearAutoHandles();
-      this.notifyStepBackBoundary(run);
-      this.options.onModeChange(this.mode);
-      this.notifyRunState();
+      syncRunView('reverse');
+      if (playSound) options.onStepSound?.();
+      displayStepBackBoundary(run, notifications);
+      haltAutoRun();
       return false;
     }
 
-    if (render) {
-      this.flushRunView('reverse');
-    } else {
-      this.stepDirection = 'reverse';
-    }
-    if (playSound) this.options.onStepSound?.();
+    if (render) flushRunView('reverse');
+    else stepDirection = 'reverse';
+    if (playSound) options.onStepSound?.();
     return true;
-  }
+  };
 
-  private parseInput(): CompiledProgram | null {
-    try {
-      return compileProgram(this.el.programInput.value, 0);
-    } catch (error) {
-      this.reportCompileError(error, this.el.programInput.value);
-      return null;
-    }
-  }
+  const autoRunner = createAutoRunner({
+    getSpeed: () => speedCtrl.current,
+    getOpsCount: () => run?.stepsCount ?? 0,
+    step: (dir, sound, render) =>
+      dir === 'forward' ? stepForwardOnce(sound, render) : stepBackOnce(sound, render),
+    onBatchFlush: flushRunView,
+    onSound: () => options.onStepSound?.(),
+    onHalt: haltAutoRun,
+    onModeNotify: () => options.onModeChange(mode),
+    onRunStateNotify: notifyRunState,
+  });
 
-  private reportCompileError(error: unknown, text: string): void {
-    if (!(error instanceof MachineError)) throw error;
+  const speedCtrl = createSpeedController({
+    initialSpeed: options.initialSpeed,
+    initialMinSpeed: options.initialMinSpeed,
+    initialMaxSpeed: options.initialMaxSpeed,
+    autoRunner,
+    canStepInDirection: (speed) => canStepInDirection(run, speed),
+    onReverseBoundary: () => {
+      if (run !== null && !run.canStepBack) displayStepBackBoundary(run, notifications);
+    },
+    onModeNotify: () => options.onModeChange(mode),
+    onRunStateNotify: notifyRunState,
+  });
 
-    const scrollTop = this.el.programInput.scrollTop;
-    this.returnCursorOffset = null;
-    this.setMode('error');
-    this.notifications.clear();
+  const unsubscribeI18n = i18n.subscribe(() => {
+    statsView.refreshLabels();
+    if (mode === 'run') renderTapeView(false);
+  });
 
-    if (error instanceof ParseError) {
-      this.returnCursorOffset = error.data.offset;
-      this.el.programView.replaceChildren(renderProgramWithError(text, error.data.offset));
-      const badText = error.data.text;
-      this.notifications.show('error', (i) => i.t('error.parseError', { text: badText }));
-    } else if (error instanceof EmptyProgramError) {
-      this.el.programView.textContent = text;
-      this.notifications.show('error', (i) => i.t('error.programIsEmpty'));
-    } else if (error instanceof AmbiguousCommandError) {
-      this.returnCursorOffset = error.data.command.source.offset;
-      this.renderProgramWithMarks(text, [error.data.command, error.data.original], 'error');
-      const q = String(error.data.command.q);
-      const a = error.data.command.a;
-      this.notifications.show('error', (i) => i.t('error.ambiguousCommand', { q, a }));
-    } else if (error instanceof NonexistentTargetStateError) {
-      this.returnCursorOffset = error.data.command.source.offset;
-      this.renderProgramWithMarks(text, [error.data.command], 'error');
-      const w = String(error.data.command.w);
-      this.notifications.show('error', (i) => i.t('error.targetStateDoesNotExist', { w }));
-    } else if (error instanceof NonexistentInitialStateError) {
-      this.renderProgramWithMarks(text, [], 'error');
-      const q = String(error.data.state);
-      this.notifications.show('error', (i) => i.t('error.initialStateDoesNotExist', { q }));
-    } else {
-      throw error;
-    }
+  const resetRunObjects = (): void => {
+    stopAutoRun();
+    speedCtrl.endDrag();
+    run = null;
+    commands.reset();
+    tapeRenderer.clear();
+    programRenderer.clear();
+  };
 
-    this.el.programView.scrollTop = scrollTop;
-    scrollElementIntoView(this.el.programView.querySelector('mark.error, .cmd.error'));
-    // Move focus out of `#input-tape` (e.g. if error was triggered by pressing
-    // Enter in the tape input) so Enter/Escape immediately return to edit mode.
-    this.el.programView.focus({ preventScroll: true });
-  }
-
-  /**
-   * Render the program with some commands marked as erroneous.
-   *
-   * The program did not compile, so only the *parser* runs here: the
-   * commands are enough to draw the syntax-highlighted listing without
-   * repeating validation.
-   */
-  private renderProgramWithMarks(
+  const reportCompileFailure = (
     text: string,
-    commands: readonly Command[],
-    className: string,
-  ): void {
-    try {
-      const listing = listProgram(text);
-      this.el.programView.replaceChildren(renderProgram(listing));
-      const nodes = Array.from(this.el.programView.querySelectorAll<HTMLElement>('.cmd'));
-      const offsets = new Set(commands.map((command) => command.source.offset));
-      listing.commands.forEach((command, index) => {
-        if (offsets.has(command.source.offset)) nodes[index]?.classList.add(className);
-      });
-    } catch (parseFailure) {
-      if (!(parseFailure instanceof ParseError)) throw parseFailure;
-      this.el.programView.replaceChildren(renderProgramWithError(text, parseFailure.data.offset));
-    }
-  }
+    listing: ProgramListing | null,
+    error: CompileError,
+  ): null => {
+    const scrollTop = el.programInput.scrollTop;
+    resetRunObjects();
+    setMode('error');
+    commands.setReturnCursorOffset(
+      displayCompileError(error, {
+        text,
+        listing,
+        programView: el.programView,
+        programRenderer,
+        notifications,
+      }),
+    );
+    notifyRunState();
+    programRenderer.syncScroll(scrollTop);
+    programRenderer.scrollToFirstError();
+    // Move focus out of `#input-tape` so Enter/Escape immediately return to edit mode.
+    el.programView.focus({ preventScroll: true });
+    return null;
+  };
 
-  private mountTapeView(): void {
-    const run = this.run;
-    if (run === null) return;
-    const tapeLabel = this.i18n.t('a11y.tapeViewLabel');
-    this.tapeRenderer.mount(this.el.tapeView, run.tapeText, run.headPosition, tapeLabel);
-    scrollElementIntoView(this.tapeRenderer.currentCell, {
-      block: 'nearest',
-      inline: 'nearest',
+  const parseInput = (): CompiledProgram | null => {
+    const text = el.programInput.value;
+    const listed = listProgram(text);
+    if (!listed.ok) return reportCompileFailure(text, null, listed.error);
+
+    const created = createProgram(listed.value.commands, 0);
+    if (!created.ok) return reportCompileFailure(text, listed.value, created.error);
+
+    return { ...listed.value, program: created.value };
+  };
+
+  const start = (): void => {
+    const parsed = parseInput();
+    if (parsed === null) return;
+
+    const scrollTop = el.programInput.scrollTop;
+    const tape = coerceTape(el.tapeInput.value);
+    if (tape !== el.tapeInput.value) el.tapeInput.value = tape;
+
+    stopAutoRun();
+    speedCtrl.endDrag();
+    run = new MachineRun(
+      parsed.program,
+      tape,
+      options.maxHistory !== undefined ? { maxHistory: options.maxHistory } : {},
+    );
+    commands.reset();
+    options.onProgramChange(el.programInput.value);
+    options.onTapeChange(tape);
+
+    programRenderer.mount(el.programView, parsed);
+    commands.index(parsed);
+    renderTapeView(true);
+
+    statsView.set({
+      commandsCount: parsed.commands.length,
+      initialDataLength: run.initialLength,
+      maxDataLength: run.cellsUsed,
+      operationsCount: 0,
     });
-  }
 
-  private updateTapeView(scrollToHead: boolean): void {
-    const run = this.run;
-    if (run === null) return;
-    const tapeLabel = this.i18n.t('a11y.tapeViewLabel');
-    this.tapeRenderer.update(run.tapeText, run.headPosition, tapeLabel);
-    if (scrollToHead) {
-      scrollElementIntoView(this.tapeRenderer.currentCell, {
-        block: 'nearest',
-        inline: 'nearest',
-      });
+    setMode('run');
+    programRenderer.syncScroll(scrollTop);
+    setStepDirection('forward');
+    commands.markCurrent(run.nextCommandIndex, false);
+    notifications.clear();
+    notifyRunState();
+    // Flush layout-dependent scroll calls after all DOM writes.
+    tapeRenderer.scrollToHead();
+    programRenderer.scrollToCurrent();
+    // Move focus out of `#input-tape` (e.g. after pressing Enter) so Space/Enter/Esc work.
+    el.programView.focus({ preventScroll: true });
+  };
+
+  const toggleAutoRun = (): void => {
+    if (autoRunner.isRunning) {
+      stopAutoRun();
+      return;
     }
-  }
+    const speed = speedCtrl.current;
+    if (mode !== 'run' || run === null || speed === 0) return;
 
-  /** Maintain O(1) execution counts per command so stepping backward restores `.visited` exactly. */
-  private recordVisited(command: Command, delta: 1 | -1): void {
-    const index = this.commandIndex.get(command);
-    if (index === undefined) return;
+    if (speed < 0 && !run.canStepBack) {
+      displayStepBackBoundary(run, notifications);
+      notifyRunState();
+      return;
+    }
+    if (speed > 0 && !run.isRunning) return;
 
-    const prev = this.visitCounts.get(index) ?? 0;
-    const next = Math.max(0, prev + delta);
-    const node = this.commandNodes[index];
+    autoRunner.markSteppedNow();
+    autoRunner.schedule();
+  };
 
-    if (next === 0) {
-      this.visitCounts.delete(index);
-      if (prev > 0) node?.classList.remove('visited');
+  const backToEdit = (focus?: 'program' | 'tape'): void => {
+    const previousMode = mode;
+    const scrollTop = el.programView.scrollTop;
+    const cursorOffset = commands.returnCursorOffset;
+
+    resetRunObjects();
+    setMode('edit');
+    notifications.clear();
+    notifyRunState();
+
+    const target = resolveBackToEditTarget(previousMode, cursorOffset, focus);
+    if (target === 'program') {
+      el.programInput.focus({ preventScroll: true });
+      if (cursorOffset !== null) {
+        el.programInput.setSelectionRange(cursorOffset, cursorOffset);
+      }
+      el.programInput.scrollTop = scrollTop;
     } else {
-      this.visitCounts.set(index, next);
-      if (prev === 0) node?.classList.add('visited');
+      el.programInput.scrollTop = scrollTop;
+      el.tapeInput.focus();
     }
-  }
+  };
 
-  private setStepDirection(direction: 'forward' | 'reverse'): void {
-    this.stepDirection = direction;
-    this.el.programView.dataset.stepDir = direction;
-  }
+  const step = (): boolean => {
+    stopAutoRun();
+    return stepForwardOnce(true, true);
+  };
 
-  private clearCurrentCommandHighlight(): void {
-    if (this.currentCommandNode !== null) {
-      this.currentCommandNode.classList.remove('current');
-      this.currentCommandNode = null;
-    }
-  }
+  const stepBack = (): boolean => {
+    stopAutoRun();
+    return stepBackOnce(true, true);
+  };
 
-  private clearErrorCommandHighlight(): void {
-    if (this.errorCommandNode !== null) {
-      this.errorCommandNode.classList.remove('error');
-      this.errorCommandNode = null;
-    }
-  }
-
-  private highlightCurrentCommand(next: Command | undefined): void {
-    this.clearCurrentCommandHighlight();
-    if (next === undefined) return;
-
-    const index = this.commandIndex.get(next);
-    if (index !== undefined) {
-      const current = this.commandNodes[index] ?? null;
-      if (current !== null) {
-        current.classList.add('current');
-        this.currentCommandNode = current;
-        scrollElementIntoView(current, { block: 'nearest' });
+  return {
+    get currentMode(): UIMode {
+      return mode;
+    },
+    get isAutoRunning(): boolean {
+      return autoRunner.isRunning;
+    },
+    get lastStepDirection(): StepDirection {
+      return stepDirection;
+    },
+    get currentSpeed(): number {
+      return speedCtrl.current;
+    },
+    get currentMinSpeed(): number {
+      return speedCtrl.min;
+    },
+    get currentMaxSpeed(): number {
+      return speedCtrl.max;
+    },
+    get isMachineRunning(): boolean {
+      return readRunState().isRunning;
+    },
+    get canStepBack(): boolean {
+      return readRunState().canStepBack;
+    },
+    get canRestart(): boolean {
+      return readRunState().canRestart;
+    },
+    get canAutoRun(): boolean {
+      return readRunState().canAutoRun;
+    },
+    beginSpeedDrag: () => speedCtrl.beginDrag(),
+    endSpeedDrag: () => speedCtrl.endDrag(),
+    setSpeed: (value) => speedCtrl.setSpeed(value),
+    setMinSpeed: (value) => speedCtrl.setMin(value),
+    setMaxSpeed: (value) => speedCtrl.setMax(value),
+    hydrate(program, tape) {
+      if (program !== null) el.programInput.value = program;
+      if (tape !== null) el.tapeInput.value = tape;
+      setMode('edit');
+      notifications.show('info', (t) => t.t(program !== null ? 'log.restoredDraft' : 'log.ready'));
+    },
+    start,
+    restart() {
+      if (mode !== 'run' || run === null) return;
+      stopAutoRun();
+      run.reset();
+      commands.clearVisited();
+      commands.markCurrent(-1);
+      commands.markError(null);
+      syncRunView('forward');
+      notifications.show('info', (t) => t.t('log.restarted'));
+      notifyRunState();
+    },
+    step,
+    stepBack,
+    toggleAutoRun,
+    backToEdit,
+    unmark() {
+      stopAutoRun();
+      commands.clearVisited();
+    },
+    async copyProgram() {
+      if (await copyTextToClipboard(el.programInput.value, el.programInput)) {
+        notifications.show('info', (t) => t.t('log.copied'));
       }
-      this.returnCursorOffset = next.source.offset;
-    }
-  }
+    },
+    toTu4() {
+      const parsed = parseInput();
+      if (parsed === null) return null;
 
-  private reportRuntimeError(error: unknown): void {
-    this.clearAutoHandles();
-    if (error instanceof NoSuchCommandError) {
-      this.clearCurrentCommandHighlight();
-      const q = String(error.data.state);
-      const a = error.data.symbol;
-      this.notifications.show('error', (i) => i.t('error.noSuchCommand', { q, a }));
-      this.options.onModeChange(this.mode);
-      this.notifyRunState();
-      return;
-    }
-    if (error instanceof OutOfTapeError) {
-      // Mark the offending command as an error rather than leaving it green.
-      this.clearCurrentCommandHighlight();
-      this.clearErrorCommandHighlight();
-      const offendingCommand = error.data.command;
-      const index = offendingCommand !== null ? this.commandIndex.get(offendingCommand) : undefined;
-      const node = index !== undefined ? (this.commandNodes[index] ?? null) : null;
-      if (node !== null) {
-        node.classList.add('error');
-        this.errorCommandNode = node;
-        scrollElementIntoView(node, { block: 'nearest' });
-      }
-      if (offendingCommand !== null) {
-        this.returnCursorOffset = offendingCommand.source.offset;
-      }
-      this.notifications.show('error', (i) => i.t('error.headIsOutOfTape'));
-      this.options.onModeChange(this.mode);
-      this.notifyRunState();
-      return;
-    }
-    throw error;
-  }
-
-  private reportFinish(run: MachineRun): void {
-    this.clearAutoHandles();
-    switch (run.checkNormality()) {
-      case 'sourceAltered':
-        this.notifications.show('warning', (i) => i.t('log.warningSourceAltered'));
-        break;
-      case 'misplaced':
-        this.notifications.show('warning', (i) => i.t('log.warningMisposition'));
-        break;
-      case 'normal':
-        this.notifications.show('info', (i) => i.t('log.finished'));
-        break;
-    }
-    this.options.onModeChange(this.mode);
-    this.notifyRunState();
-  }
-
-  private scheduleAutoTick(initialDelayMs?: number): void {
-    if (this.speed === 0) return;
-
-    this.autoRunning = true;
-    const generation = ++this.autoGeneration;
-    const interval = stepIntervalMs(this.speed);
-
-    if (interval < RAF_THRESHOLD_MS) {
-      // High-speed mode (|speed| > 10×): compute a rate-accurate, time-budgeted
-      // batch per animation frame, flushing DOM updates only once at frame end.
-      let lastFrameAt = performance.now();
-      let stepBudget = 0;
-
-      const frame = (now: number): void => {
-        if (generation !== this.autoGeneration) return;
-        this.autoRaf = null;
-        if (this.speed === 0) {
-          this.clearAutoHandles();
-          this.options.onModeChange(this.mode);
-          this.notifyRunState();
-          return;
-        }
-
-        const elapsedMs = Math.max(0, Math.min(100, now - lastFrameAt));
-        lastFrameAt = now;
-        stepBudget += (elapsedMs * BASE_STEPS_PER_SECOND * Math.abs(this.speed)) / 1000;
-
-        const targetSteps = Math.min(
-          MAX_BATCH_STEPS_PER_FRAME,
-          Math.max(1, Math.floor(stepBudget)),
-        );
-        const deadline = performance.now() + MAX_BATCH_MS_PER_FRAME;
-        const opsBefore = this.stats.operationsCount;
-        const direction = this.speed > 0 ? 'forward' : 'reverse';
-        let stepped = 0;
-        let keepGoing = true;
-
-        while (
-          keepGoing &&
-          stepped < targetSteps &&
-          (stepped === 0 || performance.now() < deadline)
-        ) {
-          keepGoing =
-            direction === 'forward'
-              ? this.stepForwardOnce(false, false)
-              : this.stepBackOnce(false, false);
-          stepped += 1;
-        }
-        stepBudget = Math.max(0, stepBudget - stepped);
-        this.lastStepAt = performance.now();
-
-        if (stepped > 0 && keepGoing && generation === this.autoGeneration) {
-          this.flushRunView(direction);
-        }
-        if (this.stats.operationsCount !== opsBefore) this.options.onStepSound?.();
-
-        if (!keepGoing || generation !== this.autoGeneration) {
-          this.options.onModeChange(this.mode);
-          return;
-        }
-
-        this.autoRaf = requestAnimationFrame(frame);
-      };
-
-      this.autoRaf = requestAnimationFrame(frame);
-      this.options.onModeChange(this.mode);
-      this.notifyRunState();
-      return;
-    }
-
-    const tick = (): void => {
-      if (generation !== this.autoGeneration) return;
-      this.autoTimer = null;
-      this.lastStepAt = performance.now();
-
-      if (this.speed === 0) {
-        this.clearAutoHandles();
-        this.options.onModeChange(this.mode);
-        this.notifyRunState();
-        return;
+      const converted = toTu4(parsed.program);
+      if (!converted.ok) {
+        notifications.show('error', (t) => t.t('error.tooManyStates'));
+        return null;
       }
 
-      const keepGoing =
-        this.speed > 0 ? this.stepForwardOnce(true, true) : this.stepBackOnce(true, true);
-      if (!keepGoing || generation !== this.autoGeneration) {
-        this.options.onModeChange(this.mode);
-        return;
+      notifications.show('info', (t) => t.t('log.convertedToTu4'));
+      options.onTu4Converted?.(converted.value);
+      return converted.value;
+    },
+    loadDraft(program, tape) {
+      if (mode !== 'edit') {
+        resetRunObjects();
+        setMode('edit');
+        notifyRunState();
       }
-
-      this.autoTimer = setTimeout(tick, Math.round(stepIntervalMs(this.speed)));
-    };
-
-    const delay = initialDelayMs ?? Math.round(interval);
-    this.autoTimer = setTimeout(tick, delay);
-    this.options.onModeChange(this.mode);
-    this.notifyRunState();
-  }
-
-  private clearAutoHandles(): void {
-    this.autoRunning = false;
-    this.autoGeneration += 1;
-    if (this.autoTimer !== null) {
-      clearTimeout(this.autoTimer);
-      this.autoTimer = null;
-    }
-    if (this.autoRaf !== null) {
-      cancelAnimationFrame(this.autoRaf);
-      this.autoRaf = null;
-    }
-  }
-
-  private renderStats(): void {
-    const rows: ReadonlyArray<readonly [string, number]> = [
-      [this.i18n.t('stats.commands'), this.stats.commandsCount],
-      [this.i18n.t('stats.initialLength'), this.stats.initialDataLength],
-      [this.i18n.t('stats.cellsUsed'), this.stats.maxDataLength],
-      [this.i18n.t('stats.operations'), this.stats.operationsCount],
-    ];
-    const fragment = document.createDocumentFragment();
-    rows.forEach(([label, value], index) => {
-      if (index > 0) fragment.append(document.createTextNode('\n'));
-      const row = el('div', { class: 'stat-row' });
-      row.append(
-        el('span', { class: 'stat-row__label' }, `${label}: `),
-        el('strong', { class: 'stat-row__value' }, this.i18n.formatNumber(value)),
-      );
-      fragment.append(row);
-    });
-    this.el.stats.replaceChildren(fragment);
-  }
-
-  private setMode(mode: UIMode): void {
-    this.mode = mode;
-    this.el.controls.dataset.mode = mode;
-    document.body.dataset.mode = mode;
-    this.options.onModeChange(mode);
-  }
+      el.programInput.value = program;
+      el.tapeInput.value = tape;
+      options.onProgramChange(program);
+      options.onTapeChange(tape);
+    },
+    handleEnter(withModifier = false) {
+      switch (resolveEnterAction(mode, readRunState(), withModifier)) {
+        case 'start':
+          start();
+          break;
+        case 'toggleAutoRun':
+          toggleAutoRun();
+          break;
+        case 'backToTape':
+          backToEdit('tape');
+          break;
+        case 'backToProgram':
+          backToEdit('program');
+          break;
+        case 'none':
+          break;
+      }
+    },
+    handleSpace() {
+      if (mode === 'run') step();
+    },
+    handleShiftSpace() {
+      if (mode === 'run') stepBack();
+    },
+    handleEscape() {
+      switch (resolveEscapeAction(mode, autoRunner.isRunning)) {
+        case 'stopAutoRun':
+          stopAutoRun();
+          break;
+        case 'backToTape':
+          backToEdit('tape');
+          break;
+        case 'backToProgram':
+          backToEdit('program');
+          break;
+        case 'none':
+          break;
+      }
+    },
+    dispose() {
+      stopAutoRun();
+      unsubscribeI18n();
+      tapeRenderer.clear();
+      programRenderer.clear();
+      statsView.dispose();
+      if (ownsNotifications) notifications.dispose();
+    },
+  };
 }

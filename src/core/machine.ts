@@ -20,56 +20,63 @@ export interface CommandSource {
   readonly offset: number;
 }
 
-export type MoveKind = 'left' | 'right' | 'stay' | 'halt';
+/** Numeric states are stored as numbers, named states as strings. */
+export type StateId = number | string;
 
-export class Command {
-  constructor(
-    readonly q: StateId,
-    readonly a: string,
-    readonly v: string,
-    readonly w: StateId,
-    readonly source: CommandSource,
-  ) {}
+type MoveKind = 'left' | 'right' | 'stay' | 'halt';
+export type CommandKind = MoveKind | 'write';
 
+/** Immutable representation of a single Turing machine transition `q,a,v,w`. */
+export interface Command {
+  readonly q: StateId;
+  readonly a: string;
+  readonly v: string;
+  readonly w: StateId;
+  readonly source: CommandSource;
   /**
    * What this command does. Note that `rep,0,0,rep` is a halt and `rep,0,0,nxt`
    * is a stay rather than a write (same as original jstu4 v2.3).
    */
-  get kind(): MoveKind | 'write' {
-    if (this.v === '<') return 'left';
-    if (this.v === '>') return 'right';
-    if (this.v === '#') return 'halt';
-    if (this.a === this.v) return this.q === this.w ? 'halt' : 'stay';
-    if (this.v === '=') return 'stay';
-    return 'write';
-  }
-
+  readonly kind: CommandKind;
   /**
    * `true` when the machine stops after this command. Matches original v2.3
    * `isStop()`: `#` always halts, and `a === v && q === w` also halts even
    * when `v` is `<` or `>` (after performing the move).
    */
-  get isHalt(): boolean {
-    return this.v === '#' || (this.a === this.v && this.q === this.w);
-  }
-
-  toString(): string {
-    return `${this.q},${this.a},${this.v},${this.w}`;
-  }
+  readonly isHalt: boolean;
 }
 
-/** Numeric states are stored as numbers, named states as strings. */
-export type StateId = number | string;
+function classifyCommand(q: StateId, a: string, v: string, w: StateId): CommandKind {
+  if (v === '<') return 'left';
+  if (v === '>') return 'right';
+  if (v === '#') return 'halt';
+  if (a === v) return q === w ? 'halt' : 'stay';
+  if (v === '=') return 'stay';
+  return 'write';
+}
 
-/** Parse a state name: digit-only names become numbers. */
+/** Create an immutable {@link Command} value from its parsed components. */
+export function createCommand(
+  q: StateId,
+  a: string,
+  v: string,
+  w: StateId,
+  source: CommandSource,
+): Command {
+  return {
+    q,
+    a,
+    v,
+    w,
+    source,
+    kind: classifyCommand(q, a, v, w),
+    isHalt: v === '#' || (a === v && q === w),
+  };
+}
+
+/** Parse a state name: safe-integer digit-only names become numbers. */
 export function parseStateName(name: string): StateId {
-  return /^\d+$/.test(name) ? Number.parseInt(name, 10) : name;
-}
-
-/**
- * Normalised comparison key for a state. `1` and `'01'` must be the same
- * state, but `'1'` and `'a'` must not collide with each other.
- */
-export function stateKey(id: StateId): string {
-  return typeof id === 'number' ? `#${id}` : `$${id}`;
+  if (!/^\d+$/.test(name)) return name;
+  const parsed = Number.parseInt(name, 10);
+  return Number.isSafeInteger(parsed) ? parsed : name;
 }

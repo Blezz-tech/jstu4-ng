@@ -37,14 +37,43 @@ export function transformBuiltHtml(html: string, minify: boolean): string {
     });
 
   if (minify) {
+    // Protect non-empty bodies of whitespace-sensitive elements while still
+    // compacting their opening tags' attributes.
+    const preserved: string[] = [];
+    out = out.replace(
+      /(<(pre|textarea|script|style)\b[^>]*>)([\s\S]*?)(<\/\2>)/gi,
+      (_match, open: string, _tag: string, body: string, close: string) => {
+        if (body.length === 0) return `${open}${close}`;
+        const idx = preserved.push(body) - 1;
+        return `${open}__JSTU4_PRESERVE_${idx}__${close}`;
+      },
+    );
+
     out = out
       .replace(/<!--[\s\S]*?-->/g, '')
-      .replace(/>\s*\n\s*</g, '><')
+      // Collapse multi-line attributes, redundant spaces, and space before `/>`.
       .replace(/<([a-zA-Z][a-zA-Z0-9-]*)(\s[^>]*?)>/g, (_m, tag: string, attrs: string) => {
-        const compactAttrs = attrs.replace(/\s*\n\s*/g, ' ').replace(/\s+(\/?>?)$/, '$1');
+        const compactAttrs = attrs
+          .replace(/\s*\n\s*/g, ' ')
+          .replace(/\s{2,}/g, ' ')
+          .replace(/\s+(\/)$/, '$1')
+          .replace(/\s+$/, '');
         return `<${tag}${compactAttrs}>`;
       })
+      // Remove redundant self-closing slash on HTML5 void elements (keeps SVG `<path .../>` intact).
+      .replace(
+        /<(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)\b([^>]*?)\s*\/>/gi,
+        '<$1$2>',
+      )
+      .replace(/>\s*\n\s*</g, '><')
+      // Trim newline indentation around inline text nodes (e.g. button glyphs `×`, `−`, `+`, `?`).
+      .replace(/>\s*\n\s*([^<>\n]+?)\s*\n\s*</g, '>$1<')
       .trim();
+
+    out = out.replace(
+      /__JSTU4_PRESERVE_(\d+)__/g,
+      (_m, idx: string) => preserved[Number(idx)] ?? '',
+    );
   }
 
   return out;
@@ -82,7 +111,6 @@ export default defineConfig(({ mode }) => {
     },
     esbuild: isProd
       ? {
-          drop: ['console', 'debugger'],
           legalComments: 'none',
         }
       : {
@@ -95,7 +123,24 @@ export default defineConfig(({ mode }) => {
       modulePreload: false,
       cssCodeSplit: false,
       sourcemap: !isProd,
-      minify: isProd ? 'esbuild' : false,
+      minify: isProd ? 'terser' : false,
+      ...(isProd
+        ? {
+            terserOptions: {
+              ecma: 2020,
+              safari10: false,
+              compress: {
+                passes: 3,
+                drop_console: true,
+                drop_debugger: true,
+                pure_getters: true,
+              },
+              format: {
+                comments: false,
+              },
+            },
+          }
+        : {}),
       cssMinify: isProd ? 'esbuild' : false,
       assetsInlineLimit: isProd ? 4096 : 0,
       reportCompressedSize: isProd,

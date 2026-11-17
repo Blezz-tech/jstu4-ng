@@ -1,16 +1,16 @@
 import { TM_VERSION } from './core/version';
 import { bindDomI18n, createI18n, detectLang } from './i18n';
-import { StepSound } from './ui/audio';
-import { AppController } from './ui/controller';
-import { NotificationLog } from './ui/notifications';
-import { HelpDialog, Tu4Dialog } from './ui/shell/dialogs';
+import { createStepSound } from './ui/audio';
+import { createAppController } from './ui/controller';
+import { createNotificationLog } from './ui/notifications';
+import { createHelpDialog, createTu4Dialog } from './ui/shell/dialogs';
 import { queryAppDom } from './ui/shell/dom';
-import { HistoryPanel } from './ui/shell/history-panel';
-import { SettingsMenu } from './ui/shell/settings-menu';
-import { SettingsStore, ThemeController } from './ui/shell/settings-store';
+import { bindHistoryPanel } from './ui/shell/history-panel';
+import { bindSettingsMenu, type SettingsMenu } from './ui/shell/settings-menu';
+import { bindTheme, createSettingsStore } from './ui/shell/settings-store';
 import { bindShortcuts } from './ui/shell/shortcuts';
-import { SidePanels } from './ui/shell/sidepanels';
-import { ToolbarView } from './ui/shell/toolbar';
+import { bindSidePanels } from './ui/shell/sidepanels';
+import { bindToolbar, type ToolbarView } from './ui/shell/toolbar';
 import { loadState, saveProgram, saveTape } from './ui/storage';
 
 export interface MountedApp {
@@ -24,7 +24,7 @@ export interface MountedApp {
  */
 export function mountApp(doc: Document = document): MountedApp {
   const saved = loadState();
-  const settings = new SettingsStore(saved.settings);
+  const settings = createSettingsStore(saved.settings);
   const i18n = createI18n(
     detectLang(location.search, settings.get().lang, navigator.languages ?? [navigator.language]),
   );
@@ -35,36 +35,36 @@ export function mountApp(doc: Document = document): MountedApp {
   const abortController = new AbortController();
   const { signal } = abortController;
 
-  const theme = new ThemeController({
+  const theme = bindTheme({
     root: doc.documentElement,
     themeButtons: dom.themeButtons,
     store: settings,
   });
-  const sound = new StepSound(settings.get().sound);
+  const sound = createStepSound(settings.get().sound);
 
   let toolbar: ToolbarView | null = null;
   let settingsMenu: SettingsMenu | null = null;
 
-  const sidepanels = new SidePanels({
+  const sidepanels = bindSidePanels({
     dom,
     settings,
     onLayoutChange: () => toolbar?.scheduleProgramOverflow(),
     signal,
   });
 
-  const notifications = new NotificationLog({
+  const notifications = createNotificationLog({
     element: dom.log,
     i18n,
     onChange: (kind) => sidepanels.handleLogChange(kind),
   });
 
-  const helpDialog = new HelpDialog({
+  const helpDialog = createHelpDialog({
     dom,
     onBeforeOpen: () => settingsMenu?.close(false),
     signal,
   });
 
-  const tu4Dialog = new Tu4Dialog({
+  const tu4Dialog = createTu4Dialog({
     dom,
     i18n,
     onBeforeOpen: () => {
@@ -75,7 +75,7 @@ export function mountApp(doc: Document = document): MountedApp {
   });
 
   const initialSettings = settings.get();
-  const controller = new AppController({
+  const controller = createAppController({
     i18n,
     notifications,
     initialSpeed: initialSettings.speed,
@@ -98,7 +98,7 @@ export function mountApp(doc: Document = document): MountedApp {
     onStepSound: () => sound.tick(),
   });
 
-  toolbar = new ToolbarView({
+  toolbar = bindToolbar({
     doc,
     dom,
     i18n,
@@ -109,7 +109,7 @@ export function mountApp(doc: Document = document): MountedApp {
     signal,
   });
 
-  const historyPanel = new HistoryPanel({
+  const historyPanel = bindHistoryPanel({
     dom,
     i18n,
     controller,
@@ -121,7 +121,7 @@ export function mountApp(doc: Document = document): MountedApp {
     signal,
   });
 
-  settingsMenu = new SettingsMenu({
+  settingsMenu = bindSettingsMenu({
     doc,
     dom,
     i18n,
@@ -152,7 +152,6 @@ export function mountApp(doc: Document = document): MountedApp {
     closeHistoryDrawer: () => sidepanels.setHistoryOpen(false, false),
     closeSidepanelDrawer: () => sidepanels.setSidepanelOpen(false, false),
     saveSnapshot: () => historyPanel.createManualSnapshot(),
-    syncRunToggleLabel: () => activeToolbar.syncRunToggleLabel(),
     signal,
   });
 
@@ -199,6 +198,7 @@ export function mountApp(doc: Document = document): MountedApp {
       notifications.dispose();
       historyPanel.dispose();
       tu4Dialog.dispose();
+      sound.dispose();
       theme.dispose();
     },
   };

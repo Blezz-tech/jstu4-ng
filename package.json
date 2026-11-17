@@ -33,6 +33,7 @@
     "eslint-config-prettier": "^10.1.8",
     "jsdom": "^29.1.1",
     "prettier": "^3.10.1",
+    "terser": "^5.51.2",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.2",
     "vite": "^7.3.8",

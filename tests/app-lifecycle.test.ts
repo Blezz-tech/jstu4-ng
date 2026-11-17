@@ -1,78 +1,24 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountApp } from '../src/app';
 import { debounce } from '../src/ui/dom';
 import { AUTOSAVE_INTERVAL_MS, SNAPSHOTS_STORAGE_KEY } from '../src/ui/history';
-import { SettingsStore, ThemeController } from '../src/ui/shell/settings-store';
-
-const htmlPath = resolve(import.meta.dirname, '../public/index.html');
-const rawHtml = readFileSync(htmlPath, 'utf8');
-const bodyMatch = rawHtml.match(/<body>([\s\S]*)<\/body>/);
-const bodyMarkup = bodyMatch?.[1] ?? '';
-
-interface MockMql {
-  matches: boolean;
-  addEventListener: ReturnType<typeof vi.fn>;
-  removeEventListener: ReturnType<typeof vi.fn>;
-  fireChange(nextMatches: boolean): void;
-}
-
-function createMockMatchMedia(initialMatches = false): MockMql {
-  const listeners = new Set<() => void>();
-  const mql: MockMql = {
-    matches: initialMatches,
-    addEventListener: vi.fn((_type: string, cb: () => void) => {
-      listeners.add(cb);
-    }),
-    removeEventListener: vi.fn((_type: string, cb: () => void) => {
-      listeners.delete(cb);
-    }),
-    fireChange(nextMatches: boolean) {
-      mql.matches = nextMatches;
-      for (const cb of listeners) cb();
-    },
-  };
-  vi.stubGlobal(
-    'matchMedia',
-    vi.fn(() => mql),
-  );
-  return mql;
-}
+import {
+  bindTheme,
+  createSettingsStore,
+  resolveEffectiveTheme,
+} from '../src/ui/shell/settings-store';
+import { setupAppDom, teardownAppDom, type MockMql } from './helpers/dom-fixture';
 
 describe('mountApp lifecycle & shell modules', () => {
   let mql: MockMql;
 
   beforeEach(() => {
-    window.localStorage.clear();
-    Object.defineProperty(window.navigator, 'languages', {
-      value: ['ru-RU'],
-      configurable: true,
-    });
-    Object.defineProperty(window.navigator, 'language', {
-      value: 'ru-RU',
-      configurable: true,
-    });
-    document.documentElement.lang = 'ru';
-    document.body.innerHTML = bodyMarkup;
-    mql = createMockMatchMedia(false);
-    for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
-      dialog.showModal = () => {
-        dialog.setAttribute('open', '');
-      };
-      dialog.close = () => {
-        dialog.removeAttribute('open');
-        dialog.dispatchEvent(new Event('close'));
-      };
-    }
+    mql = setupAppDom(false);
   });
 
   afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-    window.localStorage.clear();
-    document.body.innerHTML = '';
+    teardownAppDom();
   });
 
   it('detaches all listeners, timers, and observers on dispose() and allows clean remounting', () => {
@@ -153,8 +99,15 @@ describe('mountApp lifecycle & shell modules', () => {
     expect(deleteDialog.open).toBe(false);
   });
 
+  it('resolveEffectiveTheme resolves explicit and auto themes purely', () => {
+    expect(resolveEffectiveTheme('light', true)).toBe('light');
+    expect(resolveEffectiveTheme('dark', false)).toBe('dark');
+    expect(resolveEffectiveTheme('auto', false)).toBe('light');
+    expect(resolveEffectiveTheme('auto', true)).toBe('dark');
+  });
+
   it('SettingsStore and ThemeController react to updates and OS color-scheme changes until disposed', () => {
-    const store = new SettingsStore({
+    const store = createSettingsStore({
       lang: null,
       theme: 'auto',
       sound: false,
@@ -168,7 +121,7 @@ describe('mountApp lifecycle & shell modules', () => {
     const buttons = Array.from(
       document.querySelectorAll<HTMLButtonElement>('#theme-group [data-theme-option]'),
     );
-    const theme = new ThemeController({
+    const theme = bindTheme({
       root: document.documentElement,
       themeButtons: buttons,
       store,
@@ -218,5 +171,155 @@ describe('mountApp lifecycle & shell modules', () => {
     vi.advanceTimersByTime(200);
     expect(fn).toHaveBeenCalledTimes(1);
     expect(fn).toHaveBeenCalledWith('second');
+  });
+
+  it('renders #help-body lazily on open and clears its DOM on close', () => {
+    const app = mountApp(document);
+
+    const helpBtn = document.querySelector<HTMLButtonElement>('#btn-help')!;
+    const helpClose = document.querySelector<HTMLButtonElement>('#btn-help-close')!;
+    const helpDialog = document.querySelector<HTMLDialogElement>('#help-dialog')!;
+    const helpBody = document.querySelector<HTMLElement>('#help-body')!;
+
+    // Closed initially → #help-body has no DOM nodes
+    expect(helpDialog.open).toBe(false);
+    expect(helpBody.children).toHaveLength(0);
+
+    // Opening builds the help DOM
+    helpBtn.click();
+    expect(helpDialog.open).toBe(true);
+    expect(helpBody.children.length).toBeGreaterThan(0);
+
+    // Closing releases #help-body DOM nodes
+    helpClose.click();
+    expect(helpDialog.open).toBe(false);
+    expect(helpBody.children).toHaveLength(0);
+
+    // Reopening rebuilds it cleanly
+    helpBtn.click();
+    expect(helpDialog.open).toBe(true);
+    expect(helpBody.children.length).toBeGreaterThan(0);
+
+    app.dispose();
+  });
+
+  it('clears #help hash synchronously on Escape even when native close event is async', () => {
+    vi.useFakeTimers();
+    const originalPath = location.pathname + location.search + location.hash;
+    history.replaceState(null, '', '/#help');
+    try {
+      const app = mountApp(document);
+      const helpDialog = document.querySelector<HTMLDialogElement>('#help-dialog')!;
+      const helpBody = document.querySelector<HTMLElement>('#help-body')!;
+      const helpBtn = document.querySelector<HTMLButtonElement>('#btn-help')!;
+
+      expect(helpDialog.open).toBe(true);
+      expect(location.hash).toBe('#help');
+
+      // Mirror real browser behavior (HTML §4.11.4): close() clears `open`
+      // synchronously and queues the `close` event in a later task.
+      helpDialog.close = () => {
+        helpDialog.removeAttribute('open');
+        setTimeout(() => helpDialog.dispatchEvent(new Event('close')), 50);
+      };
+
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+
+      // Immediately after Escape (before the async `close` event runs),
+      // both the #help hash and DOM content are already cleaned up.
+      expect(helpDialog.open).toBe(false);
+      expect(location.hash).toBe('');
+      expect(helpBody.children).toHaveLength(0);
+
+      // Reopening before the stale async `close` fires must keep the fresh body intact.
+      helpBtn.click();
+      expect(helpDialog.open).toBe(true);
+      expect(helpBody.children.length).toBeGreaterThan(0);
+
+      vi.advanceTimersByTime(50);
+      expect(helpDialog.open).toBe(true);
+      expect(helpBody.children.length).toBeGreaterThan(0);
+
+      app.dispose();
+    } finally {
+      history.replaceState(null, '', originalPath);
+      vi.useRealTimers();
+    }
+  });
+
+  it('Escape closes #help-dialog without leaking through to run-mode Escape shortcut', () => {
+    const app = mountApp(document);
+    const programInput = document.querySelector<HTMLTextAreaElement>('#input-program')!;
+    const startBtn = document.querySelector<HTMLButtonElement>('#btn-start')!;
+    const helpBtn = document.querySelector<HTMLButtonElement>('#btn-help')!;
+    const helpDialog = document.querySelector<HTMLDialogElement>('#help-dialog')!;
+
+    programInput.value = '0, ,#,0';
+    startBtn.click();
+    expect(document.body.dataset.mode).toBe('run');
+
+    helpBtn.click();
+    expect(helpDialog.open).toBe(true);
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    expect(helpDialog.open).toBe(false);
+    expect(document.body.dataset.mode).toBe('run');
+
+    app.dispose();
+  });
+
+  it('closes the history drawer on wide-to-narrow resize when both drawers are open', () => {
+    const originalInnerWidth = window.innerWidth;
+    try {
+      Object.defineProperty(window, 'innerWidth', {
+        value: 1400,
+        configurable: true,
+      });
+
+      const app = mountApp(document);
+      const appShell = document.querySelector<HTMLElement>('.app-shell')!;
+      const sidepanel = document.querySelector<HTMLElement>('#sidepanel')!;
+      const sidepanelBackdrop = document.querySelector<HTMLElement>('#sidepanel-backdrop')!;
+      const historyPanel = document.querySelector<HTMLElement>('#history-panel')!;
+      const historyBackdrop = document.querySelector<HTMLElement>('#history-backdrop')!;
+      const btnHistory = document.querySelector<HTMLButtonElement>('#btn-history')!;
+
+      // Desktop default: sidepanel open, history closed
+      expect(sidepanel.hidden).toBe(false);
+      expect(historyPanel.hidden).toBe(true);
+      expect(appShell.dataset.sidepanel).toBe('open');
+      expect(appShell.dataset.history).toBe('closed');
+
+      // Open history on wide screen -> both panels are simultaneously open without backdrops
+      btnHistory.click();
+      expect(sidepanel.hidden).toBe(false);
+      expect(historyPanel.hidden).toBe(false);
+      expect(sidepanelBackdrop.hidden).toBe(true);
+      expect(historyBackdrop.hidden).toBe(true);
+
+      // Shrink viewport below single-drawer breakpoint -> history auto-closes & sidepanel backdrop shows
+      Object.defineProperty(window, 'innerWidth', {
+        value: 800,
+        configurable: true,
+      });
+      window.dispatchEvent(new Event('resize'));
+      expect(sidepanel.hidden).toBe(false);
+      expect(historyPanel.hidden).toBe(true);
+      expect(appShell.dataset.sidepanel).toBe('open');
+      expect(appShell.dataset.history).toBe('closed');
+      expect(sidepanelBackdrop.hidden).toBe(false);
+      expect(historyBackdrop.hidden).toBe(true);
+
+      app.dispose();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', {
+        value: originalInnerWidth,
+        configurable: true,
+      });
+    }
   });
 });

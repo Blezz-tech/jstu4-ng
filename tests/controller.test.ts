@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createI18n, type I18n, type Lang } from '../src/i18n';
-import { StepSound } from '../src/ui/audio';
+import { AUDIO_IDLE_SUSPEND_MS, createStepSound } from '../src/ui/audio';
 import {
-  AppController,
+  createAppController,
+  type AppController,
   type AppElements,
   type RunControlState,
   type UIMode,
@@ -37,19 +38,17 @@ function makeController(
     i18n?: I18n;
     maxHistory?: number;
     onModeChange?: (mode: UIMode) => void;
-    onRunningChange?: (isRunning: boolean) => void;
     onRunStateChange?: (state: RunControlState) => void;
     onProgramChange?: (text: string) => void;
     onTu4Converted?: (converted: string) => void;
     onStepSound?: () => void;
   } = {},
 ): AppController {
-  return new AppController({
+  return createAppController({
     i18n: overrides.i18n ?? createI18n(overrides.lang ?? 'ru'),
     elements,
     ...(overrides.maxHistory !== undefined ? { maxHistory: overrides.maxHistory } : {}),
     onModeChange: overrides.onModeChange ?? (() => undefined),
-    ...(overrides.onRunningChange ? { onRunningChange: overrides.onRunningChange } : {}),
     ...(overrides.onRunStateChange ? { onRunStateChange: overrides.onRunStateChange } : {}),
     onProgramChange: overrides.onProgramChange ?? (() => undefined),
     onTapeChange: () => undefined,
@@ -464,7 +463,7 @@ describe('AppController', () => {
     const el = setupDom();
     const savedPrograms: string[] = [];
     const savedTapes: string[] = [];
-    const controller = new AppController({
+    const controller = createAppController({
       i18n: createI18n('en'),
       elements: el,
       onModeChange: () => undefined,
@@ -516,12 +515,12 @@ describe('AppController', () => {
     expect(el.programInput.scrollTop).toBe(120);
   });
 
-  it('reports isAutoRunning === false when onRunningChange(false) fires on auto-run halt', () => {
+  it('reports isAutoRunning === false when onRunStateChange fires with isRunning === false on halt', () => {
     const el = setupDom();
     const seenAutoDuringHalt: boolean[] = [];
     const controller = makeController(el, {
-      onRunningChange: (isRunning) => {
-        if (!isRunning) seenAutoDuringHalt.push(controller.isAutoRunning);
+      onRunStateChange: ({ isRunning, isAutoRunning }) => {
+        if (!isRunning) seenAutoDuringHalt.push(isAutoRunning);
       },
     });
     el.programInput.value = '0, ,>,1\n1, ,#,1';
@@ -546,7 +545,7 @@ describe('AppController', () => {
     }
     vi.stubGlobal('AudioContext', BrokenAudioContext);
     try {
-      const sound = new StepSound(true);
+      const sound = createStepSound(true);
       expect(() => sound.tick()).not.toThrow();
     } finally {
       vi.stubGlobal('AudioContext', original);
@@ -751,5 +750,183 @@ describe('AppController', () => {
     controller.restart();
     expect(controller.canStepBack).toBe(false);
     expect(el.stats.textContent).toContain('Выполнено операций: 0');
+  });
+
+  it('reuses #stats DOM rows incrementally across steps and locale switches', () => {
+    const el = setupDom();
+    const i18n = createI18n('ru');
+    const controller = createAppController({
+      i18n,
+      elements: el,
+      onModeChange: () => undefined,
+      onProgramChange: () => undefined,
+      onTapeChange: () => undefined,
+    });
+    el.programInput.value = '0, ,>,1\n1, ,a,2\n2,a,#,2';
+    el.tapeInput.value = '0';
+
+    controller.start();
+    const initialRows = Array.from(el.stats.querySelectorAll('.stat-row'));
+    expect(initialRows).toHaveLength(4);
+    expect(el.stats.textContent).toContain('Выполнено операций: 0');
+
+    controller.step();
+    controller.step();
+    const rowsAfterSteps = Array.from(el.stats.querySelectorAll('.stat-row'));
+    expect(rowsAfterSteps).toEqual(initialRows);
+    expect(el.stats.textContent).toContain('Выполнено операций: 2');
+
+    // Locale switch updates labels in place without replacing `.stat-row` nodes
+    i18n.setLocale('en');
+    const rowsAfterLocale = Array.from(el.stats.querySelectorAll('.stat-row'));
+    expect(rowsAfterLocale).toEqual(initialRows);
+    expect(el.stats.textContent).toContain('Steps performed: 2');
+
+    controller.dispose();
+  });
+
+  it('clears hidden #display-program and #display-tape DOM nodes when returning to edit mode', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,>,1\n1, ,#,1';
+    el.tapeInput.value = '101';
+
+    controller.start();
+    expect(el.programView.childNodes.length).toBeGreaterThan(0);
+    expect(el.tapeView.childNodes.length).toBeGreaterThan(0);
+
+    controller.backToEdit();
+    expect(el.programView.childNodes).toHaveLength(0);
+    expect(el.tapeView.childNodes).toHaveLength(0);
+
+    // Same cleanup when switching directly via loadDraft() from run mode
+    controller.start();
+    expect(el.programView.childNodes.length).toBeGreaterThan(0);
+    controller.loadDraft('0, ,#,0', '1');
+    expect(el.programView.childNodes).toHaveLength(0);
+    expect(el.tapeView.childNodes).toHaveLength(0);
+  });
+
+  it('virtualizes large program listings (> 400 lines) in run mode and tracks distant jumps and stepBack', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+
+    // 1,000-line program: state 0 jumps straight to state 999, which halts
+    const lines = ['0, ,>,999'];
+    for (let i = 1; i < 999; i += 1) lines.push(`${i}, ,>,${i}`);
+    lines.push('999, ,#,999');
+    el.programInput.value = lines.join('\n');
+    el.tapeInput.value = '';
+
+    controller.start();
+    expect(el.programView.classList.contains('program--virtual')).toBe(true);
+    expect(el.programView.querySelectorAll('.program-line').length).toBeLessThanOrEqual(120);
+    expect(el.programView.querySelector('.cmd.current')?.textContent).toBe('0, ,>,999');
+
+    // Step forward jumps from line 0 to line 999
+    controller.step();
+    expect(el.programView.querySelector('.cmd.current')?.textContent).toBe('999, ,#,999');
+    expect(el.programView.querySelectorAll('.program-line').length).toBeLessThanOrEqual(120);
+
+    // Step back returns to line 0 and clears visited mark on 0
+    controller.stepBack();
+    expect(el.programView.querySelector('.cmd.current')?.textContent).toBe('0, ,>,999');
+    expect(el.programView.querySelectorAll('.cmd.visited')).toHaveLength(0);
+
+    // Returning to edit cleans up virtual class and DOM
+    controller.backToEdit();
+    expect(el.programView.classList.contains('program--virtual')).toBe(false);
+    expect(el.programView.childNodes).toHaveLength(0);
+    controller.dispose();
+  });
+
+  it('StepSound suspends AudioContext when idle, resumes on next tick, and closes on dispose', () => {
+    const suspend = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const resume = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const mockContext = {
+      state: 'running' as AudioContextState,
+      currentTime: 0,
+      destination: {},
+      suspend: () => {
+        mockContext.state = 'suspended';
+        return suspend();
+      },
+      resume: () => {
+        mockContext.state = 'running';
+        return resume();
+      },
+      close,
+      createOscillator: () => ({
+        type: 'triangle',
+        frequency: { setValueAtTime: vi.fn() },
+        connect: () => ({ connect: vi.fn() }),
+        start: vi.fn(),
+        stop: vi.fn(),
+      }),
+      createGain: () => ({
+        gain: { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+        connect: vi.fn(),
+      }),
+    };
+
+    const origAudio = window.AudioContext;
+    Object.defineProperty(window, 'AudioContext', {
+      value: vi.fn(function MockAudioContext() {
+        return mockContext;
+      }),
+      configurable: true,
+    });
+
+    try {
+      const sound = createStepSound(true);
+      sound.tick();
+      expect(suspend).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(AUDIO_IDLE_SUSPEND_MS);
+      expect(suspend).toHaveBeenCalledTimes(1);
+      expect(mockContext.state).toBe('suspended');
+
+      // Next tick resumes the suspended context
+      sound.tick();
+      expect(resume).toHaveBeenCalledTimes(1);
+      expect(mockContext.state).toBe('running');
+
+      // dispose() cancels idle timer and closes the context
+      sound.dispose();
+      expect(close).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(AUDIO_IDLE_SUSPEND_MS * 2);
+      expect(suspend).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(window, 'AudioContext', {
+        value: origAudio,
+        configurable: true,
+      });
+    }
+  });
+
+  it('counts non-BMP tape cells accurately in stats and stops auto-run on compile error via toTu4()', () => {
+    const el = setupDom();
+    const controller = makeController(el);
+    el.programInput.value = '0, ,>,1  1, ,>,0';
+    el.tapeInput.value = '🚀a';
+    controller.start();
+
+    // '🚀a' has 2 initial tape cells (not 3 UTF-16 code units)
+    const values = Array.from(el.stats.querySelectorAll('.stat-row__value')).map(
+      (n) => n.textContent,
+    );
+    expect(values[1]).toBe('2');
+
+    // Start auto-run, corrupt source, and trigger toTu4() -> auto-run must halt cleanly on error mode
+    controller.toggleAutoRun();
+    expect(controller.isAutoRunning).toBe(true);
+    el.programInput.value = 'BROKEN';
+    expect(controller.toTu4()).toBeNull();
+    expect(controller.currentMode).toBe('error');
+    expect(controller.isAutoRunning).toBe(false);
+    expect(el.tapeView.childNodes).toHaveLength(0);
+
+    controller.dispose();
   });
 });

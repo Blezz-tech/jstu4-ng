@@ -60,12 +60,6 @@ export interface MessageParamsMap {
   readonly 'error.targetStateDoesNotExist': { readonly w: string };
   readonly 'error.initialStateDoesNotExist': { readonly q: string };
   readonly 'error.noSuchCommand': { readonly q: string; readonly a: string };
-  readonly 'stats.summary': {
-    readonly commandsCount: number;
-    readonly initialDataLength: number;
-    readonly maxDataLength: number;
-    readonly operationsCount: number;
-  };
   readonly 'settings.languageAria': { readonly language: string };
   readonly 'log.snapshotRestored': { readonly name: string };
   readonly 'history.linesCount': { readonly count: number };

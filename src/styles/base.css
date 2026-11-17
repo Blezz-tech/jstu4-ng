@@ -10,6 +10,10 @@
   margin: 0;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -21,6 +25,7 @@ html {
 }
 
 body {
+  height: 100dvh;
   font-family: var(--font-ui);
   font-size: 15px;
   line-height: 1.45;
@@ -43,8 +48,10 @@ button {
   border: none;
 }
 
+/* Transparent outline stays invisible normally and becomes visible in forced-colors mode. */
 :focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
   box-shadow: var(--ring);
 }
 
@@ -69,17 +76,17 @@ button {
 .skip-link {
   position: absolute;
   left: 8px;
-  top: -48px;
+  top: 8px;
   z-index: 100;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   background: var(--accent);
   color: var(--accent-text);
   text-decoration: none;
-  transition: top 0.15s ease;
+  transform: translateY(-200%);
+  transition: transform var(--dur-base) ease;
 }
 
 .skip-link:focus-visible {
-  top: 8px;
-  box-shadow: var(--ring);
+  transform: translateY(0);
 }

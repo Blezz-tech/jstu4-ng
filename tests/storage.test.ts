@@ -4,6 +4,8 @@ import {
   DEFAULT_SETTINGS,
   loadSettings,
   loadState,
+  parseLegacySettings,
+  parseSettings,
   saveProgram,
   saveSettings,
   saveTape,
@@ -177,5 +179,47 @@ describe('storage', () => {
       }),
     ).not.toThrow();
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it('falls back cleanly when jstu4:settings stores a JSON array instead of an object', () => {
+    window.localStorage.setItem('jstu4:settings', '[]');
+    expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it('parseSettings and parseLegacySettings validate and sanitize data purely', () => {
+    expect(parseSettings(null)).toBeNull();
+    expect(parseSettings([])).toBeNull();
+    expect(parseSettings('dark')).toBeNull();
+
+    expect(
+      parseSettings({
+        lang: 'en',
+        theme: 'dark',
+        sound: true,
+        minSpeed: -9999,
+        maxSpeed: 9999,
+        speed: 5000,
+        namedOnly: true,
+        sidepanelOpen: 'yes',
+      }),
+    ).toEqual({
+      lang: 'en',
+      theme: 'dark',
+      sound: true,
+      minSpeed: -1000,
+      maxSpeed: 1000,
+      speed: 1000,
+      namedOnly: true,
+    });
+
+    expect(parseLegacySettings({ lang: 'ru', theme: 'light', sound: '1' })).toEqual({
+      ...DEFAULT_SETTINGS,
+      lang: 'ru',
+      theme: 'light',
+      sound: true,
+    });
+    expect(parseLegacySettings({ lang: 'de', theme: 'sepia', sound: '0' })).toEqual(
+      DEFAULT_SETTINGS,
+    );
   });
 });

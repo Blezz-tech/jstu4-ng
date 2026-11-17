@@ -8,53 +8,60 @@
 | Метрика             | v2.3                                            | v3.0                                                                                               |
 | ------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Рантайм-зависимости | jQuery 1.6.4, HotMilk/Milk, `jquery-plugins.js` | **0**                                                                                              |
-| JS в поставке       | ~280 КБ несжатых, из них 238 КБ — jQuery        | **55.7 КБ** (17.1 КБ gzip)                                                                         |
+| Бандл в поставке    | ~280 КБ JS (из них 238 КБ — jQuery)             | **105.7 КБ JS** (30.3 КБ gzip) + **28.7 КБ CSS** (6.2 КБ gzip)                                     |
 | Языки               | ES3-стиль, глобальные `i18n`, `TM`              | TypeScript strict, ES-модули, `noUncheckedIndexedAccess`                                           |
 | Типизация           | нет                                             | 100% кода, `tsc --noEmit` в скриптах `build:*`                                                     |
-| Тесты               | нет                                             | **100 юнит/DOM (Vitest) + 29 сквозных (Playwright)**                                               |
+| Тесты               | нет                                             | **159 юнит/DOM в 17 наборах (Vitest) + 31 сквозной (Playwright)**                                  |
 | Линт/формат         | нет                                             | ESLint 10 (typescript-eslint, type-checked) + Prettier                                             |
 | Сборка              | ручное подключение `<script>`                   | Vite 7: `build:prod` (оптимизации, без `.js.map`) и `build:dev` (с `.js.map`), работа по `file://` |
 | Доступность         | кнопки-ссылки без семантики                     | `<button>`, `<dialog>`, aria-live, `:focus-visible`, skip-link                                     |
 | Темы                | нет                                             | светлая/тёмная/системная, `color-scheme`, `prefers-reduced-motion`                                 |
-| Адаптив             | фикс. `max-width: 800px`                        | flex/grid, `clamp()`, мобильный layout                                                             |
-| Сохранение          | нет                                             | `localStorage`: программа, лента, язык, тема, звук                                                 |
+| Адаптив             | фикс. `max-width: 800px`                        | flex/grid, `clamp()`, сворачиваемые боковые панели, мобильный layout                               |
+| Сохранение          | нет                                             | `localStorage`: программа, лента, история версий, язык, тема, звук, пределы скорости               |
 
 ## Сопоставление файлов
 
-| Оригинал                                                 | Куда переехало                                                          |
-| -------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `tu4.js` (TM, TMRun, TM.Command, TM.compile)             | `src/core/{machine,parser,program,run,tu4,errors}.ts`                   |
-| `i18n.js`                                                | `src/i18n/{locales/*.json,format,dom,types,index}.ts`                   |
-| `ui.js`                                                  | `src/ui/controller.ts` + `src/ui/render.ts` + `src/main.ts`             |
-| `hotmilk.browser.jquery.js` (Milk-шаблоны)               | JSON-каталоги + ICU-форматтер (`Intl.NumberFormat`, `Intl.PluralRules`) |
-| `jquery-plugins.js` (placeholder, scrollTo, selectRange) | платформенные API: `placeholder`, `scrollIntoView`, `setSelectionRange` |
-| `jquery-1.6.4.js`                                        | — (не нужен)                                                            |
-| `jstu4.html`, `jstu4.css`                                | `public/index.html`, `src/styles/main.css`                              |
-| `help-ru.html`, `help-en.html`, `help.css`               | `<dialog id="help-dialog">` + `i18n.help`                               |
-| `jstu4-{ru,en}.html`                                     | кнопка смены языка в меню настроек + `?lang=ru` / `?lang=en`            |
+| Оригинал                                                 | Куда переехало                                                                                                      |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `tu4.js` (TM, TMRun, TM.Command, TM.compile)             | `src/core/{errors,machine,parser,program,run,tu4,version}.ts`                                                       |
+| `i18n.js`                                                | `src/i18n/{locales/*.json,format,dom,types,index}.ts`                                                               |
+| `ui.js`                                                  | `src/app.ts` + `src/ui/{controller,render,history,notifications,clipboard,…}.ts` + `src/ui/shell/*` + `src/main.ts` |
+| `hotmilk.browser.jquery.js` (Milk-шаблоны)               | JSON-каталоги + ICU-форматтер (`Intl.NumberFormat`, `Intl.PluralRules`)                                             |
+| `jquery-plugins.js` (placeholder, scrollTo, selectRange) | платформенные API: `placeholder`, `scrollIntoView`, `setSelectionRange`                                             |
+| `jquery-1.6.4.js`                                        | — (не нужен)                                                                                                        |
+| `jstu4.html`, `jstu4.css`                                | `public/index.html`, `src/styles/main.css` + 11 CSS-модулей в `src/styles/`                                         |
+| `help-ru.html`, `help-en.html`, `help.css`               | `<dialog id="help-dialog">` + `i18n.help`                                                                           |
+| `jstu4-{ru,en}.html`                                     | кнопка смены языка в меню настроек + `?lang=ru` / `?lang=en`                                                        |
 
 ## Ключевые решения
 
 1. **Ядро — чистые модули без DOM.** `MachineRun` хранит ленту в массиве
-   односимвольных ячеек, состояние и позицию; шаг — единственная мутация.
-   Поэтому машину можно тестировать в Node без jsdom, а UI вызывает `step()` и
-   рендерит состояние.
+   односимвольных ячеек, состояние, позицию и кольцевой буфер истории шагов
+   (до 100 000 шагов с `O(1)` записью и откатом без неограниченного роста
+   памяти). Машина тестируется в Node без jsdom, а UI вызывает `step()` /
+   `stepBack()` и обновляет отображение.
 
 2. **Совместимость важнее «идеальной» семантики.** `01` ≡ `1`, комментарии
    `#`/`//`, ограничение ленты слева, начальное состояние `0` при запуске,
    «ненормальность» (включая проверку пробела-разделителя после исходных данных)
    и десятично-шестнадцатеричный экспорт TU4 (`00`–`98` / `00`–`ff`) перенесены
-   один в один и закреплены тестами.
+   один в один и закреплены юнит-тестами.
 
 3. **Без `innerHTML` на пользовательских данных.** В оригинале программа и
    лента собирались склейкой строк с ручным `&lt;`/`&gt;`. Теперь — узлы
    `createElement` + `textContent`; ручное экранирование HTML больше не нужно.
 
-4. **Реактивность без фреймворка.** Статический каркас в `index.html`, всё
-   состояние — в `AppController`, DOM-обновления точечные: у выполненной
-   команды меняется класс `current`/`visited`, у ленты перерисовывается
-   только строка ячеек. Язык переключается на лету без пересоздания контроллера
-   и потери активного прогона.
+4. **Реактивность без фреймворка и аккуратный жизненный цикл.** Статический
+   каркас в `public/index.html`, композиция в `src/app.ts` (`mountApp()` с
+   полным `dispose()`), модули оболочки в `src/ui/shell/*`, состояние прогона в
+   `AppController`. Оба ключевых представления работают в двух режимах:
+   `TapeRenderer` до 500 ячеек обновляет узлы инкрементально за `O(k)`, а свыше
+   500 ячеек переходит в оконную виртуализацию с фиксированным пулом DOM-узлов;
+   `ProgramRenderer` до 400 строк и 800 команд держит прямой DOM с `O(1)`
+   переключением `.current`/`.visited`/`.error`, а на больших программах
+   переходит в построчную виртуализацию со скользящим окном (~80 строк в DOM
+   вместо десятков тысяч) и `ResizeObserver`. Язык переключается на лету без
+   пересоздания контроллера и потери активного прогона.
 
 5. **Ядро ошибок на классах `Error`.** `instanceof` работает нативно, без
    трюков с `prototype = new Error()`; у каждой ошибки есть типизированные
@@ -64,9 +71,15 @@
    чистых декларативных JSON-каталогах (`src/i18n/locales/{ru,en}.json`), а не в
    TS-функциях; интерполяция, числа и множественные формы работают через
    ICU-подмножество на нативных `Intl.NumberFormat`, `Intl.PluralRules` и
-   `Intl.Locale`. В разметке используются декларативные `data-i18n` /
-   `data-i18n-attr` и реактивный стор `I18n`, а юнит-тесты проверяют паритет
-   ключей, плейсхолдеров и всех ссылок из `public/index.html`.
+   `Intl.Locale` с кэшированием форматтеров. В разметке используются
+   декларативные `data-i18n` / `data-i18n-attr` и реактивный стор `I18n`, а
+   юнит-тесты проверяют паритет ключей, плейсхолдеров и всех ссылок из
+   `public/index.html`.
+
+7. **Встроенный контроль версий.** Локальная панель истории в `localStorage`
+   поддерживает ручные снимки (`Ctrl+S` / `Cmd+S`), автосохранения при правках и
+   запуске, переименование, восстановление и удаление версий (с настраиваемым
+   подтверждением и корректной обработкой переполнения квоты хранилища).
 
 ## Исправленные дефекты оригинала
 
@@ -87,9 +100,9 @@
 
 ```bash
 npm install
-npm run check      # lint + prettier + 100 юнит/DOM-тестов + production-сборка
+npm run check      # lint + prettier + 159 юнит/DOM-тестов + production-сборка
 npm run build:dev  # development-сборка с .js.map
 npm run build:prod # production-сборка без .js.map
-npm run test:e2e   # 29 сценариев Playwright в Chromium
+npm run test:e2e   # 31 сценарий Playwright в Chromium
 npm run dev        # живой предпросмотр
 ```

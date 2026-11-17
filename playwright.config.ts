@@ -9,7 +9,7 @@ export default defineConfig({
   // Visual snapshots are opt-in: `npm run shots`.
   ...(process.env.SHOTS ? {} : { testIgnore: ['**/visual.spec.ts'] }),
   fullyParallel: true,
-  reporter: [['list']],
+  reporter: process.env.CI ? [['github'], ['list']] : [['list']],
   use: {
     baseURL: 'http://localhost:4173',
     trace: 'retain-on-failure',

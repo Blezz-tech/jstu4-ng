@@ -21,6 +21,17 @@ function getNumberFormat(bcp47: string): Intl.NumberFormat {
   return formatter;
 }
 
+/** Format a number using the cached `Intl.NumberFormat` when no custom options are passed. */
+export function formatNumber(
+  value: number,
+  bcp47: string,
+  options?: Intl.NumberFormatOptions,
+): string {
+  return (
+    options === undefined ? getNumberFormat(bcp47) : new Intl.NumberFormat(bcp47, options)
+  ).format(value);
+}
+
 function getPluralRules(bcp47: string): Intl.PluralRules {
   let rules = pluralRulesCache.get(bcp47);
   if (rules === undefined) {
@@ -109,6 +120,11 @@ export function formatMessage(
   params?: FormatParams,
   pluralHashReplacement?: string,
 ): string {
+  // Fast path: static strings without ICU placeholders need no character scan.
+  if (pluralHashReplacement === undefined && (params === undefined || !template.includes('{'))) {
+    return template;
+  }
+
   let out = '';
   let i = 0;
 

@@ -35,6 +35,12 @@ export interface AppSettings {
   readonly confirmSnapshotDelete?: boolean;
 }
 
+export interface LegacyRawSettings {
+  readonly lang: string | null;
+  readonly theme: string | null;
+  readonly sound: string | null;
+}
+
 export interface SavedState {
   readonly program: string | null;
   readonly tape: string | null;
@@ -50,14 +56,64 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxSpeed: DEFAULT_MAX_SPEED,
 };
 
+const OPTIONAL_BOOL_KEYS = [
+  'sidepanelOpen',
+  'historyOpen',
+  'namedOnly',
+  'confirmSnapshotDelete',
+] as const;
+
 function isTheme(value: unknown): value is Theme {
   return value === 'auto' || value === 'light' || value === 'dark';
 }
 
 /**
+ * Validate and sanitize a parsed JSON value into normalized {@link AppSettings}.
+ * Returns `null` when the input is not a plain object (e.g. `null`, array, primitive).
+ */
+export function parseSettings(raw: unknown): AppSettings | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const minSpeed =
+    typeof rec['minSpeed'] === 'number'
+      ? clampMinSpeed(rec['minSpeed'])
+      : DEFAULT_SETTINGS.minSpeed;
+  const maxSpeed =
+    typeof rec['maxSpeed'] === 'number'
+      ? clampMaxSpeed(rec['maxSpeed'])
+      : DEFAULT_SETTINGS.maxSpeed;
+  const speed = clampSpeed(
+    typeof rec['speed'] === 'number' ? rec['speed'] : DEFAULT_SETTINGS.speed,
+    minSpeed,
+    maxSpeed,
+  );
+  const result: Record<string, unknown> = {
+    lang: typeof rec['lang'] === 'string' && isLang(rec['lang']) ? rec['lang'] : null,
+    theme: isTheme(rec['theme']) ? rec['theme'] : DEFAULT_SETTINGS.theme,
+    sound: typeof rec['sound'] === 'boolean' ? rec['sound'] : DEFAULT_SETTINGS.sound,
+    speed,
+    minSpeed,
+    maxSpeed,
+  };
+  for (const key of OPTIONAL_BOOL_KEYS) {
+    if (typeof rec[key] === 'boolean') result[key] = rec[key];
+  }
+  return result as unknown as AppSettings;
+}
+
+/** Normalize legacy per-key localStorage preference strings into {@link AppSettings}. */
+export function parseLegacySettings(raw: LegacyRawSettings): AppSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    lang: isLang(raw.lang) ? raw.lang : DEFAULT_SETTINGS.lang,
+    theme: isTheme(raw.theme) ? raw.theme : DEFAULT_SETTINGS.theme,
+    sound: raw.sound === '1',
+  };
+}
+
+/**
  * `localStorage` wrapper that never throws: private mode, disabled storage and
- * quota errors all degrade to an in-memory no-op (the app keeps working, it
- * just does not remember anything).
+ * quota errors all degrade to an in-memory no-op.
  */
 function read(key: string): string | null {
   try {
@@ -80,60 +136,18 @@ export function loadSettings(): AppSettings {
   const raw = read(KEYS.settings);
   if (raw !== null) {
     try {
-      const parsed: unknown = JSON.parse(raw);
-      if (typeof parsed === 'object' && parsed !== null) {
-        const record = parsed as Record<string, unknown>;
-        const minSpeed =
-          typeof record['minSpeed'] === 'number'
-            ? clampMinSpeed(record['minSpeed'])
-            : DEFAULT_SETTINGS.minSpeed;
-        const maxSpeed =
-          typeof record['maxSpeed'] === 'number'
-            ? clampMaxSpeed(record['maxSpeed'])
-            : DEFAULT_SETTINGS.maxSpeed;
-        const speed =
-          typeof record['speed'] === 'number'
-            ? clampSpeed(record['speed'], minSpeed, maxSpeed)
-            : clampSpeed(DEFAULT_SETTINGS.speed, minSpeed, maxSpeed);
-        const sidepanelOpen =
-          typeof record['sidepanelOpen'] === 'boolean' ? record['sidepanelOpen'] : undefined;
-        const historyOpen =
-          typeof record['historyOpen'] === 'boolean' ? record['historyOpen'] : undefined;
-        const namedOnly =
-          typeof record['namedOnly'] === 'boolean' ? record['namedOnly'] : undefined;
-        const confirmSnapshotDelete =
-          typeof record['confirmSnapshotDelete'] === 'boolean'
-            ? record['confirmSnapshotDelete']
-            : undefined;
-        return {
-          lang:
-            typeof record['lang'] === 'string' && isLang(record['lang']) ? record['lang'] : null,
-          theme: isTheme(record['theme']) ? record['theme'] : DEFAULT_SETTINGS.theme,
-          sound: typeof record['sound'] === 'boolean' ? record['sound'] : DEFAULT_SETTINGS.sound,
-          speed,
-          minSpeed,
-          maxSpeed,
-          ...(sidepanelOpen !== undefined ? { sidepanelOpen } : {}),
-          ...(historyOpen !== undefined ? { historyOpen } : {}),
-          ...(namedOnly !== undefined ? { namedOnly } : {}),
-          ...(confirmSnapshotDelete !== undefined ? { confirmSnapshotDelete } : {}),
-        };
-      }
+      const parsed = parseSettings(JSON.parse(raw));
+      if (parsed !== null) return parsed;
     } catch {
       /* corrupted JSON — fall through to legacy keys / defaults */
     }
   }
 
-  const legacyLang = read(KEYS.legacyLang);
-  const legacyTheme = read(KEYS.legacyTheme);
-  return {
-    lang: isLang(legacyLang) ? legacyLang : DEFAULT_SETTINGS.lang,
-    theme: isTheme(legacyTheme) ? legacyTheme : DEFAULT_SETTINGS.theme,
-    sound: read(KEYS.legacySound) === '1',
-    speed: DEFAULT_SETTINGS.speed,
-    minSpeed: DEFAULT_SETTINGS.minSpeed,
-    maxSpeed: DEFAULT_SETTINGS.maxSpeed,
-  };
+  return parseLegacySettings({
+    lang: read(KEYS.legacyLang),
+    theme: read(KEYS.legacyTheme),
+    sound: read(KEYS.legacySound),
+  });
 }
 
 export function saveSettings(settings: AppSettings): void {

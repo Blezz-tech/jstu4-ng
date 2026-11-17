@@ -10,7 +10,7 @@ import type { PlainMessageKey } from './types';
  *   semicolon-separated `attribute:key` pairs.
  * - Also keeps `<html lang dir>` and `document.title` synchronized.
  */
-export function applyDomI18n(root: Document | Element, i18n: I18n): void {
+function applyDomI18n(root: Document | Element, i18n: I18n): void {
   if (root instanceof Document) {
     root.documentElement.lang = i18n.locale;
     root.documentElement.dir = i18n.meta.dir;

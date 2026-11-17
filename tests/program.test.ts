@@ -1,14 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import {
-  AmbiguousCommandError,
-  EmptyProgramError,
-  NonexistentInitialStateError,
-  NonexistentTargetStateError,
-} from '../src/core/errors';
+import { lookupTransitionIndex } from '../src/core/bytecode';
+import type { Command, StateId } from '../src/core/machine';
 import { parseProgram } from '../src/core/parser';
-import { createProgram, findTransition } from '../src/core/program';
+import { createProgram, type Program } from '../src/core/program';
+import { expectErr, expectOk } from './helpers/result';
 
-const compile = (text: string, q0?: number | string) => createProgram(parseProgram(text), q0);
+const tryCompile = (text: string, q0?: number | string) =>
+  createProgram(expectOk(parseProgram(text)), q0);
+
+const compile = (text: string, q0?: number | string) => expectOk(tryCompile(text, q0));
+
+function findTransition(program: Program, state: StateId, symbol: string): Command | undefined {
+  const bc = program.bytecode;
+  const stateIdx = bc.idToState.indexOf(state);
+  const symId = bc.symToId.get(symbol);
+  if (stateIdx < 0 || symId === undefined) return undefined;
+  const idx = lookupTransitionIndex(bc, stateIdx, symId);
+  return idx >= 0 ? program.commands[idx] : undefined;
+}
 
 describe('createProgram', () => {
   it('uses the state of the first command as the initial state by default', () => {
@@ -21,25 +30,40 @@ describe('createProgram', () => {
 
   it('treats 01 and 1 as the same state', () => {
     const program = compile('01,0,>,1  1,1,<,1');
-    // Both commands belong to state "1", so a single map entry per symbol.
+    // Both commands belong to state "1", so one state entry with two symbols.
     expect(program.commands[0]?.q).toBe(1);
-    expect(program.transitions.size).toBe(2);
+    expect(program.bytecode.stateCount).toBe(1);
+    expect(program.bytecode.commandCount).toBe(2);
+    expect(findTransition(program, 1, '0')?.v).toBe('>');
+    expect(findTransition(program, 1, '1')?.v).toBe('<');
   });
 
   it('rejects an empty program', () => {
-    expect(() => compile('  # only a comment\n')).toThrow(EmptyProgramError);
+    expect(expectErr(tryCompile('  # only a comment\n'))).toEqual({ kind: 'emptyProgram' });
   });
 
   it('rejects ambiguous transitions', () => {
-    expect(() => compile('0,1,>,1  0,1,<,1  1,0,>,1')).toThrow(AmbiguousCommandError);
+    const error = expectErr(tryCompile('0,1,>,1  0,1,<,1  1,0,>,1'));
+    expect(error.kind).toBe('ambiguousCommand');
+    if (error.kind === 'ambiguousCommand') {
+      expect(error.original.v).toBe('>');
+      expect(error.command.v).toBe('<');
+    }
   });
 
   it('rejects a nonexistent initial state', () => {
-    expect(() => compile('0,1,>,1  1,0,>,1', 7)).toThrow(NonexistentInitialStateError);
+    expect(expectErr(tryCompile('0,1,>,1  1,0,>,1', 7))).toEqual({
+      kind: 'nonexistentInitialState',
+      state: 7,
+    });
   });
 
   it('rejects nonexistent target states', () => {
-    expect(() => compile('0,1,>,nope')).toThrow(NonexistentTargetStateError);
+    const error = expectErr(tryCompile('0,1,>,nope'));
+    expect(error.kind).toBe('nonexistentTargetState');
+    if (error.kind === 'nonexistentTargetState') {
+      expect(error.command.w).toBe('nope');
+    }
   });
 
   it('indexes transitions by state and symbol without key collisions', () => {
@@ -50,7 +74,6 @@ describe('createProgram', () => {
   });
 
   it('does not confuse named states with numeric ones', () => {
-    // Numeric states are keyed "#0", named ones "$a" — no collision.
     const program = compile('0,0,>,0  a,0,>,a');
     expect(findTransition(program, 'a', '0')?.q).toBe('a');
     expect(findTransition(program, 1, '0')).toBeUndefined();

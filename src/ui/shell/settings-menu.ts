@@ -31,6 +31,32 @@ export interface SettingsMenuOptions {
   readonly signal: AbortSignal;
 }
 
+export interface SettingsMenu {
+  readonly isOpen: boolean;
+  close(restoreFocus?: boolean): void;
+  syncSoundControl(): void;
+  syncLangAria(): void;
+  syncConfirmDeleteControl(): void;
+  syncSpeedControls(): void;
+}
+
+type SpeedBoundKind = 'min' | 'max';
+
+const SPEED_BOUND_LIMITS = {
+  min: {
+    min: MIN_MIN_SPEED,
+    max: MAX_MIN_SPEED,
+    fallback: DEFAULT_MIN_SPEED,
+    clamp: clampMinSpeed,
+  },
+  max: {
+    min: MIN_MAX_SPEED,
+    max: MAX_MAX_SPEED,
+    fallback: DEFAULT_MAX_SPEED,
+    clamp: clampMaxSpeed,
+  },
+} as const;
+
 function bindStepperButton(
   button: HTMLButtonElement,
   onStep: () => void,
@@ -41,14 +67,9 @@ function bindStepperButton(
   let didRepeat = false;
 
   const stop = (): void => {
-    if (delayId !== null) {
-      window.clearTimeout(delayId);
-      delayId = null;
-    }
-    if (repeatId !== null) {
-      window.clearInterval(repeatId);
-      repeatId = null;
-    }
+    if (delayId !== null) window.clearTimeout(delayId);
+    if (repeatId !== null) window.clearInterval(repeatId);
+    delayId = repeatId = null;
   };
 
   signal.addEventListener('abort', stop, { once: true });
@@ -66,21 +87,17 @@ function bindStepperButton(
         didRepeat = true;
         onStep();
         repeatId = window.setInterval(() => {
-          if (button.disabled) {
-            stop();
-            return;
-          }
-          onStep();
+          if (button.disabled) stop();
+          else onStep();
         }, 65);
       }, 380);
     },
     signal,
   );
 
-  listen(button, 'pointerup', stop, signal);
-  listen(button, 'pointercancel', stop, signal);
-  listen(button, 'pointerleave', stop, signal);
-  listen(button, 'blur', stop, signal);
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave', 'blur'] as const) {
+    listen(button, type, stop, signal);
+  }
 
   listen(
     button,
@@ -101,268 +118,193 @@ function bindStepperButton(
  * Controls the top-right settings popover: language toggle, theme selector,
  * sound toggle, delete confirmation switch, and min/max speed bounds.
  */
-export class SettingsMenu {
-  private readonly doc: Document;
-  private readonly dom: AppDom;
-  private readonly i18n: I18n;
-  private readonly controller: AppController;
-  private readonly sound: StepSound;
-  private readonly settings: SettingsStore;
-  private readonly isConfirmDeleteEnabled: () => boolean;
+export function bindSettingsMenu({
+  doc,
+  dom,
+  i18n,
+  controller,
+  sound,
+  settings,
+  theme,
+  onToggleConfirmDelete,
+  isConfirmDeleteEnabled,
+  signal,
+}: SettingsMenuOptions): SettingsMenu {
+  const isOpen = (): boolean => !dom.settingsMenu.hidden;
 
-  constructor(options: SettingsMenuOptions) {
-    this.doc = options.doc;
-    this.dom = options.dom;
-    this.i18n = options.i18n;
-    this.controller = options.controller;
-    this.sound = options.sound;
-    this.settings = options.settings;
-    this.isConfirmDeleteEnabled = options.isConfirmDeleteEnabled;
+  const boundNodes = (kind: SpeedBoundKind) =>
+    kind === 'min'
+      ? { input: dom.minSpeedInput, dec: dom.minSpeedDec, inc: dom.minSpeedInc }
+      : { input: dom.maxSpeedInput, dec: dom.maxSpeedDec, inc: dom.maxSpeedInc };
 
-    const { theme, onToggleConfirmDelete, signal } = options;
+  const syncSoundControl = (): void => {
+    dom.soundButton.setAttribute('aria-checked', String(sound.isEnabled));
+  };
 
-    listen(
-      this.dom.settingsButton,
-      'click',
-      () => {
-        if (this.isOpen) this.close(false);
-        else this.open();
-      },
-      signal,
-    );
-    listen(this.dom.settingsClose, 'click', () => this.close(true), signal);
-    listen(
-      this.doc,
-      'pointerdown',
-      (event) => {
-        if (!this.isOpen) return;
-        const target = event.target;
-        if (target instanceof Node && !this.dom.settingsAnchor.contains(target)) {
-          this.close(false);
-        }
-      },
-      signal,
-    );
-
-    listen(
-      this.dom.langButton,
-      'click',
-      () => {
-        const next = this.i18n.toggleLocale();
-        this.settings.update({ lang: next });
-        const url = new URL(location.href);
-        if (url.searchParams.has('lang')) {
-          url.searchParams.set('lang', next);
-          safeReplaceState(url.pathname + url.search + url.hash);
-        }
-      },
-      signal,
-    );
-
-    for (const button of this.dom.themeButtons) {
-      listen(
-        button,
-        'click',
-        () => {
-          const choice = button.dataset.themeOption;
-          if (choice !== 'auto' && choice !== 'light' && choice !== 'dark') return;
-          const nextTheme: Theme = choice;
-          this.settings.update({ theme: nextTheme });
-          theme.apply();
-        },
-        signal,
-      );
-    }
-
-    listen(
-      this.dom.soundButton,
-      'click',
-      () => {
-        const next = !this.sound.isEnabled;
-        this.sound.setEnabled(next);
-        this.settings.update({ sound: next });
-        this.syncSoundControl();
-        if (next) {
-          this.sound.unlock();
-          this.sound.tick();
-        }
-      },
-      signal,
-    );
-
-    listen(this.dom.confirmDeleteSettingButton, 'click', onToggleConfirmDelete, signal);
-
-    listen(
-      this.dom.minSpeedInput,
-      'input',
-      () => this.applyMinSpeedValue(this.dom.minSpeedInput.value, false),
-      signal,
-    );
-    listen(
-      this.dom.minSpeedInput,
-      'change',
-      () => this.applyMinSpeedValue(this.dom.minSpeedInput.value, true),
-      signal,
-    );
-    listen(
-      this.dom.minSpeedInput,
-      'blur',
-      () => this.applyMinSpeedValue(this.dom.minSpeedInput.value, true),
-      signal,
-    );
-
-    listen(
-      this.dom.maxSpeedInput,
-      'input',
-      () => this.applyMaxSpeedValue(this.dom.maxSpeedInput.value, false),
-      signal,
-    );
-    listen(
-      this.dom.maxSpeedInput,
-      'change',
-      () => this.applyMaxSpeedValue(this.dom.maxSpeedInput.value, true),
-      signal,
-    );
-    listen(
-      this.dom.maxSpeedInput,
-      'blur',
-      () => this.applyMaxSpeedValue(this.dom.maxSpeedInput.value, true),
-      signal,
-    );
-
-    bindStepperButton(this.dom.minSpeedDec, () => this.stepMinSpeed(-1), signal);
-    bindStepperButton(this.dom.minSpeedInc, () => this.stepMinSpeed(1), signal);
-    bindStepperButton(this.dom.maxSpeedDec, () => this.stepMaxSpeed(-1), signal);
-    bindStepperButton(this.dom.maxSpeedInc, () => this.stepMaxSpeed(1), signal);
-  }
-
-  get isOpen(): boolean {
-    return !this.dom.settingsMenu.hidden;
-  }
-
-  open(): void {
-    if (this.isOpen) return;
-    this.dom.settingsMenu.hidden = false;
-    this.dom.settingsButton.setAttribute('aria-expanded', 'true');
-    this.syncSpeedControls();
-  }
-
-  close(restoreFocus = false): void {
-    if (!this.isOpen) return;
-    this.dom.settingsMenu.hidden = true;
-    this.dom.settingsButton.setAttribute('aria-expanded', 'false');
-    if (restoreFocus) this.dom.settingsButton.focus();
-  }
-
-  syncSoundControl(): void {
-    const onState = this.sound.isEnabled;
-    this.dom.soundButton.setAttribute('aria-checked', String(onState));
-    this.dom.soundButton.dataset.on = String(onState);
-  }
-
-  syncLangAria(): void {
-    this.dom.langButton.setAttribute(
+  const syncLangAria = (): void => {
+    dom.langButton.setAttribute(
       'aria-label',
-      this.i18n.t('settings.languageAria', { language: this.i18n.meta.nativeName }),
+      i18n.t('settings.languageAria', { language: i18n.meta.nativeName }),
     );
-  }
+  };
 
-  syncConfirmDeleteControl(): void {
-    this.dom.confirmDeleteSettingButton.setAttribute(
-      'aria-checked',
-      String(this.isConfirmDeleteEnabled()),
-    );
-  }
+  const syncConfirmDeleteControl = (): void => {
+    dom.confirmDeleteSettingButton.setAttribute('aria-checked', String(isConfirmDeleteEnabled()));
+  };
 
-  syncSpeedControls(): void {
-    const minSpeed = this.controller.currentMinSpeed;
-    const maxSpeed = this.controller.currentMaxSpeed;
-    const speed = this.controller.currentSpeed;
+  const syncSpeedControls = (): void => {
+    const minSpeed = controller.currentMinSpeed;
+    const maxSpeed = controller.currentMaxSpeed;
+    const speed = controller.currentSpeed;
     const formatted = formatSpeed(speed);
-    const direction = speed < 0 ? 'reverse' : speed === 0 ? 'stopped' : 'forward';
 
-    this.dom.speedControl.dataset.direction = direction;
-    this.dom.speedControl.style.setProperty('--zero-ratio', String(zeroRatio(minSpeed, maxSpeed)));
+    dom.speedControl.dataset.direction =
+      speed < 0 ? 'reverse' : speed === 0 ? 'stopped' : 'forward';
+    dom.speedControl.style.setProperty('--zero-ratio', String(zeroRatio(minSpeed, maxSpeed)));
 
-    this.dom.speedInput.min = String(minSpeed);
-    this.dom.speedInput.max = String(maxSpeed);
-    this.dom.speedInput.step = String(SPEED_STEP);
-    this.dom.speedInput.value = String(speed);
-    this.dom.speedInput.setAttribute('aria-valuetext', formatted);
-    this.dom.speedValue.textContent = formatted;
+    dom.speedInput.min = String(minSpeed);
+    dom.speedInput.max = String(maxSpeed);
+    dom.speedInput.step = String(SPEED_STEP);
+    dom.speedInput.value = String(speed);
+    dom.speedInput.setAttribute('aria-valuetext', formatted);
+    dom.speedValue.textContent = formatted;
 
-    this.dom.minSpeedInput.min = String(MIN_MIN_SPEED);
-    this.dom.minSpeedInput.max = String(MAX_MIN_SPEED);
-    if (this.doc.activeElement !== this.dom.minSpeedInput) {
-      this.dom.minSpeedInput.value = String(minSpeed);
+    for (const kind of ['min', 'max'] as const) {
+      const { input, dec, inc } = boundNodes(kind);
+      const limits = SPEED_BOUND_LIMITS[kind];
+      const value = kind === 'min' ? minSpeed : maxSpeed;
+      input.min = String(limits.min);
+      input.max = String(limits.max);
+      if (doc.activeElement !== input) input.value = String(value);
+      setButtonDisabled(dec, value <= limits.min);
+      setButtonDisabled(inc, value >= limits.max);
     }
-    setButtonDisabled(this.dom.minSpeedDec, minSpeed <= MIN_MIN_SPEED);
-    setButtonDisabled(this.dom.minSpeedInc, minSpeed >= MAX_MIN_SPEED);
+  };
 
-    this.dom.maxSpeedInput.min = String(MIN_MAX_SPEED);
-    this.dom.maxSpeedInput.max = String(MAX_MAX_SPEED);
-    if (this.doc.activeElement !== this.dom.maxSpeedInput) {
-      this.dom.maxSpeedInput.value = String(maxSpeed);
+  const commitSpeedBound = (kind: SpeedBoundKind, nextBound: number, writeInput: boolean): void => {
+    const { input } = boundNodes(kind);
+    let value: number;
+    if (kind === 'min') {
+      const result = controller.setMinSpeed(nextBound);
+      settings.update({ minSpeed: result.minSpeed, speed: result.speed });
+      value = result.minSpeed;
+    } else {
+      const result = controller.setMaxSpeed(nextBound);
+      settings.update({ maxSpeed: result.maxSpeed, speed: result.speed });
+      value = result.maxSpeed;
     }
-    setButtonDisabled(this.dom.maxSpeedDec, maxSpeed <= MIN_MAX_SPEED);
-    setButtonDisabled(this.dom.maxSpeedInc, maxSpeed >= MAX_MAX_SPEED);
-  }
+    if (writeInput) input.value = String(value);
+    syncSpeedControls();
+  };
 
-  private applyMinSpeedValue(rawValue: string, normalizeInput: boolean): void {
+  const applySpeedBound = (kind: SpeedBoundKind, rawValue: string, normalize: boolean): void => {
+    const limits = SPEED_BOUND_LIMITS[kind];
     const trimmed = rawValue.trim();
     const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || trimmed === '' || trimmed === '-') {
-      if (!normalizeInput) return;
-      const result = this.controller.setMinSpeed(DEFAULT_MIN_SPEED);
-      this.settings.update({ minSpeed: result.minSpeed, speed: result.speed });
-      this.dom.minSpeedInput.value = String(result.minSpeed);
-      this.syncSpeedControls();
+    if (!Number.isFinite(parsed) || trimmed === '' || (kind === 'min' && trimmed === '-')) {
+      if (normalize) commitSpeedBound(kind, limits.fallback, true);
       return;
     }
+    if (!normalize && (parsed < limits.min || parsed > limits.max)) return;
+    commitSpeedBound(kind, limits.clamp(parsed), normalize);
+  };
 
-    if (!normalizeInput && (parsed < MIN_MIN_SPEED || parsed > MAX_MIN_SPEED)) return;
+  const stepSpeedBound = (kind: SpeedBoundKind, delta: number): void => {
+    const current = kind === 'min' ? controller.currentMinSpeed : controller.currentMaxSpeed;
+    commitSpeedBound(kind, SPEED_BOUND_LIMITS[kind].clamp(current + delta), true);
+  };
 
-    const result = this.controller.setMinSpeed(clampMinSpeed(parsed));
-    this.settings.update({ minSpeed: result.minSpeed, speed: result.speed });
-    if (normalizeInput) this.dom.minSpeedInput.value = String(result.minSpeed);
-    this.syncSpeedControls();
-  }
+  const open = (): void => {
+    if (isOpen()) return;
+    dom.settingsMenu.hidden = false;
+    dom.settingsButton.setAttribute('aria-expanded', 'true');
+    syncSpeedControls();
+  };
 
-  private applyMaxSpeedValue(rawValue: string, normalizeInput: boolean): void {
-    const trimmed = rawValue.trim();
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || trimmed === '') {
-      if (!normalizeInput) return;
-      const result = this.controller.setMaxSpeed(DEFAULT_MAX_SPEED);
-      this.settings.update({ maxSpeed: result.maxSpeed, speed: result.speed });
-      this.dom.maxSpeedInput.value = String(result.maxSpeed);
-      this.syncSpeedControls();
-      return;
-    }
+  const close = (restoreFocus = false): void => {
+    if (!isOpen()) return;
+    dom.settingsMenu.hidden = true;
+    dom.settingsButton.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) dom.settingsButton.focus();
+  };
 
-    if (!normalizeInput && (parsed < MIN_MAX_SPEED || parsed > MAX_MAX_SPEED)) return;
+  listen(dom.settingsButton, 'click', () => (isOpen() ? close(false) : open()), signal);
+  listen(dom.settingsClose, 'click', () => close(true), signal);
+  listen(
+    doc,
+    'pointerdown',
+    (event) => {
+      if (isOpen() && event.target instanceof Node && !dom.settingsAnchor.contains(event.target)) {
+        close(false);
+      }
+    },
+    signal,
+  );
 
-    const result = this.controller.setMaxSpeed(clampMaxSpeed(parsed));
-    this.settings.update({ maxSpeed: result.maxSpeed, speed: result.speed });
-    if (normalizeInput) this.dom.maxSpeedInput.value = String(result.maxSpeed);
-    this.syncSpeedControls();
-  }
+  listen(
+    dom.langButton,
+    'click',
+    () => {
+      const next = i18n.toggleLocale();
+      settings.update({ lang: next });
+      const url = new URL(location.href);
+      if (url.searchParams.has('lang')) {
+        url.searchParams.set('lang', next);
+        safeReplaceState(url.pathname + url.search + url.hash);
+      }
+    },
+    signal,
+  );
 
-  private stepMinSpeed(delta: number): void {
-    const result = this.controller.setMinSpeed(
-      clampMinSpeed(this.controller.currentMinSpeed + delta),
+  for (const button of dom.themeButtons) {
+    listen(
+      button,
+      'click',
+      () => {
+        const choice = button.dataset.themeOption;
+        if (choice !== 'auto' && choice !== 'light' && choice !== 'dark') return;
+        settings.update({ theme: choice satisfies Theme });
+        theme.apply();
+      },
+      signal,
     );
-    this.settings.update({ minSpeed: result.minSpeed, speed: result.speed });
-    this.dom.minSpeedInput.value = String(result.minSpeed);
-    this.syncSpeedControls();
   }
 
-  private stepMaxSpeed(delta: number): void {
-    const result = this.controller.setMaxSpeed(
-      clampMaxSpeed(this.controller.currentMaxSpeed + delta),
-    );
-    this.settings.update({ maxSpeed: result.maxSpeed, speed: result.speed });
-    this.dom.maxSpeedInput.value = String(result.maxSpeed);
-    this.syncSpeedControls();
+  listen(
+    dom.soundButton,
+    'click',
+    () => {
+      const next = !sound.isEnabled;
+      sound.setEnabled(next);
+      settings.update({ sound: next });
+      syncSoundControl();
+      if (next) {
+        sound.unlock();
+        sound.tick();
+      }
+    },
+    signal,
+  );
+
+  listen(dom.confirmDeleteSettingButton, 'click', onToggleConfirmDelete, signal);
+
+  for (const kind of ['min', 'max'] as const) {
+    const { input, dec, inc } = boundNodes(kind);
+    listen(input, 'input', () => applySpeedBound(kind, input.value, false), signal);
+    listen(input, 'change', () => applySpeedBound(kind, input.value, true), signal);
+    listen(input, 'blur', () => applySpeedBound(kind, input.value, true), signal);
+    bindStepperButton(dec, () => stepSpeedBound(kind, -1), signal);
+    bindStepperButton(inc, () => stepSpeedBound(kind, 1), signal);
   }
+
+  return {
+    get isOpen(): boolean {
+      return isOpen();
+    },
+    close,
+    syncSoundControl,
+    syncLangAria,
+    syncConfirmDeleteControl,
+    syncSpeedControls,
+  };
 }
