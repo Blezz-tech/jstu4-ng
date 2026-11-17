@@ -79,6 +79,15 @@ describe('i18n catalogs & declarative HTML bindings', () => {
       expect(enLeaves.has(key), `missing HTML key "${key}" in en.json`).toBe(true);
     }
   });
+
+  it('credits Blezz-tech (jstu4-ng) and original jstu4 author in both locales', () => {
+    for (const locale of [ruJson, enJson]) {
+      const about = JSON.stringify(locale.help.sections[0]);
+      expect(about).toContain('Blezz-tech');
+      expect(about).toContain('https://github.com/Blezz-tech/jstu4-ng');
+      expect(about).toContain('https://github.com/lxyd/jstu4');
+    }
+  });
 });
 
 describe('detectLang (BCP-47 via Intl.Locale)', () => {
