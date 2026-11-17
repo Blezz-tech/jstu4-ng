@@ -157,9 +157,14 @@
           {
             "kind": "rich",
             "parts": [
-              "© Алексей Дубинин. Оригинальное приложение на GitHub: ",
+              "jstu4-ng — © Blezz-tech (",
+              {
+                "label": "github.com/Blezz-tech/jstu4-ng",
+                "href": "https://github.com/Blezz-tech/jstu4-ng"
+              },
+              "). Основано на оригинальном приложении jstu4 © Алексей Дубинин (",
               { "label": "github.com/lxyd/jstu4", "href": "https://github.com/lxyd/jstu4" },
-              ". Распространяется по лицензии MIT."
+              "). Распространяется по лицензии MIT."
             ]
           }
         ]
