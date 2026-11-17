@@ -33,6 +33,13 @@ npm run test:e2e   # Playwright: 31 сценарий в реальном Chromiu
 
 Требуется Node.js `^20.19 || ^22.12 || >=24`.
 
+### CI/CD и GitHub Pages
+
+- **`.github/workflows/ci.yml`** — запускается на `push` и `pull_request` в `dev` и `main`:
+  проверяет `lint`, `format:check`, юнит/DOM-тесты, production-сборку (ровно 3 статических файла в `dist/`), `build:dev` и сквозные тесты Playwright в Chromium.
+- **`.github/workflows/deploy-pages.yml`** — собирает и публикует `dist/` (`index.html`, `assets/*.css`, `assets/*.js`) на GitHub Pages при каждом `push` в `main` (а также вручную через `workflow_dispatch`).
+  Для первичной активации в настройках репозитория (**Settings → Pages → Build and deployment → Source**) выберите **GitHub Actions**.
+
 ### NixOS (`shell.nix` + `direnv`)
 
 В корне репозитория есть `shell.nix` (на системном `<nixpkgs>`, удобно на
