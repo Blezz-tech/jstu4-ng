@@ -7,7 +7,7 @@
 [![CI](https://github.com/Blezz-tech/jstu4-ng/actions/workflows/ci.yml/badge.svg)](https://github.com/Blezz-tech/jstu4-ng/actions/workflows/ci.yml)
 [![Deploy to GitHub Pages](https://github.com/Blezz-tech/jstu4-ng/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/Blezz-tech/jstu4-ng/actions/workflows/deploy-pages.yml)
 [![Live Demo](https://img.shields.io/badge/demo-GitHub%20Pages-1f6feb?logo=githubpages&logoColor=white)](https://blezz-tech.github.io/jstu4-ng/)
-[![Version](https://img.shields.io/badge/version-3.0.0-0969da)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.0.1-0969da)](./CHANGELOG.md)
 [![Runtime Dependencies](https://img.shields.io/badge/runtime%20deps-0-2da44e)](./package.json)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-fe5196.svg)](https://www.conventionalcommits.org/en/v1.0.0/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
@@ -268,7 +268,7 @@ CHANGELOG.md, LICENSE, REWRITE.md
 
 ### Версионирование (SemVer) и Conventional Commits
 
-- **Единый источник версии — `package.json`.** При сборке Vite подставляет `package.json#version` в `TM_VERSION` (`src/core/version.ts`), поэтому версия в интерфейсе (`v3.0.0`) всегда совпадает с пакетом. История релизов ведётся в [`CHANGELOG.md`](./CHANGELOG.md) по формату [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/) и [SemVer 2.0.0](https://semver.org/lang/ru/).
+- **Единый источник версии — `package.json`.** При сборке Vite подставляет `package.json#version` в `TM_VERSION` (`src/core/version.ts`), поэтому версия в интерфейсе (`v3.0.1`) всегда совпадает с пакетом. История релизов ведётся в [`CHANGELOG.md`](./CHANGELOG.md) по формату [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/) и [SemVer 2.0.0](https://semver.org/lang/ru/).
 - **Обязательная конвенция коммитов — [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).** Заголовок PR и все коммиты в PR проверяются в CI скриптом `scripts/check-conventional-commits.js` (`npm run lint:commits`):
 
 | Префикс коммита                                                    | Назначение                                       | Влияние на SemVer           |

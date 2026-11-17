@@ -1,6 +1,6 @@
 {
   "name": "jstu4-ng",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "private": true,
   "description": "Interactive Turing machine emulator in 4-tuples (modern vanilla TypeScript rewrite)",
   "type": "module",
